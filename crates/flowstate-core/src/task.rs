@@ -132,13 +132,68 @@ impl fmt::Display for Priority {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalStatus {
+    None,
+    Pending,
+    Approved,
+    Rejected,
+}
+
+impl ApprovalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ApprovalStatus::None => "none",
+            ApprovalStatus::Pending => "pending",
+            ApprovalStatus::Approved => "approved",
+            ApprovalStatus::Rejected => "rejected",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "none" => Some(ApprovalStatus::None),
+            "pending" => Some(ApprovalStatus::Pending),
+            "approved" => Some(ApprovalStatus::Approved),
+            "rejected" => Some(ApprovalStatus::Rejected),
+            _ => None,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ApprovalStatus::None => "None",
+            ApprovalStatus::Pending => "Pending",
+            ApprovalStatus::Approved => "Approved",
+            ApprovalStatus::Rejected => "Rejected",
+        }
+    }
+}
+
+impl Default for ApprovalStatus {
+    fn default() -> Self {
+        ApprovalStatus::None
+    }
+}
+
+impl fmt::Display for ApprovalStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.display_name())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: String,
     pub project_id: String,
     pub sprint_id: Option<String>,
+    pub parent_id: Option<String>,
     pub title: String,
     pub description: String,
+    pub reviewer: String,
+    pub spec_status: ApprovalStatus,
+    pub plan_status: ApprovalStatus,
     pub status: Status,
     pub priority: Priority,
     pub sort_order: f64,
@@ -150,9 +205,14 @@ pub struct Task {
 pub struct CreateTask {
     pub project_id: String,
     pub title: String,
+    #[serde(default)]
     pub description: String,
     pub status: Status,
     pub priority: Priority,
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    #[serde(default)]
+    pub reviewer: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -163,6 +223,10 @@ pub struct UpdateTask {
     pub priority: Option<Priority>,
     pub sprint_id: Option<Option<String>>,
     pub sort_order: Option<f64>,
+    pub parent_id: Option<Option<String>>,
+    pub reviewer: Option<String>,
+    pub spec_status: Option<ApprovalStatus>,
+    pub plan_status: Option<ApprovalStatus>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -171,5 +235,6 @@ pub struct TaskFilter {
     pub status: Option<Status>,
     pub priority: Option<Priority>,
     pub sprint_id: Option<String>,
+    pub parent_id: Option<Option<String>>,
     pub limit: Option<i64>,
 }
