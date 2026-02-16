@@ -2,6 +2,8 @@
 members = [
     "crates/flowstate-core",
     "crates/flowstate-db",
+    "crates/flowstate-service",
+    "crates/flowstate-server",
     "crates/flowstate-verify",
     "crates/flowstate-tui",
     "crates/flowstate-mcp",
@@ -27,3 +29,9 @@ ratatui = "0.29"
 crossterm = "0.28"
 uuid = { version = "1", features = ["v4", "serde"] }
 anyhow = "1"
+axum = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+tower-http = { version = "0.6", features = ["cors"] }
+sha2 = "0.10"
+rand = "0.8"
+clap = { version = "4", features = ["derive"] }

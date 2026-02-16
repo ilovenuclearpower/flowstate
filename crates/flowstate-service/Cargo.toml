@@ -1,0 +1,13 @@
+[package]
+name = "flowstate-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+flowstate-core = { path = "../flowstate-core" }
+flowstate-db = { path = "../flowstate-db" }
+thiserror = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

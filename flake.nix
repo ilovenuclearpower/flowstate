@@ -39,6 +39,12 @@
           meta.mainProgram = "flowstate";
         });
 
+        flowstate-server = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
+          cargoExtraArgs = "-p flowstate-server";
+          meta.mainProgram = "flowstate-server";
+        });
+
         flowstate-mcp = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           cargoExtraArgs = "-p flowstate-mcp";
@@ -49,6 +55,7 @@
         packages = {
           default = flowstate-tui;
           tui = flowstate-tui;
+          server = flowstate-server;
           mcp = flowstate-mcp;
         };
 
