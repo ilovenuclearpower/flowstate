@@ -55,7 +55,7 @@ impl Db {
     }
 
     pub fn open_default() -> Result<Self, DbError> {
-        let dir = dirs_default_data_dir().join("flowstate");
+        let dir = data_dir();
         std::fs::create_dir_all(&dir)?;
         Self::open(&dir.join("flowstate.db"))
     }
@@ -74,6 +74,36 @@ impl Db {
             Ok(())
         })
     }
+}
+
+// -- File path helpers --
+
+pub fn data_dir() -> PathBuf {
+    dirs_default_data_dir().join("flowstate")
+}
+
+pub fn task_dir(task_id: &str) -> PathBuf {
+    data_dir().join("tasks").join(task_id)
+}
+
+pub fn task_spec_path(task_id: &str) -> PathBuf {
+    task_dir(task_id).join("specification.md")
+}
+
+pub fn task_plan_path(task_id: &str) -> PathBuf {
+    task_dir(task_id).join("plan.md")
+}
+
+pub fn task_attachments_dir(task_id: &str) -> PathBuf {
+    task_dir(task_id).join("attachments")
+}
+
+pub fn claude_run_dir(run_id: &str) -> PathBuf {
+    data_dir().join("claude_runs").join(run_id)
+}
+
+pub fn workspace_dir(project_id: &str) -> PathBuf {
+    data_dir().join("workspaces").join(project_id)
 }
 
 fn dirs_default_data_dir() -> PathBuf {

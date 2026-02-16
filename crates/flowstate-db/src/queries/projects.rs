@@ -1,7 +1,7 @@
 use chrono::Utc;
 use rusqlite::{params, Row};
 
-use flowstate_core::project::{CreateProject, Project};
+use flowstate_core::project::{CreateProject, Project, UpdateProject};
 
 use crate::{Db, DbError};
 
@@ -11,6 +11,7 @@ fn row_to_project(row: &Row) -> rusqlite::Result<Project> {
         name: row.get("name")?,
         slug: row.get("slug")?,
         description: row.get("description")?,
+        repo_url: row.get("repo_url")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -22,9 +23,9 @@ impl Db {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
             conn.execute(
-                "INSERT INTO projects (id, name, slug, description, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![id, input.name, input.slug, input.description, now, now],
+                "INSERT INTO projects (id, name, slug, description, repo_url, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![id, input.name, input.slug, input.description, input.repo_url, now, now],
             )?;
             let project = conn.query_row(
                 "SELECT * FROM projects WHERE id = ?1",
@@ -77,6 +78,51 @@ impl Db {
         })
     }
 
+    pub fn update_project(&self, id: &str, update: &UpdateProject) -> Result<Project, DbError> {
+        self.with_conn(|conn| {
+            let mut sets = Vec::new();
+            let mut values: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+            if let Some(ref name) = update.name {
+                sets.push("name = ?");
+                values.push(Box::new(name.clone()));
+            }
+            if let Some(ref description) = update.description {
+                sets.push("description = ?");
+                values.push(Box::new(description.clone()));
+            }
+            if let Some(ref repo_url) = update.repo_url {
+                sets.push("repo_url = ?");
+                values.push(Box::new(repo_url.clone()));
+            }
+
+            if sets.is_empty() {
+                return self.get_project(id);
+            }
+
+            sets.push("updated_at = ?");
+            values.push(Box::new(Utc::now()));
+            values.push(Box::new(id.to_string()));
+
+            let sql = format!(
+                "UPDATE projects SET {} WHERE id = ?",
+                sets.join(", ")
+            );
+            let params: Vec<&dyn rusqlite::ToSql> = values.iter().map(|v| v.as_ref()).collect();
+            let changed = conn.execute(&sql, params.as_slice())?;
+            if changed == 0 {
+                return Err(DbError::NotFound(format!("project {id}")));
+            }
+
+            conn.query_row(
+                "SELECT * FROM projects WHERE id = ?1",
+                params![id],
+                row_to_project,
+            )
+            .map_err(DbError::from)
+        })
+    }
+
     pub fn delete_project(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             let changed = conn.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
@@ -102,11 +148,13 @@ mod tests {
                 name: "Test Project".into(),
                 slug: "test-project".into(),
                 description: "A test project".into(),
+                repo_url: "https://github.com/test/repo".into(),
             })
             .unwrap();
 
         assert_eq!(project.name, "Test Project");
         assert_eq!(project.slug, "test-project");
+        assert_eq!(project.repo_url, "https://github.com/test/repo");
 
         let fetched = db.get_project(&project.id).unwrap();
         assert_eq!(fetched.id, project.id);

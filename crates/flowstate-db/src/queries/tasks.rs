@@ -1,19 +1,27 @@
 use chrono::Utc;
 use rusqlite::{params, Row};
 
-use flowstate_core::task::{CreateTask, Priority, Status, Task, TaskFilter, UpdateTask};
+use flowstate_core::task::{
+    ApprovalStatus, CreateTask, Priority, Status, Task, TaskFilter, UpdateTask,
+};
 
 use crate::{Db, DbError};
 
 fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
     let status_str: String = row.get("status")?;
     let priority_str: String = row.get("priority")?;
+    let spec_status_str: String = row.get("spec_status")?;
+    let plan_status_str: String = row.get("plan_status")?;
     Ok(Task {
         id: row.get("id")?,
         project_id: row.get("project_id")?,
         sprint_id: row.get("sprint_id")?,
+        parent_id: row.get("parent_id")?,
         title: row.get("title")?,
         description: row.get("description")?,
+        reviewer: row.get("reviewer")?,
+        spec_status: ApprovalStatus::from_str(&spec_status_str).unwrap_or(ApprovalStatus::None),
+        plan_status: ApprovalStatus::from_str(&plan_status_str).unwrap_or(ApprovalStatus::None),
         status: Status::from_str(&status_str).unwrap_or(Status::Backlog),
         priority: Priority::from_str(&priority_str).unwrap_or(Priority::Medium),
         sort_order: row.get("sort_order")?,
@@ -39,13 +47,15 @@ impl Db {
                 .unwrap_or(0.0);
 
             conn.execute(
-                "INSERT INTO tasks (id, project_id, title, description, status, priority, sort_order, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "INSERT INTO tasks (id, project_id, parent_id, title, description, reviewer, status, priority, sort_order, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     id,
                     input.project_id,
+                    input.parent_id,
                     input.title,
                     input.description,
+                    input.reviewer,
                     input.status.as_str(),
                     input.priority.as_str(),
                     max_order + 1.0,
@@ -96,6 +106,17 @@ impl Db {
                 param_values.push(Box::new(sprint_id.clone()));
                 sql.push_str(&format!(" AND sprint_id = ?{}", param_values.len()));
             }
+            if let Some(ref parent_id_filter) = filter.parent_id {
+                match parent_id_filter {
+                    None => {
+                        sql.push_str(" AND parent_id IS NULL");
+                    }
+                    Some(pid) => {
+                        param_values.push(Box::new(pid.clone()));
+                        sql.push_str(&format!(" AND parent_id = ?{}", param_values.len()));
+                    }
+                }
+            }
 
             sql.push_str(" ORDER BY sort_order ASC");
 
@@ -110,6 +131,17 @@ impl Db {
             let mut stmt = conn.prepare(&sql)?;
             let tasks = stmt
                 .query_map(params_ref.as_slice(), row_to_task)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(tasks)
+        })
+    }
+
+    pub fn list_child_tasks(&self, parent_id: &str) -> Result<Vec<Task>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt =
+                conn.prepare("SELECT * FROM tasks WHERE parent_id = ?1 ORDER BY sort_order ASC")?;
+            let tasks = stmt
+                .query_map(params![parent_id], row_to_task)?
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(tasks)
         })
@@ -144,6 +176,22 @@ impl Db {
             if let Some(sort_order) = update.sort_order {
                 param_values.push(Box::new(sort_order));
                 sets.push(format!("sort_order = ?{}", param_values.len()));
+            }
+            if let Some(ref parent_id) = update.parent_id {
+                param_values.push(Box::new(parent_id.clone()));
+                sets.push(format!("parent_id = ?{}", param_values.len()));
+            }
+            if let Some(ref reviewer) = update.reviewer {
+                param_values.push(Box::new(reviewer.clone()));
+                sets.push(format!("reviewer = ?{}", param_values.len()));
+            }
+            if let Some(spec_status) = update.spec_status {
+                param_values.push(Box::new(spec_status.as_str().to_string()));
+                sets.push(format!("spec_status = ?{}", param_values.len()));
+            }
+            if let Some(plan_status) = update.plan_status {
+                param_values.push(Box::new(plan_status.as_str().to_string()));
+                sets.push(format!("plan_status = ?{}", param_values.len()));
             }
 
             param_values.push(Box::new(id.to_string()));
@@ -208,6 +256,7 @@ mod tests {
                 name: "Test".into(),
                 slug: "test".into(),
                 description: String::new(),
+                repo_url: String::new(),
             })
             .unwrap();
         (db, project.id)
@@ -224,6 +273,8 @@ mod tests {
                 description: "Do something".into(),
                 status: Status::Todo,
                 priority: Priority::High,
+                parent_id: None,
+                reviewer: String::new(),
             })
             .unwrap();
 
@@ -260,6 +311,8 @@ mod tests {
                 description: String::new(),
                 status: if i < 3 { Status::Todo } else { Status::Done },
                 priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
             })
             .unwrap();
         }
@@ -302,6 +355,8 @@ mod tests {
                 description: String::new(),
                 status: Status::Todo,
                 priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
             })
             .unwrap();
 
@@ -312,6 +367,8 @@ mod tests {
                 description: String::new(),
                 status: Status::Todo,
                 priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
             })
             .unwrap();
 
@@ -328,6 +385,8 @@ mod tests {
             description: String::new(),
             status: Status::Todo,
             priority: Priority::Medium,
+            parent_id: None,
+            reviewer: String::new(),
         })
         .unwrap();
         db.create_task(&CreateTask {
@@ -336,6 +395,8 @@ mod tests {
             description: String::new(),
             status: Status::Todo,
             priority: Priority::Medium,
+            parent_id: None,
+            reviewer: String::new(),
         })
         .unwrap();
         db.create_task(&CreateTask {
@@ -344,6 +405,8 @@ mod tests {
             description: String::new(),
             status: Status::Done,
             priority: Priority::Medium,
+            parent_id: None,
+            reviewer: String::new(),
         })
         .unwrap();
 

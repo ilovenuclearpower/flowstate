@@ -3,6 +3,7 @@ use rusqlite::Connection;
 use crate::DbError;
 
 pub fn run(conn: &Connection) -> Result<(), DbError> {
+    // Original schema — idempotent CREATE TABLE IF NOT EXISTS
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS projects (
@@ -126,6 +127,15 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         CREATE INDEX IF NOT EXISTS idx_vrsteps_run
             ON verification_run_steps(run_id, sort_order);
 
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id           TEXT PRIMARY KEY,
+            name         TEXT NOT NULL DEFAULT '',
+            key_hash     TEXT NOT NULL UNIQUE,
+            created_at   TEXT NOT NULL,
+            last_used_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+
         CREATE TABLE IF NOT EXISTS commit_links (
             id           TEXT PRIMARY KEY,
             task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
@@ -140,5 +150,87 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
             ON commit_links(sha, task_id);
         ",
     )?;
+
+    // Versioned migrations
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_version (
+            version    INTEGER PRIMARY KEY,
+            applied_at TEXT NOT NULL
+        );",
+    )?;
+
+    let current_version: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+
+    if current_version < 1 {
+        // v1: project repo_url, task new columns, task_links, claude_runs, attachments
+        // Use a helper to check if column exists before ALTER TABLE
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+
+        if !has_column("projects", "repo_url") {
+            conn.execute_batch("ALTER TABLE projects ADD COLUMN repo_url TEXT NOT NULL DEFAULT '';")?;
+        }
+
+        if !has_column("tasks", "parent_id") {
+            conn.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN parent_id TEXT REFERENCES tasks(id) ON DELETE SET NULL;
+                 ALTER TABLE tasks ADD COLUMN reviewer TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE tasks ADD COLUMN spec_status TEXT NOT NULL DEFAULT 'none';
+                 ALTER TABLE tasks ADD COLUMN plan_status TEXT NOT NULL DEFAULT 'none';",
+            )?;
+        }
+
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
+
+             CREATE TABLE IF NOT EXISTS task_links (
+                 id              TEXT PRIMARY KEY,
+                 source_task_id  TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                 target_task_id  TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                 link_type       TEXT NOT NULL CHECK(link_type IN ('blocks','relates_to','duplicates')),
+                 created_at      TEXT NOT NULL,
+                 UNIQUE(source_task_id, target_task_id, link_type)
+             );
+             CREATE INDEX IF NOT EXISTS idx_task_links_source ON task_links(source_task_id);
+             CREATE INDEX IF NOT EXISTS idx_task_links_target ON task_links(target_task_id);
+
+             CREATE TABLE IF NOT EXISTS claude_runs (
+                 id            TEXT PRIMARY KEY,
+                 task_id       TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                 action        TEXT NOT NULL CHECK(action IN ('design','plan','build')),
+                 status        TEXT NOT NULL DEFAULT 'queued'
+                                   CHECK(status IN ('queued','running','completed','failed','cancelled')),
+                 error_message TEXT,
+                 exit_code     INTEGER,
+                 started_at    TEXT NOT NULL,
+                 finished_at   TEXT
+             );
+             CREATE INDEX IF NOT EXISTS idx_claude_runs_task ON claude_runs(task_id);
+
+             CREATE TABLE IF NOT EXISTS attachments (
+                 id           TEXT PRIMARY KEY,
+                 task_id      TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                 filename     TEXT NOT NULL,
+                 disk_path    TEXT NOT NULL,
+                 size_bytes   INTEGER NOT NULL DEFAULT 0,
+                 created_at   TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS idx_attachments_task ON attachments(task_id);",
+        )?;
+
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (1, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }
