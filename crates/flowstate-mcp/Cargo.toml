@@ -1,0 +1,18 @@
+[package]
+name = "flowstate-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flowstate-mcp"
+path = "src/main.rs"
+
+[dependencies]
+flowstate-core = { path = "../flowstate-core" }
+flowstate-db = { path = "../flowstate-db" }
+flowstate-verify = { path = "../flowstate-verify" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }

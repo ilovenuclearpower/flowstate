@@ -1,0 +1,29 @@
+[workspace]
+members = [
+    "crates/flowstate-core",
+    "crates/flowstate-db",
+    "crates/flowstate-verify",
+    "crates/flowstate-tui",
+    "crates/flowstate-mcp",
+]
+resolver = "2"
+
+[workspace.metadata.crane]
+name = "flowstate"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
+ratatui = "0.29"
+crossterm = "0.28"
+uuid = { version = "1", features = ["v4", "serde"] }
+anyhow = "1"

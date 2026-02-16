@@ -1,0 +1,20 @@
+[package]
+name = "flowstate-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flowstate"
+path = "src/main.rs"
+
+[dependencies]
+flowstate-core = { path = "../flowstate-core" }
+flowstate-db = { path = "../flowstate-db" }
+flowstate-verify = { path = "../flowstate-verify" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }

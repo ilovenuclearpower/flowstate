@@ -1,0 +1,12 @@
+[package]
+name = "flowstate-verify"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+flowstate-core = { path = "../flowstate-core" }
+tokio = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
