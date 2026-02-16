@@ -36,6 +36,21 @@ impl TaskBoard {
         }
     }
 
+    /// Returns the currently highlighted task, if any.
+    pub fn selected_task(&self) -> Option<&Task> {
+        let col = self.columns.get(self.active_column)?;
+        let idx = col.list_state.selected()?;
+        col.tasks.get(idx)
+    }
+
+    /// Returns the status of the currently active column.
+    pub fn active_status(&self) -> Status {
+        self.columns
+            .get(self.active_column)
+            .map(|c| c.status)
+            .unwrap_or(Status::Backlog)
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('h') | KeyCode::Left => {
@@ -61,6 +76,21 @@ impl TaskBoard {
                     let current = col.list_state.selected().unwrap_or(0);
                     if current > 0 {
                         col.list_state.select(Some(current - 1));
+                    }
+                }
+            }
+            // Jump to first/last
+            KeyCode::Char('g') => {
+                if let Some(col) = self.columns.get_mut(self.active_column) {
+                    if !col.tasks.is_empty() {
+                        col.list_state.select(Some(0));
+                    }
+                }
+            }
+            KeyCode::Char('G') => {
+                if let Some(col) = self.columns.get_mut(self.active_column) {
+                    if !col.tasks.is_empty() {
+                        col.list_state.select(Some(col.tasks.len() - 1));
                     }
                 }
             }
