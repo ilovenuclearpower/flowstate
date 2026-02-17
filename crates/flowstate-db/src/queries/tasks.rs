@@ -22,6 +22,7 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
         reviewer: row.get("reviewer")?,
         spec_status: ApprovalStatus::from_str(&spec_status_str).unwrap_or(ApprovalStatus::None),
         plan_status: ApprovalStatus::from_str(&plan_status_str).unwrap_or(ApprovalStatus::None),
+        spec_approved_hash: row.get("spec_approved_hash")?,
         status: Status::from_str(&status_str).unwrap_or(Status::Backlog),
         priority: Priority::from_str(&priority_str).unwrap_or(Priority::Medium),
         sort_order: row.get("sort_order")?,
@@ -192,6 +193,10 @@ impl Db {
             if let Some(plan_status) = update.plan_status {
                 param_values.push(Box::new(plan_status.as_str().to_string()));
                 sets.push(format!("plan_status = ?{}", param_values.len()));
+            }
+            if let Some(ref hash) = update.spec_approved_hash {
+                param_values.push(Box::new(hash.clone()));
+                sets.push(format!("spec_approved_hash = ?{}", param_values.len()));
             }
 
             param_values.push(Box::new(id.to_string()));

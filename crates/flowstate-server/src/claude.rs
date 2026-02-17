@@ -89,12 +89,17 @@ pub async fn execute_run(
             let _ = std::fs::write(&output_path, &stdout);
 
             if output.status.success() {
-                // On success, copy output to appropriate file
+                // On success, pick up the named output file and copy to canonical location
                 match action {
                     ClaudeAction::Design => {
+                        let written = work_dir.join("SPECIFICATION.md");
+                        let content = std::fs::read_to_string(&written)
+                            .unwrap_or_else(|_| stdout.clone());
                         let spec_path = flowstate_db::task_spec_path(&task.id);
                         let _ = std::fs::create_dir_all(spec_path.parent().unwrap());
-                        let _ = std::fs::write(&spec_path, &stdout);
+                        let _ = std::fs::write(&spec_path, &content);
+                        // Clean up the working copy
+                        let _ = std::fs::remove_file(&written);
                         // Set spec_status = pending
                         let update = flowstate_core::task::UpdateTask {
                             spec_status: Some(flowstate_core::task::ApprovalStatus::Pending),
@@ -103,9 +108,13 @@ pub async fn execute_run(
                         let _ = db.update_task(&task.id, &update);
                     }
                     ClaudeAction::Plan => {
+                        let written = work_dir.join("PLAN.md");
+                        let content = std::fs::read_to_string(&written)
+                            .unwrap_or_else(|_| stdout.clone());
                         let plan_path = flowstate_db::task_plan_path(&task.id);
                         let _ = std::fs::create_dir_all(plan_path.parent().unwrap());
-                        let _ = std::fs::write(&plan_path, &stdout);
+                        let _ = std::fs::write(&plan_path, &content);
+                        let _ = std::fs::remove_file(&written);
                         // Set plan_status = pending
                         let update = flowstate_core::task::UpdateTask {
                             plan_status: Some(flowstate_core::task::ApprovalStatus::Pending),
@@ -209,20 +218,39 @@ fn assemble_prompt(db: &Db, task: &Task, project: &Project, action: ClaudeAction
                  - Data model changes\n\
                  - Edge cases and error handling\n\
                  - Testing strategy\n\n\
-                 Output the specification as a well-structured markdown document.\n",
+                 IMPORTANT: Write the FULL specification to a file named exactly \
+                 `SPECIFICATION.md` in the current working directory. \
+                 This file will be picked up by the system. \
+                 You may use tools (web search, file reading, etc.) for research.\n",
             );
         }
         ClaudeAction::Plan => {
             prompt.push_str("## Instructions\n\n");
             prompt.push_str(
                 "Based on the specification above, produce a detailed implementation plan. \
-                 The plan should include:\n\
-                 - Step-by-step implementation order\n\
-                 - Files to create or modify\n\
-                 - Key code changes for each step\n\
-                 - Dependencies between steps\n\
-                 - Verification steps (tests to run, manual checks)\n\n\
-                 Output the plan as a well-structured markdown document.\n",
+                 The plan MUST contain all four of the following sections:\n\n\
+                 ### 1. Directories and Files\n\
+                 List every directory and file that will be created or modified. \
+                 Mark each entry as NEW or MODIFIED. Use a table or bullet list with full paths.\n\n\
+                 ### 2. Work Phases\n\
+                 Break the implementation into ordered phases. For each phase provide:\n\
+                 - Phase name and objective\n\
+                 - Ordered steps within the phase\n\
+                 - Dependencies on prior phases (if any)\n\
+                 - Deliverables (concrete outputs: files written, tests passing, etc.)\n\n\
+                 ### 3. Agent/Model Assignments\n\
+                 For each phase, recommend:\n\
+                 - Which Claude model to use (e.g. opus for architecture, sonnet for implementation, haiku for boilerplate)\n\
+                 - A brief agent personality description (e.g. \"Senior backend engineer focused on API correctness\")\n\
+                 - Whether multiple agents can work in parallel on sub-tasks within this phase\n\n\
+                 ### 4. Validation Steps\n\
+                 For each phase, specify:\n\
+                 - Automated checks: exact commands to run (test suites, linters, build commands, type checks)\n\
+                 - Human review checkpoints: what a reviewer should verify before moving to the next phase\n\n\
+                 IMPORTANT: Write the FULL plan to a file named exactly \
+                 `PLAN.md` in the current working directory. \
+                 This file will be picked up by the system. \
+                 You may use tools (web search, file reading, etc.) for research.\n",
             );
         }
         ClaudeAction::Build => {

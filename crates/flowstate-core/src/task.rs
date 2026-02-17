@@ -194,6 +194,7 @@ pub struct Task {
     pub reviewer: String,
     pub spec_status: ApprovalStatus,
     pub plan_status: ApprovalStatus,
+    pub spec_approved_hash: String,
     pub status: Status,
     pub priority: Priority,
     pub sort_order: f64,
@@ -227,6 +228,7 @@ pub struct UpdateTask {
     pub reviewer: Option<String>,
     pub spec_status: Option<ApprovalStatus>,
     pub plan_status: Option<ApprovalStatus>,
+    pub spec_approved_hash: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

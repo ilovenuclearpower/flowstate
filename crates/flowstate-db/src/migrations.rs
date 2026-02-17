@@ -232,5 +232,21 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         )?;
     }
 
+    if current_version < 2 {
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if !has_column("tasks", "spec_approved_hash") {
+            conn.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN spec_approved_hash TEXT NOT NULL DEFAULT '';",
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (2, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }

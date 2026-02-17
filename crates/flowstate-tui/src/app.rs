@@ -209,21 +209,6 @@ impl App {
                     if let Err(e) = write_result {
                         self.status_message = Some(format!("Save error: {e}"));
                     } else {
-                        // Auto-set status to pending if content is non-empty
-                        if !content.trim().is_empty() {
-                            let update = if req.kind == "spec" {
-                                UpdateTask {
-                                    spec_status: Some(ApprovalStatus::Pending),
-                                    ..Default::default()
-                                }
-                            } else {
-                                UpdateTask {
-                                    plan_status: Some(ApprovalStatus::Pending),
-                                    ..Default::default()
-                                }
-                            };
-                            let _ = self.service.update_task(&req.task_id, &update);
-                        }
                         self.status_message = Some(format!("{} saved", req.kind));
                     }
                 }
@@ -850,6 +835,14 @@ impl App {
                 }
             }
             KeyCode::Char('p') => {
+                if task.spec_status != ApprovalStatus::Approved {
+                    self.status_message = Some(format!(
+                        "Plan requires approved spec (current: {})",
+                        task.spec_status.display_name()
+                    ));
+                    self.mode = Mode::TaskDetail { task };
+                    return;
+                }
                 match self.service.trigger_claude_run(&task.id, "plan") {
                     Ok(run) => {
                         self.status_message = Some("Claude planning...".into());
@@ -929,6 +922,7 @@ impl App {
                 };
                 match self.service.update_task(&task.id, &update) {
                     Ok(updated) => {
+                        self.refresh();
                         self.status_message = Some(format!("{field} approved"));
                         self.mode = Mode::TaskDetail { task: updated };
                     }
@@ -952,6 +946,7 @@ impl App {
                 };
                 match self.service.update_task(&task.id, &update) {
                     Ok(updated) => {
+                        self.refresh();
                         self.status_message = Some(format!("{field} rejected"));
                         self.mode = Mode::TaskDetail { task: updated };
                     }
@@ -1068,8 +1063,8 @@ impl App {
             Mode::ConfirmDeleteProject { project } => {
                 self.render_confirm_delete_project(frame, project, area)
             }
-            Mode::ClaudeActionPick { .. } => {
-                self.render_claude_action_pick(frame, area)
+            Mode::ClaudeActionPick { task } => {
+                self.render_claude_action_pick(frame, task, area)
             }
             Mode::ClaudeRunning { run_id, .. } => {
                 self.render_claude_running(frame, run_id, area)
@@ -1482,7 +1477,7 @@ impl App {
         frame.render_widget(paragraph, popup);
     }
 
-    fn render_claude_action_pick(&self, frame: &mut Frame, area: Rect) {
+    fn render_claude_action_pick(&self, frame: &mut Frame, task: &Task, area: Rect) {
         let popup = centered_rect(40, 25, area);
         frame.render_widget(Clear, popup);
 
@@ -1491,6 +1486,21 @@ impl App {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Green));
 
+        let plan_available = task.spec_status == ApprovalStatus::Approved;
+        let (plan_key_style, plan_text) = if plan_available {
+            (
+                Style::default().fg(Color::Yellow).bold(),
+                "Plan — produce implementation plan".to_string(),
+            )
+        } else {
+            (
+                Style::default().fg(Color::DarkGray),
+                format!(
+                    "Plan — produce implementation plan (spec not approved)",
+                ),
+            )
+        };
+
         let lines = vec![
             Line::from(vec![
                 Span::styled("[d] ", Style::default().fg(Color::Yellow).bold()),
@@ -1498,8 +1508,8 @@ impl App {
             ]),
             Line::from(""),
             Line::from(vec![
-                Span::styled("[p] ", Style::default().fg(Color::Yellow).bold()),
-                Span::raw("Plan — produce implementation plan"),
+                Span::styled("[p] ", plan_key_style),
+                Span::styled(plan_text, if plan_available { Style::default() } else { Style::default().fg(Color::DarkGray) }),
             ]),
             Line::from(""),
             Line::from(vec![

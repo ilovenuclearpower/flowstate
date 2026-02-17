@@ -6,10 +6,11 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use flowstate_core::task::{CreateTask, Priority, Status, TaskFilter, UpdateTask};
+use flowstate_core::task::{ApprovalStatus, CreateTask, Priority, Status, TaskFilter, UpdateTask};
 use flowstate_service::TaskService;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 
 use super::AppState;
 
@@ -74,8 +75,15 @@ async fn create_task(
 async fn update_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(input): Json<UpdateTask>,
+    Json(mut input): Json<UpdateTask>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // On spec approval, compute and store the spec content hash
+    if input.spec_status == Some(ApprovalStatus::Approved) {
+        let spec_path = flowstate_db::task_spec_path(&id);
+        if let Ok(content) = std::fs::read_to_string(&spec_path) {
+            input.spec_approved_hash = Some(sha256_hex(&content));
+        }
+    }
     state.service.update_task(&id, &input)
         .map(|t| Json(json!(t)))
         .map_err(to_error)
@@ -140,12 +148,34 @@ async fn write_spec(
     Path(id): Path<String>,
     body: String,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    let _task = state.service.get_task(&id).map_err(to_error)?;
+    let task = state.service.get_task(&id).map_err(to_error)?;
     let path = flowstate_db::task_spec_path(&id);
     std::fs::create_dir_all(path.parent().unwrap())
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("mkdir: {e}"))))?;
     std::fs::write(&path, &body)
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
+
+    // Server-side status management
+    if task.spec_status == ApprovalStatus::Approved && !task.spec_approved_hash.is_empty() {
+        // Revoke approval if content changed
+        let new_hash = sha256_hex(&body);
+        if new_hash != task.spec_approved_hash {
+            let update = UpdateTask {
+                spec_status: Some(ApprovalStatus::Pending),
+                spec_approved_hash: Some(String::new()),
+                ..Default::default()
+            };
+            let _ = state.service.update_task(&id, &update);
+        }
+    } else if task.spec_status == ApprovalStatus::None && !body.trim().is_empty() {
+        // Auto-set to Pending when content written for the first time
+        let update = UpdateTask {
+            spec_status: Some(ApprovalStatus::Pending),
+            ..Default::default()
+        };
+        let _ = state.service.update_task(&id, &update);
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -175,12 +205,22 @@ async fn write_plan(
     Path(id): Path<String>,
     body: String,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    let _task = state.service.get_task(&id).map_err(to_error)?;
+    let task = state.service.get_task(&id).map_err(to_error)?;
     let path = flowstate_db::task_plan_path(&id);
     std::fs::create_dir_all(path.parent().unwrap())
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("mkdir: {e}"))))?;
     std::fs::write(&path, &body)
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
+
+    // Auto-set plan_status to Pending if currently None and content is non-empty
+    if task.plan_status == ApprovalStatus::None && !body.trim().is_empty() {
+        let update = UpdateTask {
+            plan_status: Some(ApprovalStatus::Pending),
+            ..Default::default()
+        };
+        let _ = state.service.update_task(&id, &update);
+    }
+
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -191,6 +231,12 @@ async fn list_attachments(
     state.service.list_attachments(&id)
         .map(|a| Json(json!(a)))
         .map_err(to_error)
+}
+
+fn sha256_hex(content: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(content.as_bytes());
+    format!("{:x}", h.finalize())
 }
 
 fn to_error(e: flowstate_service::ServiceError) -> (StatusCode, Json<Value>) {

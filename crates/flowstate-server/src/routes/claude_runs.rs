@@ -41,6 +41,17 @@ async fn trigger_claude_run(
 
     let task = state.service.get_task(&task_id).map_err(to_error)?;
 
+    if action == ClaudeAction::Plan {
+        if task.spec_status != flowstate_core::task::ApprovalStatus::Approved {
+            return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+                format!(
+                    "cannot plan: spec must be approved first (current: {})",
+                    task.spec_status.display_name()
+                ),
+            )));
+        }
+    }
+
     let create = CreateClaudeRun {
         task_id: task_id.clone(),
         action,
