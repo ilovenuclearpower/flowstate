@@ -20,7 +20,7 @@ impl ClaudeAction {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "design" => Some(ClaudeAction::Design),
             "plan" => Some(ClaudeAction::Plan),
@@ -57,7 +57,7 @@ impl ClaudeRunStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "queued" => Some(ClaudeRunStatus::Queued),
             "running" => Some(ClaudeRunStatus::Running),
@@ -83,6 +83,12 @@ pub struct ClaudeRun {
     pub status: ClaudeRunStatus,
     pub error_message: Option<String>,
     pub exit_code: Option<i32>,
+    #[serde(default)]
+    pub pr_url: Option<String>,
+    #[serde(default)]
+    pub pr_number: Option<i64>,
+    #[serde(default)]
+    pub branch_name: Option<String>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
 }

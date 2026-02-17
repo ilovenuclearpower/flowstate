@@ -11,10 +11,13 @@ fn row_to_claude_run(row: &Row) -> rusqlite::Result<ClaudeRun> {
     Ok(ClaudeRun {
         id: row.get("id")?,
         task_id: row.get("task_id")?,
-        action: ClaudeAction::from_str(&action_str).unwrap_or(ClaudeAction::Design),
-        status: ClaudeRunStatus::from_str(&status_str).unwrap_or(ClaudeRunStatus::Queued),
+        action: ClaudeAction::parse_str(&action_str).unwrap_or(ClaudeAction::Design),
+        status: ClaudeRunStatus::parse_str(&status_str).unwrap_or(ClaudeRunStatus::Queued),
         error_message: row.get("error_message")?,
         exit_code: row.get("exit_code")?,
+        pr_url: row.get("pr_url")?,
+        pr_number: row.get("pr_number")?,
+        branch_name: row.get("branch_name")?,
         started_at: row.get("started_at")?,
         finished_at: row.get("finished_at")?,
     })
@@ -99,6 +102,57 @@ impl Db {
             .map_err(DbError::from)
         })
     }
+
+    /// Atomically claim the oldest queued run, setting it to Running.
+    /// Returns None if no queued runs exist.
+    pub fn claim_next_claude_run(&self) -> Result<Option<ClaudeRun>, DbError> {
+        self.with_conn(|conn| {
+            let now = Utc::now();
+            let result = conn.query_row(
+                "UPDATE claude_runs
+                 SET status = 'running', started_at = ?1
+                 WHERE id = (
+                     SELECT id FROM claude_runs
+                     WHERE status = 'queued'
+                     ORDER BY started_at ASC
+                     LIMIT 1
+                 )
+                 RETURNING *",
+                params![now],
+                row_to_claude_run,
+            );
+
+            match result {
+                Ok(run) => Ok(Some(run)),
+                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                Err(e) => Err(DbError::Sqlite(e)),
+            }
+        })
+    }
+
+    /// Update PR info on a claude run.
+    pub fn update_claude_run_pr(
+        &self,
+        id: &str,
+        pr_url: Option<&str>,
+        pr_number: Option<i64>,
+        branch_name: Option<&str>,
+    ) -> Result<ClaudeRun, DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE claude_runs SET pr_url = ?1, pr_number = ?2, branch_name = ?3
+                 WHERE id = ?4",
+                params![pr_url, pr_number, branch_name, id],
+            )?;
+
+            conn.query_row(
+                "SELECT * FROM claude_runs WHERE id = ?1",
+                params![id],
+                row_to_claude_run,
+            )
+            .map_err(DbError::from)
+        })
+    }
 }
 
 #[cfg(test)]
@@ -144,6 +198,9 @@ mod tests {
             .unwrap();
         assert_eq!(run.status, ClaudeRunStatus::Queued);
         assert_eq!(run.action, ClaudeAction::Design);
+        assert!(run.pr_url.is_none());
+        assert!(run.pr_number.is_none());
+        assert!(run.branch_name.is_none());
 
         let fetched = db.get_claude_run(&run.id).unwrap();
         assert_eq!(fetched.id, run.id);
@@ -156,5 +213,67 @@ mod tests {
 
         let runs = db.list_claude_runs_for_task(&task_id).unwrap();
         assert_eq!(runs.len(), 1);
+    }
+
+    #[test]
+    fn test_claim_next_claude_run() {
+        let (db, task_id) = setup();
+
+        // No queued runs → None
+        assert!(db.claim_next_claude_run().unwrap().is_none());
+
+        // Create two runs
+        let run1 = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task_id.clone(),
+                action: ClaudeAction::Design,
+            })
+            .unwrap();
+        let _run2 = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task_id.clone(),
+                action: ClaudeAction::Plan,
+            })
+            .unwrap();
+
+        // Claim should get the oldest (run1)
+        let claimed = db.claim_next_claude_run().unwrap().unwrap();
+        assert_eq!(claimed.id, run1.id);
+        assert_eq!(claimed.status, ClaudeRunStatus::Running);
+
+        // Next claim gets run2
+        let claimed2 = db.claim_next_claude_run().unwrap().unwrap();
+        assert_eq!(claimed2.action, ClaudeAction::Plan);
+
+        // No more queued
+        assert!(db.claim_next_claude_run().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_update_claude_run_pr() {
+        let (db, task_id) = setup();
+
+        let run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id,
+                action: ClaudeAction::Build,
+            })
+            .unwrap();
+
+        let updated = db
+            .update_claude_run_pr(
+                &run.id,
+                Some("https://github.com/org/repo/pull/42"),
+                Some(42),
+                Some("flowstate/my-feature"),
+            )
+            .unwrap();
+
+        assert_eq!(
+            updated.pr_url.as_deref(),
+            Some("https://github.com/org/repo/pull/42")
+        );
+        assert_eq!(updated.pr_number, Some(42));
+        assert_eq!(updated.branch_name.as_deref(), Some("flowstate/my-feature"));
     }
 }

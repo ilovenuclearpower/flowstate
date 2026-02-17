@@ -12,7 +12,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use flowstate_service::HttpService;
+use flowstate_service::BlockingHttpService;
 use ratatui::prelude::*;
 
 use app::App;
@@ -50,8 +50,8 @@ fn main() -> Result<()> {
 
     // Wait for server to be ready
     let service = match api_key {
-        Some(key) => HttpService::with_api_key(&server_url, key),
-        None => HttpService::new(&server_url),
+        Some(key) => BlockingHttpService::with_api_key(&server_url, key),
+        None => BlockingHttpService::new(&server_url),
     };
     wait_for_server(&service)?;
 
@@ -90,7 +90,7 @@ fn spawn_server() -> Result<Child> {
     Ok(child)
 }
 
-fn wait_for_server(service: &HttpService) -> Result<()> {
+fn wait_for_server(service: &BlockingHttpService) -> Result<()> {
     let start = Instant::now();
     let timeout = Duration::from_secs(10);
 
@@ -108,7 +108,7 @@ fn wait_for_server(service: &HttpService) -> Result<()> {
     }
 }
 
-fn run_tui(service: HttpService) -> Result<()> {
+fn run_tui(service: BlockingHttpService) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -134,7 +134,7 @@ fn run_tui(service: HttpService) -> Result<()> {
 
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    service: HttpService,
+    service: BlockingHttpService,
 ) -> Result<()> {
     let mut app = App::new(service)?;
 
@@ -166,20 +166,18 @@ fn event_loop(
                 // Timeout — poll the Claude run
                 app.poll_claude_run();
             }
-        } else {
-            if let Event::Key(key) = event::read()? {
-                // Ctrl+C always quits
-                if key.code == KeyCode::Char('c')
-                    && key.modifiers.contains(KeyModifiers::CONTROL)
-                {
-                    break;
-                }
-                // q quits unless we're in an input mode
-                if key.code == KeyCode::Char('q') && !app.is_input_mode() {
-                    break;
-                }
-                app.handle_key(key);
+        } else if let Event::Key(key) = event::read()? {
+            // Ctrl+C always quits
+            if key.code == KeyCode::Char('c')
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                break;
             }
+            // q quits unless we're in an input mode
+            if key.code == KeyCode::Char('q') && !app.is_input_mode() {
+                break;
+            }
+            app.handle_key(key);
         }
     }
 

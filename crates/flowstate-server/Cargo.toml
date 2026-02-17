@@ -14,6 +14,7 @@ path = "src/lib.rs"
 [dependencies]
 flowstate-core = { path = "../flowstate-core" }
 flowstate-db = { path = "../flowstate-db" }
+flowstate-prompts = { path = "../flowstate-prompts" }
 flowstate-service = { path = "../flowstate-service" }
 axum = { workspace = true }
 tokio = { workspace = true }

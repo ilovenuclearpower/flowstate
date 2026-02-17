@@ -2,6 +2,7 @@ use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus};
 use flowstate_core::project::Project;
 use flowstate_core::task::Task;
 use flowstate_db::Db;
+use flowstate_prompts::{ChildTaskInfo, PromptContext};
 use std::process::Stdio;
 use tokio::process::Command;
 
@@ -23,7 +24,7 @@ pub async fn execute_run(
         return;
     }
 
-    let prompt = assemble_prompt(&db, &task, &project, action);
+    let prompt = build_prompt(&db, &task, &project, action);
 
     // Set up output directory
     let run_dir = flowstate_db::claude_run_dir(&run_id);
@@ -158,113 +159,44 @@ pub async fn execute_run(
     }
 }
 
-fn assemble_prompt(db: &Db, task: &Task, project: &Project, action: ClaudeAction) -> String {
-    let mut prompt = String::new();
-
-    prompt.push_str(&format!("# Project: {}\n\n", project.name));
-    if !project.repo_url.is_empty() {
-        prompt.push_str(&format!("Repository: {}\n\n", project.repo_url));
-    }
-
-    prompt.push_str(&format!("# Task: {}\n\n", task.title));
-    prompt.push_str(&format!("## Description\n\n{}\n\n", task.description));
-
-    // Include spec if it exists (for plan and build)
-    if matches!(action, ClaudeAction::Plan | ClaudeAction::Build) {
+/// Build the prompt using flowstate-prompts, reading spec/plan/children from the DB/filesystem.
+fn build_prompt(db: &Db, task: &Task, project: &Project, action: ClaudeAction) -> String {
+    let spec_content = if matches!(action, ClaudeAction::Plan | ClaudeAction::Build) {
         let spec_path = flowstate_db::task_spec_path(&task.id);
-        if let Ok(spec) = std::fs::read_to_string(&spec_path) {
-            prompt.push_str("## Specification\n\n");
-            prompt.push_str(&spec);
-            prompt.push_str("\n\n");
-        }
-    }
+        std::fs::read_to_string(&spec_path).ok()
+    } else {
+        None
+    };
 
-    // Include plan if it exists (for build)
-    if matches!(action, ClaudeAction::Build) {
+    let plan_content = if matches!(action, ClaudeAction::Build) {
         let plan_path = flowstate_db::task_plan_path(&task.id);
-        if let Ok(plan) = std::fs::read_to_string(&plan_path) {
-            prompt.push_str("## Implementation Plan\n\n");
-            prompt.push_str(&plan);
-            prompt.push_str("\n\n");
-        }
-    }
+        std::fs::read_to_string(&plan_path).ok()
+    } else {
+        None
+    };
 
-    // Include child tasks for context
-    if let Ok(children) = db.list_child_tasks(&task.id) {
-        if !children.is_empty() {
-            prompt.push_str("## Sub-tasks\n\n");
-            for child in &children {
-                prompt.push_str(&format!(
-                    "- [{}] {}: {}\n",
-                    child.status.as_str(),
-                    child.title,
-                    child.description
-                ));
-            }
-            prompt.push_str("\n");
-        }
-    }
+    let child_tasks = db
+        .list_child_tasks(&task.id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| ChildTaskInfo {
+            title: c.title,
+            description: c.description,
+            status: c.status.as_str().to_string(),
+        })
+        .collect();
 
-    // Action-specific instructions
-    match action {
-        ClaudeAction::Design => {
-            prompt.push_str("## Instructions\n\n");
-            prompt.push_str(
-                "Produce a detailed technical specification for this task. \
-                 The specification should include:\n\
-                 - Problem statement and goals\n\
-                 - Proposed solution architecture\n\
-                 - API changes or new interfaces\n\
-                 - Data model changes\n\
-                 - Edge cases and error handling\n\
-                 - Testing strategy\n\n\
-                 IMPORTANT: Write the FULL specification to a file named exactly \
-                 `SPECIFICATION.md` in the current working directory. \
-                 This file will be picked up by the system. \
-                 You may use tools (web search, file reading, etc.) for research.\n",
-            );
-        }
-        ClaudeAction::Plan => {
-            prompt.push_str("## Instructions\n\n");
-            prompt.push_str(
-                "Based on the specification above, produce a detailed implementation plan. \
-                 The plan MUST contain all four of the following sections:\n\n\
-                 ### 1. Directories and Files\n\
-                 List every directory and file that will be created or modified. \
-                 Mark each entry as NEW or MODIFIED. Use a table or bullet list with full paths.\n\n\
-                 ### 2. Work Phases\n\
-                 Break the implementation into ordered phases. For each phase provide:\n\
-                 - Phase name and objective\n\
-                 - Ordered steps within the phase\n\
-                 - Dependencies on prior phases (if any)\n\
-                 - Deliverables (concrete outputs: files written, tests passing, etc.)\n\n\
-                 ### 3. Agent/Model Assignments\n\
-                 For each phase, recommend:\n\
-                 - Which Claude model to use (e.g. opus for architecture, sonnet for implementation, haiku for boilerplate)\n\
-                 - A brief agent personality description (e.g. \"Senior backend engineer focused on API correctness\")\n\
-                 - Whether multiple agents can work in parallel on sub-tasks within this phase\n\n\
-                 ### 4. Validation Steps\n\
-                 For each phase, specify:\n\
-                 - Automated checks: exact commands to run (test suites, linters, build commands, type checks)\n\
-                 - Human review checkpoints: what a reviewer should verify before moving to the next phase\n\n\
-                 IMPORTANT: Write the FULL plan to a file named exactly \
-                 `PLAN.md` in the current working directory. \
-                 This file will be picked up by the system. \
-                 You may use tools (web search, file reading, etc.) for research.\n",
-            );
-        }
-        ClaudeAction::Build => {
-            prompt.push_str("## Instructions\n\n");
-            prompt.push_str(
-                "Implement the changes described in the specification and plan above. \
-                 Follow the implementation plan step by step. \
-                 Write clean, well-tested code. \
-                 Ensure all existing tests continue to pass.\n",
-            );
-        }
-    }
+    let ctx = PromptContext {
+        project_name: project.name.clone(),
+        repo_url: project.repo_url.clone(),
+        task_title: task.title.clone(),
+        task_description: task.description.clone(),
+        spec_content,
+        plan_content,
+        child_tasks,
+    };
 
-    prompt
+    flowstate_prompts::assemble_prompt(&ctx, action)
 }
 
 /// Ensure the workspace directory exists with a git clone/pull.

@@ -11,7 +11,7 @@ fn row_to_task_link(row: &Row) -> rusqlite::Result<TaskLink> {
         id: row.get("id")?,
         source_task_id: row.get("source_task_id")?,
         target_task_id: row.get("target_task_id")?,
-        link_type: LinkType::from_str(&link_type_str).unwrap_or(LinkType::RelatesTo),
+        link_type: LinkType::parse_str(&link_type_str).unwrap_or(LinkType::RelatesTo),
         created_at: row.get("created_at")?,
     })
 }

@@ -18,7 +18,7 @@ pub fn routes() -> Router<AppState> {
 }
 
 async fn list_projects(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.list_projects()
+    state.service.list_projects().await
         .map(|p| Json(json!(p)))
         .map_err(to_error)
 }
@@ -27,7 +27,7 @@ async fn get_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.get_project(&id)
+    state.service.get_project(&id).await
         .map(|p| Json(json!(p)))
         .map_err(to_error)
 }
@@ -36,7 +36,7 @@ async fn get_project_by_slug(
     State(state): State<AppState>,
     Path(slug): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.get_project_by_slug(&slug)
+    state.service.get_project_by_slug(&slug).await
         .map(|p| Json(json!(p)))
         .map_err(to_error)
 }
@@ -45,7 +45,7 @@ async fn create_project(
     State(state): State<AppState>,
     Json(input): Json<CreateProject>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    state.service.create_project(&input)
+    state.service.create_project(&input).await
         .map(|p| (StatusCode::CREATED, Json(json!(p))))
         .map_err(to_error)
 }
@@ -55,7 +55,7 @@ async fn update_project(
     Path(id): Path<String>,
     Json(input): Json<UpdateProject>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.update_project(&id, &input)
+    state.service.update_project(&id, &input).await
         .map(|p| Json(json!(p)))
         .map_err(to_error)
 }
@@ -64,7 +64,7 @@ async fn delete_project(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    state.service.delete_project(&id)
+    state.service.delete_project(&id).await
         .map(|_| StatusCode::NO_CONTENT)
         .map_err(to_error)
 }

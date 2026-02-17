@@ -21,7 +21,7 @@ async fn create_task_link(
     State(state): State<AppState>,
     Json(input): Json<CreateTaskLink>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    state.service.create_task_link(&input)
+    state.service.create_task_link(&input).await
         .map(|l| (StatusCode::CREATED, Json(json!(l))))
         .map_err(to_error)
 }
@@ -30,7 +30,7 @@ async fn list_task_links(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.list_task_links(&task_id)
+    state.service.list_task_links(&task_id).await
         .map(|l| Json(json!(l)))
         .map_err(to_error)
 }
@@ -39,7 +39,7 @@ async fn delete_task_link(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    state.service.delete_task_link(&id)
+    state.service.delete_task_link(&id).await
         .map(|_| StatusCode::NO_CONTENT)
         .map_err(to_error)
 }

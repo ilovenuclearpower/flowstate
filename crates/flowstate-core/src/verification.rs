@@ -57,7 +57,7 @@ impl RunStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "running" => Some(RunStatus::Running),
             "passed" => Some(RunStatus::Passed),

@@ -248,5 +248,23 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         )?;
     }
 
+    if current_version < 3 {
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if !has_column("claude_runs", "pr_url") {
+            conn.execute_batch(
+                "ALTER TABLE claude_runs ADD COLUMN pr_url TEXT;
+                 ALTER TABLE claude_runs ADD COLUMN pr_number INTEGER;
+                 ALTER TABLE claude_runs ADD COLUMN branch_name TEXT;",
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (3, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }

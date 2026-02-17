@@ -54,7 +54,7 @@ impl Status {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "backlog" => Some(Status::Backlog),
             "todo" => Some(Status::Todo),
@@ -114,7 +114,7 @@ impl Priority {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "urgent" => Some(Priority::Urgent),
             "high" => Some(Priority::High),
@@ -132,9 +132,10 @@ impl fmt::Display for Priority {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalStatus {
+    #[default]
     None,
     Pending,
     Approved,
@@ -151,7 +152,7 @@ impl ApprovalStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "none" => Some(ApprovalStatus::None),
             "pending" => Some(ApprovalStatus::Pending),
@@ -171,11 +172,6 @@ impl ApprovalStatus {
     }
 }
 
-impl Default for ApprovalStatus {
-    fn default() -> Self {
-        ApprovalStatus::None
-    }
-}
 
 impl fmt::Display for ApprovalStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

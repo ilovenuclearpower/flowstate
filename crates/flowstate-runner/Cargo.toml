@@ -1,0 +1,30 @@
+[package]
+name = "flowstate-runner"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flowstate-runner"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+flowstate-core = { path = "../flowstate-core" }
+flowstate-service = { path = "../flowstate-service" }
+flowstate-prompts = { path = "../flowstate-prompts" }
+flowstate-verify = { path = "../flowstate-verify" }
+tokio = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+axum = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

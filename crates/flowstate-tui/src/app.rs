@@ -7,7 +7,7 @@ use flowstate_core::task::{
     ApprovalStatus, CreateTask, Priority, Status, Task, TaskFilter, UpdateTask,
 };
 use flowstate_core::Project;
-use flowstate_service::{HttpService, TaskService};
+use flowstate_service::BlockingHttpService;
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
@@ -77,7 +77,7 @@ pub enum ProjectField {
 }
 
 pub struct App {
-    service: HttpService,
+    service: BlockingHttpService,
     project: Project,
     board: TaskBoard,
     mode: Mode,
@@ -97,7 +97,7 @@ pub struct EditorRequest {
 }
 
 impl App {
-    pub fn new(service: HttpService) -> Result<Self> {
+    pub fn new(service: BlockingHttpService) -> Result<Self> {
         let project = match service.list_projects() {
             Ok(projects) if !projects.is_empty() => projects.into_iter().next().unwrap(),
             _ => service.create_project(&CreateProject {
@@ -120,7 +120,7 @@ impl App {
         })
     }
 
-    fn load_board(service: &HttpService, project_id: &str) -> Result<TaskBoard> {
+    fn load_board(service: &BlockingHttpService, project_id: &str) -> Result<TaskBoard> {
         let mut columns: Vec<(Status, Vec<Task>)> = Vec::new();
         for &status in Status::BOARD_COLUMNS {
             let tasks = service.list_tasks(&TaskFilter {
@@ -164,7 +164,7 @@ impl App {
     /// Poll the Claude run status. Called on timeout from event loop.
     pub fn poll_claude_run(&mut self) {
         if let Mode::ClaudeRunning { ref task, ref run_id } = self.mode.clone() {
-            match self.service.get_claude_run(&run_id) {
+            match self.service.get_claude_run(run_id) {
                 Ok(run) => {
                     let is_done = matches!(
                         run.status,
@@ -175,7 +175,7 @@ impl App {
                     if is_done {
                         let output = self
                             .service
-                            .get_claude_run_output(&run_id)
+                            .get_claude_run_output(run_id)
                             .unwrap_or_else(|_| "(no output)".into());
                         let msg = format!("Claude run {}: {}", run.status, run.action);
                         self.status_message = Some(msg);
@@ -1495,9 +1495,7 @@ impl App {
         } else {
             (
                 Style::default().fg(Color::DarkGray),
-                format!(
-                    "Plan — produce implementation plan (spec not approved)",
-                ),
+                "Plan — produce implementation plan (spec not approved)".to_string(),
             )
         };
 

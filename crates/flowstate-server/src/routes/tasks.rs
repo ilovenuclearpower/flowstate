@@ -43,13 +43,13 @@ async fn list_tasks(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let filter = TaskFilter {
         project_id: q.project_id,
-        status: q.status.and_then(|s| Status::from_str(&s)),
-        priority: q.priority.and_then(|p| Priority::from_str(&p)),
+        status: q.status.and_then(|s| Status::parse_str(&s)),
+        priority: q.priority.and_then(|p| Priority::parse_str(&p)),
         sprint_id: q.sprint_id,
         parent_id: None,
         limit: q.limit,
     };
-    state.service.list_tasks(&filter)
+    state.service.list_tasks(&filter).await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
 }
@@ -58,7 +58,7 @@ async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.get_task(&id)
+    state.service.get_task(&id).await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
 }
@@ -67,7 +67,7 @@ async fn create_task(
     State(state): State<AppState>,
     Json(input): Json<CreateTask>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    state.service.create_task(&input)
+    state.service.create_task(&input).await
         .map(|t| (StatusCode::CREATED, Json(json!(t))))
         .map_err(to_error)
 }
@@ -84,7 +84,7 @@ async fn update_task(
             input.spec_approved_hash = Some(sha256_hex(&content));
         }
     }
-    state.service.update_task(&id, &input)
+    state.service.update_task(&id, &input).await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
 }
@@ -93,7 +93,7 @@ async fn delete_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    state.service.delete_task(&id)
+    state.service.delete_task(&id).await
         .map(|_| StatusCode::NO_CONTENT)
         .map_err(to_error)
 }
@@ -107,7 +107,7 @@ async fn count_by_status(
     State(state): State<AppState>,
     Query(q): Query<CountQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.count_tasks_by_status(&q.project_id)
+    state.service.count_tasks_by_status(&q.project_id).await
         .map(|c| Json(json!(c)))
         .map_err(to_error)
 }
@@ -116,7 +116,7 @@ async fn list_children(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.list_child_tasks(&id)
+    state.service.list_child_tasks(&id).await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
 }
@@ -126,7 +126,7 @@ async fn read_spec(
     Path(id): Path<String>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     // Verify task exists
-    let _task = state.service.get_task(&id).map_err(to_error)?;
+    let _task = state.service.get_task(&id).await.map_err(to_error)?;
     let path = flowstate_db::task_spec_path(&id);
     match std::fs::read_to_string(&path) {
         Ok(content) => Ok(Response::builder()
@@ -148,7 +148,7 @@ async fn write_spec(
     Path(id): Path<String>,
     body: String,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    let task = state.service.get_task(&id).map_err(to_error)?;
+    let task = state.service.get_task(&id).await.map_err(to_error)?;
     let path = flowstate_db::task_spec_path(&id);
     std::fs::create_dir_all(path.parent().unwrap())
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("mkdir: {e}"))))?;
@@ -165,7 +165,7 @@ async fn write_spec(
                 spec_approved_hash: Some(String::new()),
                 ..Default::default()
             };
-            let _ = state.service.update_task(&id, &update);
+            let _ = state.service.update_task(&id, &update).await;
         }
     } else if task.spec_status == ApprovalStatus::None && !body.trim().is_empty() {
         // Auto-set to Pending when content written for the first time
@@ -173,7 +173,7 @@ async fn write_spec(
             spec_status: Some(ApprovalStatus::Pending),
             ..Default::default()
         };
-        let _ = state.service.update_task(&id, &update);
+        let _ = state.service.update_task(&id, &update).await;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -183,7 +183,7 @@ async fn read_plan(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
-    let _task = state.service.get_task(&id).map_err(to_error)?;
+    let _task = state.service.get_task(&id).await.map_err(to_error)?;
     let path = flowstate_db::task_plan_path(&id);
     match std::fs::read_to_string(&path) {
         Ok(content) => Ok(Response::builder()
@@ -205,7 +205,7 @@ async fn write_plan(
     Path(id): Path<String>,
     body: String,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    let task = state.service.get_task(&id).map_err(to_error)?;
+    let task = state.service.get_task(&id).await.map_err(to_error)?;
     let path = flowstate_db::task_plan_path(&id);
     std::fs::create_dir_all(path.parent().unwrap())
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("mkdir: {e}"))))?;
@@ -218,7 +218,7 @@ async fn write_plan(
             plan_status: Some(ApprovalStatus::Pending),
             ..Default::default()
         };
-        let _ = state.service.update_task(&id, &update);
+        let _ = state.service.update_task(&id, &update).await;
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -228,7 +228,7 @@ async fn list_attachments(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.list_attachments(&id)
+    state.service.list_attachments(&id).await
         .map(|a| Json(json!(a)))
         .map_err(to_error)
 }

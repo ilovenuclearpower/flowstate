@@ -53,7 +53,7 @@ async fn main() -> Result<()> {
             if keys.is_empty() {
                 eprintln!("No API keys found.");
             } else {
-                println!("{:<38} {:<20} {:<28} {}", "ID", "NAME", "CREATED", "LAST USED");
+                println!("{:<38} {:<20} {:<28} LAST USED", "ID", "NAME", "CREATED");
                 for key in keys {
                     println!(
                         "{:<38} {:<20} {:<28} {}",

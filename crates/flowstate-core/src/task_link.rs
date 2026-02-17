@@ -20,7 +20,7 @@ impl LinkType {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "blocks" => Some(LinkType::Blocks),
             "relates_to" => Some(LinkType::RelatesTo),

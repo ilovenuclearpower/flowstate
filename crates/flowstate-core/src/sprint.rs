@@ -18,7 +18,7 @@ impl SprintStatus {
         }
     }
 
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "planned" => Some(SprintStatus::Planned),
             "active" => Some(SprintStatus::Active),
