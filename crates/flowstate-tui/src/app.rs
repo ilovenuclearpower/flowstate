@@ -46,7 +46,11 @@ pub enum Mode {
     /// Claude action picker (design/plan/build)
     ClaudeActionPick { task: Task },
     /// Waiting for a Claude run to finish (polling)
-    ClaudeRunning { task: Task, run_id: String },
+    ClaudeRunning {
+        task: Task,
+        run_id: String,
+        progress: Option<String>,
+    },
     /// Viewing Claude output (scrollable)
     ClaudeOutput {
         task: Task,
@@ -68,6 +72,23 @@ pub enum Mode {
         project_id: String,
         input: String,
     },
+    /// System health checks
+    Health {
+        checks: Vec<HealthCheck>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct HealthCheck {
+    pub name: String,
+    pub status: CheckStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum CheckStatus {
+    Passed,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -163,7 +184,7 @@ impl App {
 
     /// Poll the Claude run status. Called on timeout from event loop.
     pub fn poll_claude_run(&mut self) {
-        if let Mode::ClaudeRunning { ref task, ref run_id } = self.mode.clone() {
+        if let Mode::ClaudeRunning { ref task, ref run_id, .. } = self.mode.clone() {
             match self.service.get_claude_run(run_id) {
                 Ok(run) => {
                     let is_done = matches!(
@@ -183,6 +204,13 @@ impl App {
                             task: task.clone(),
                             output,
                             scroll: 0,
+                        };
+                    } else {
+                        // Update progress message
+                        self.mode = Mode::ClaudeRunning {
+                            task: task.clone(),
+                            run_id: run_id.clone(),
+                            progress: run.progress_message,
                         };
                     }
                 }
@@ -261,6 +289,7 @@ impl App {
                     self.mode = Mode::TaskDetail { task: task.clone() };
                 }
             }
+            Mode::Health { .. } => self.handle_health(key),
             Mode::ClaudeOutput { task, output, scroll } => {
                 self.handle_claude_output(key, task.clone(), output.clone(), *scroll)
             }
@@ -359,6 +388,11 @@ impl App {
                         list_state,
                     };
                 }
+            }
+            // Health checks
+            KeyCode::Char('H') => {
+                let checks = self.run_health_checks();
+                self.mode = Mode::Health { checks };
             }
             _ => self.board.handle_key(key),
         }
@@ -826,6 +860,7 @@ impl App {
                         self.mode = Mode::ClaudeRunning {
                             task,
                             run_id: run.id,
+                            progress: None,
                         };
                     }
                     Err(e) => {
@@ -849,6 +884,7 @@ impl App {
                         self.mode = Mode::ClaudeRunning {
                             task,
                             run_id: run.id,
+                            progress: None,
                         };
                     }
                     Err(e) => {
@@ -864,6 +900,7 @@ impl App {
                         self.mode = Mode::ClaudeRunning {
                             task,
                             run_id: run.id,
+                            progress: None,
                         };
                     }
                     Err(e) => {
@@ -986,6 +1023,149 @@ impl App {
         }
     }
 
+    fn handle_health(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('r') => {
+                let checks = self.run_health_checks();
+                self.mode = Mode::Health { checks };
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.mode = Mode::Normal;
+            }
+            _ => {}
+        }
+    }
+
+    fn run_health_checks(&self) -> Vec<HealthCheck> {
+        let mut checks = Vec::new();
+
+        // 1. Server connectivity
+        let server = match self.service.health_check() {
+            Ok(()) => HealthCheck {
+                name: "Server".into(),
+                status: CheckStatus::Passed,
+                detail: "Connected".into(),
+            },
+            Err(e) => HealthCheck {
+                name: "Server".into(),
+                status: CheckStatus::Failed,
+                detail: format!("{e}"),
+            },
+        };
+        checks.push(server);
+
+        // 2. Runner(s) via system_status
+        match self.service.system_status() {
+            Ok(status) => {
+                if status.runners.is_empty() {
+                    checks.push(HealthCheck {
+                        name: "Runner".into(),
+                        status: CheckStatus::Failed,
+                        detail: "No runners connected".into(),
+                    });
+                } else {
+                    for r in &status.runners {
+                        let detail = if r.connected {
+                            format!("{} (connected)", r.runner_id)
+                        } else {
+                            format!("{} (last seen: {})", r.runner_id, r.last_seen)
+                        };
+                        checks.push(HealthCheck {
+                            name: "Runner".into(),
+                            status: if r.connected {
+                                CheckStatus::Passed
+                            } else {
+                                CheckStatus::Failed
+                            },
+                            detail,
+                        });
+                    }
+                }
+            }
+            Err(_) => {
+                checks.push(HealthCheck {
+                    name: "Runner".into(),
+                    status: CheckStatus::Failed,
+                    detail: "Could not fetch status".into(),
+                });
+            }
+        }
+
+        // 3. Git
+        let git = match std::process::Command::new("git")
+            .arg("--version")
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                HealthCheck {
+                    name: "Git".into(),
+                    status: CheckStatus::Passed,
+                    detail: ver,
+                }
+            }
+            _ => HealthCheck {
+                name: "Git".into(),
+                status: CheckStatus::Failed,
+                detail: "Not found".into(),
+            },
+        };
+        checks.push(git);
+
+        // 4. Claude CLI
+        let claude = match std::process::Command::new("claude")
+            .arg("--version")
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                let ver = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                HealthCheck {
+                    name: "Claude CLI".into(),
+                    status: CheckStatus::Passed,
+                    detail: ver,
+                }
+            }
+            _ => HealthCheck {
+                name: "Claude CLI".into(),
+                status: CheckStatus::Failed,
+                detail: "Not found".into(),
+            },
+        };
+        checks.push(claude);
+
+        // 5. GitHub CLI auth
+        let gh = match std::process::Command::new("gh")
+            .args(["auth", "status"])
+            .output()
+        {
+            Ok(out) if out.status.success() => HealthCheck {
+                name: "GitHub CLI".into(),
+                status: CheckStatus::Passed,
+                detail: "Authenticated".into(),
+            },
+            Ok(out) => {
+                let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                HealthCheck {
+                    name: "GitHub CLI".into(),
+                    status: CheckStatus::Failed,
+                    detail: if msg.is_empty() {
+                        "Not authenticated".into()
+                    } else {
+                        msg
+                    },
+                }
+            }
+            _ => HealthCheck {
+                name: "GitHub CLI".into(),
+                status: CheckStatus::Failed,
+                detail: "Not found".into(),
+            },
+        };
+        checks.push(gh);
+
+        checks
+    }
+
     fn handle_edit_repo_url(&mut self, key: KeyEvent, project_id: String, mut input: String) {
         match key.code {
             KeyCode::Enter => {
@@ -1066,9 +1246,12 @@ impl App {
             Mode::ClaudeActionPick { task } => {
                 self.render_claude_action_pick(frame, task, area)
             }
-            Mode::ClaudeRunning { run_id, .. } => {
-                self.render_claude_running(frame, run_id, area)
+            Mode::ClaudeRunning {
+                run_id, progress, ..
+            } => {
+                self.render_claude_running(frame, run_id, progress.as_deref(), area)
             }
+            Mode::Health { checks } => self.render_health(frame, checks, area),
             Mode::ClaudeOutput { output, scroll, .. } => {
                 self.render_scrollable_text(frame, " Claude Output ", output, *scroll, area)
             }
@@ -1137,6 +1320,7 @@ impl App {
                 ("d", "del"),
                 ("p", "priority"),
                 ("P", "projects"),
+                ("H", "health"),
             ],
             Mode::NewTask { .. } => vec![("Enter", "create"), ("Esc", "cancel")],
             Mode::TaskDetail { .. } => vec![
@@ -1190,6 +1374,7 @@ impl App {
                 ("Esc", "cancel"),
             ],
             Mode::EditRepoUrl { .. } => vec![("Enter", "save"), ("Esc", "cancel")],
+            Mode::Health { .. } => vec![("r", "refresh"), ("Esc", "back")],
         };
 
         let spans: Vec<Span> = hints
@@ -1520,21 +1705,90 @@ impl App {
         frame.render_widget(paragraph, popup);
     }
 
-    fn render_claude_running(&self, frame: &mut Frame, run_id: &str, area: Rect) {
-        let popup = centered_rect(50, 15, area);
+    fn render_claude_running(
+        &self,
+        frame: &mut Frame,
+        run_id: &str,
+        progress: Option<&str>,
+        area: Rect,
+    ) {
+        let popup = centered_rect(50, 20, area);
         frame.render_widget(Clear, popup);
 
         let block = Block::default()
-            .title(" Claude Running ")
+            .title(" Claude Run ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Green));
 
-        let text = format!("Claude is working...\n\nRun: {}\n\nPress Esc to background", run_id);
-        let paragraph = Paragraph::new(text)
-            .block(block)
-            .wrap(Wrap { trim: false })
-            .alignment(Alignment::Center);
-        frame.render_widget(paragraph, popup);
+        let inner = block.inner(popup);
+        frame.render_widget(block, popup);
+
+        let progress_text = progress.unwrap_or("Starting...");
+
+        let lines = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Status:   ", Style::default().bold()),
+                Span::styled("Running", Style::default().fg(Color::Green)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Progress: ", Style::default().bold()),
+                Span::styled(progress_text, Style::default().fg(Color::Yellow)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Run ID:   ", Style::default().bold()),
+                Span::styled(run_id, Style::default().fg(Color::DarkGray)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press Esc to background",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ];
+
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+        frame.render_widget(paragraph, inner);
+    }
+
+    fn render_health(&self, frame: &mut Frame, checks: &[HealthCheck], area: Rect) {
+        let popup = centered_rect(55, 35, area);
+        frame.render_widget(Clear, popup);
+
+        let block = Block::default()
+            .title(" System Health ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan));
+
+        let inner = block.inner(popup);
+        frame.render_widget(block, popup);
+
+        let mut lines = vec![Line::from("")];
+
+        for check in checks {
+            let (icon, icon_style) = match check.status {
+                CheckStatus::Passed => ("  OK ", Style::default().fg(Color::Green).bold()),
+                CheckStatus::Failed => ("  FAIL ", Style::default().fg(Color::Red).bold()),
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(icon, icon_style),
+                Span::styled(
+                    format!("{:<12}", check.name),
+                    Style::default().bold(),
+                ),
+                Span::raw(&check.detail),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  r = refresh, Esc = back",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+        frame.render_widget(paragraph, inner);
     }
 
     fn render_scrollable_text(

@@ -24,10 +24,18 @@ async fn main() -> Result<()> {
     info!("flowstate-runner starting");
     info!("server: {}", config.server_url);
 
-    let service = Arc::new(match &config.api_key {
+    // Generate runner ID from HOSTNAME env var or UUID
+    let runner_id = std::env::var("HOSTNAME")
+        .or_else(|_| std::env::var("HOST"))
+        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+    info!("runner id: {runner_id}");
+
+    let mut svc = match &config.api_key {
         Some(key) => HttpService::with_api_key(&config.server_url, key.clone()),
         None => HttpService::new(&config.server_url),
-    });
+    };
+    svc.set_runner_id(runner_id);
+    let service = Arc::new(svc);
 
     // Run preflight checks
     preflight::run_all(&service).await?;

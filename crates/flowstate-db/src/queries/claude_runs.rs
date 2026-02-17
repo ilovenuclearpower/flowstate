@@ -18,6 +18,7 @@ fn row_to_claude_run(row: &Row) -> rusqlite::Result<ClaudeRun> {
         pr_url: row.get("pr_url")?,
         pr_number: row.get("pr_number")?,
         branch_name: row.get("branch_name")?,
+        progress_message: row.get("progress_message")?,
         started_at: row.get("started_at")?,
         finished_at: row.get("finished_at")?,
     })
@@ -127,6 +128,21 @@ impl Db {
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
                 Err(e) => Err(DbError::Sqlite(e)),
             }
+        })
+    }
+
+    /// Update the progress message on a claude run.
+    pub fn update_claude_run_progress(
+        &self,
+        id: &str,
+        message: &str,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE claude_runs SET progress_message = ?1 WHERE id = ?2",
+                params![message, id],
+            )?;
+            Ok(())
         })
     }
 

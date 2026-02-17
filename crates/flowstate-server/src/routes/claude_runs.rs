@@ -1,15 +1,16 @@
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post, put},
     Json, Router,
 };
+use chrono::Utc;
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
 use flowstate_service::TaskService;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::AppState;
+use super::{AppState, RunnerInfo};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -20,6 +21,10 @@ pub fn routes() -> Router<AppState> {
         .route("/api/claude-runs/claim", post(claim_claude_run))
         .route("/api/claude-runs/{id}", get(get_claude_run))
         .route("/api/claude-runs/{id}/status", put(update_claude_run_status))
+        .route(
+            "/api/claude-runs/{id}/progress",
+            put(update_claude_run_progress),
+        )
         .route("/api/claude-runs/{id}/output", get(get_claude_run_output))
 }
 
@@ -78,7 +83,11 @@ async fn trigger_claude_run(
         task_id: task_id.clone(),
         action,
     };
-    let run = state.service.create_claude_run(&create).await.map_err(to_error)?;
+    let run = state
+        .service
+        .create_claude_run(&create)
+        .await
+        .map_err(to_error)?;
 
     // The runner will pick this up via polling — no tokio::spawn here.
 
@@ -87,9 +96,25 @@ async fn trigger_claude_run(
 
 /// Claim the oldest queued run, atomically setting it to Running.
 /// Returns 204 if no queued runs exist.
+/// Also records the runner heartbeat via X-Runner-Id header.
 async fn claim_claude_run(
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
+    // Record runner heartbeat
+    let runner_id = headers
+        .get("X-Runner-Id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+    state.runners.lock().unwrap().insert(
+        runner_id.clone(),
+        RunnerInfo {
+            runner_id,
+            last_seen: Utc::now(),
+        },
+    );
+
     let result = state.db.claim_next_claude_run().map_err(|e| {
         to_error(flowstate_service::ServiceError::Internal(e.to_string()))
     })?;
@@ -154,13 +179,31 @@ async fn update_claude_run_status(
     Ok(Json(json!(run)))
 }
 
+#[derive(Debug, Deserialize)]
+struct ProgressInput {
+    message: String,
+}
+
+async fn update_claude_run_progress(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<ProgressInput>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    state
+        .db
+        .update_claude_run_progress(&id, &input.message)
+        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(e.to_string())))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn list_claude_runs(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     state
         .service
-        .list_claude_runs(&task_id).await
+        .list_claude_runs(&task_id)
+        .await
         .map(|r| Json(json!(r)))
         .map_err(to_error)
 }
@@ -171,7 +214,8 @@ async fn get_claude_run(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     state
         .service
-        .get_claude_run(&id).await
+        .get_claude_run(&id)
+        .await
         .map(|r| Json(json!(r)))
         .map_err(to_error)
 }
@@ -181,7 +225,11 @@ async fn get_claude_run_output(
     Path(id): Path<String>,
 ) -> Result<String, (StatusCode, Json<Value>)> {
     // First verify the run exists
-    let _run = state.service.get_claude_run(&id).await.map_err(to_error)?;
+    let _run = state
+        .service
+        .get_claude_run(&id)
+        .await
+        .map_err(to_error)?;
 
     let output_path = flowstate_db::claude_run_dir(&id).join("output.txt");
     std::fs::read_to_string(&output_path).map_err(|e| {

@@ -35,30 +35,30 @@ async fn execute_design(
     task: &Task,
     project: &Project,
 ) -> Result<()> {
+    progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, ClaudeAction::Design).await;
     let prompt = flowstate_prompts::assemble_prompt(&ctx, ClaudeAction::Design);
 
-    // Work dir: a temp-ish directory for the task
     let work_dir = task_work_dir(&task.id);
     std::fs::create_dir_all(&work_dir)?;
 
     save_prompt(&run.id, &prompt)?;
 
+    progress(service, &run.id, "Running Claude CLI...").await;
     let output = run_claude(&prompt, &work_dir).await?;
 
     if output.success {
-        // Read SPECIFICATION.md from work dir
+        progress(service, &run.id, "Reading output...").await;
         let spec_file = work_dir.join("SPECIFICATION.md");
         let content = std::fs::read_to_string(&spec_file)
             .unwrap_or_else(|_| output.stdout.clone());
 
-        // Write spec via HTTP
+        progress(service, &run.id, "Writing spec to server...").await;
         service
             .write_task_spec(&task.id, &content)
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        // Set spec_status = pending
         let update = flowstate_core::task::UpdateTask {
             spec_status: Some(flowstate_core::task::ApprovalStatus::Pending),
             ..Default::default()
@@ -68,7 +68,6 @@ async fn execute_design(
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        // Clean up
         let _ = std::fs::remove_file(&spec_file);
 
         report_success(service, &run.id, output.exit_code).await?;
@@ -86,6 +85,7 @@ async fn execute_plan(
     task: &Task,
     project: &Project,
 ) -> Result<()> {
+    progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, ClaudeAction::Plan).await;
     let prompt = flowstate_prompts::assemble_prompt(&ctx, ClaudeAction::Plan);
 
@@ -94,13 +94,16 @@ async fn execute_plan(
 
     save_prompt(&run.id, &prompt)?;
 
+    progress(service, &run.id, "Running Claude CLI...").await;
     let output = run_claude(&prompt, &work_dir).await?;
 
     if output.success {
+        progress(service, &run.id, "Reading output...").await;
         let plan_file = work_dir.join("PLAN.md");
         let content = std::fs::read_to_string(&plan_file)
             .unwrap_or_else(|_| output.stdout.clone());
 
+        progress(service, &run.id, "Writing plan to server...").await;
         service
             .write_task_plan(&task.id, &content)
             .await
@@ -227,6 +230,11 @@ fn save_prompt(run_id: &str, prompt: &str) -> Result<()> {
     std::fs::create_dir_all(&run_dir)?;
     std::fs::write(run_dir.join("prompt.md"), prompt)?;
     Ok(())
+}
+
+async fn progress(service: &HttpService, run_id: &str, message: &str) {
+    info!("{message}");
+    let _ = service.update_claude_run_progress(run_id, message).await;
 }
 
 async fn report_success(service: &HttpService, run_id: &str, exit_code: i32) -> Result<()> {

@@ -8,12 +8,26 @@ use reqwest::{Client, RequestBuilder, StatusCode};
 
 use crate::{ServiceError, TaskService};
 
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct SystemStatus {
+    pub server: String,
+    pub runners: Vec<RunnerStatus>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct RunnerStatus {
+    pub runner_id: String,
+    pub last_seen: String,
+    pub connected: bool,
+}
+
 /// Async HTTP client implementation of TaskService.
 /// Connects to a running flowstate-server.
 pub struct HttpService {
     base_url: String,
     client: Client,
     api_key: Option<String>,
+    runner_id: Option<String>,
 }
 
 impl HttpService {
@@ -23,6 +37,7 @@ impl HttpService {
             base_url,
             client: Client::new(),
             api_key: None,
+            runner_id: None,
         }
     }
 
@@ -32,12 +47,21 @@ impl HttpService {
             base_url,
             client: Client::new(),
             api_key: Some(key),
+            runner_id: None,
         }
     }
 
+    pub fn set_runner_id(&mut self, id: String) {
+        self.runner_id = Some(id);
+    }
+
     fn with_auth(&self, builder: RequestBuilder) -> RequestBuilder {
-        match &self.api_key {
+        let builder = match &self.api_key {
             Some(key) => builder.header("Authorization", format!("Bearer {key}")),
+            None => builder,
+        };
+        match &self.runner_id {
+            Some(id) => builder.header("X-Runner-Id", id.as_str()),
             None => builder,
         }
     }
@@ -234,6 +258,33 @@ impl HttpService {
             }),
         )
         .await
+    }
+
+    /// Update the progress message on a running claude run.
+    pub async fn update_claude_run_progress(
+        &self,
+        id: &str,
+        message: &str,
+    ) -> Result<(), ServiceError> {
+        let builder = self
+            .client
+            .put(format!("{}/api/claude-runs/{id}/progress", self.base_url))
+            .json(&serde_json::json!({ "message": message }));
+        let resp = self
+            .with_auth(builder)
+            .send()
+            .await
+            .map_err(|e| ServiceError::Internal(e.to_string()))?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(parse_error(resp).await)
+        }
+    }
+
+    /// Fetch system status (server + runner connectivity).
+    pub async fn system_status(&self) -> Result<SystemStatus, ServiceError> {
+        self.get_json("/api/status").await
     }
 
     /// Update a claude run with PR info (url, number, branch).

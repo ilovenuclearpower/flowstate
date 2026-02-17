@@ -158,4 +158,8 @@ impl BlockingHttpService {
         self.rt
             .block_on(self.inner.write_task_plan(task_id, content))
     }
+
+    pub fn system_status(&self) -> Result<crate::SystemStatus, ServiceError> {
+        self.rt.block_on(self.inner.system_status())
+    }
 }

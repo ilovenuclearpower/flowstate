@@ -266,5 +266,21 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         )?;
     }
 
+    if current_version < 4 {
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if !has_column("claude_runs", "progress_message") {
+            conn.execute_batch(
+                "ALTER TABLE claude_runs ADD COLUMN progress_message TEXT;",
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (4, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }

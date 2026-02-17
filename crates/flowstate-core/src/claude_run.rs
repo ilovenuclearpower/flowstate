@@ -89,6 +89,8 @@ pub struct ClaudeRun {
     pub pr_number: Option<i64>,
     #[serde(default)]
     pub branch_name: Option<String>,
+    #[serde(default)]
+    pub progress_message: Option<String>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
 }
