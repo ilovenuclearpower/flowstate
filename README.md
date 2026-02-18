@@ -108,6 +108,51 @@ Data is stored at `~/.local/share/flowstate/` (or `$XDG_DATA_HOME/flowstate/`):
 - `tasks/{id}/plan.md` — Implementation plans
 - `runs/{id}/` — Claude run output and prompts
 
+## Garage Object Store (Development)
+
+The dev shell includes a local [Garage](https://garagehq.deuxfleurs.fr/) S3-compatible object store for development and testing. Two instances are available:
+
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `garage-dev-start` | Start persistent Garage instance (S3 on `:3900`) |
+| `garage-dev-stop` | Stop persistent Garage instance |
+| `garage-dev-status` | Check if persistent instance is running |
+| `garage-dev-info` | Show S3 credentials and endpoint |
+| `garage-test-start` | Start ephemeral Garage instance (S3 on `:3910`) |
+| `garage-test-stop` | Stop ephemeral instance and wipe all data |
+| `garage-test-status` | Check if test instance is running |
+| `garage-test-info` | Show test S3 credentials and endpoint |
+
+### Usage
+
+```bash
+# Start the dev instance
+garage-dev-start
+
+# Load credentials into your shell
+eval $(garage-dev-info --env)
+
+# Use with AWS CLI
+aws s3 ls s3://flowstate/ --endpoint-url $AWS_ENDPOINT_URL
+echo "hello" | aws s3 cp - s3://flowstate/test.txt --endpoint-url $AWS_ENDPOINT_URL
+```
+
+### Port Allocation
+
+| Service | Dev Instance | Test Instance |
+|---------|-------------|---------------|
+| S3 API | 3900 | 3910 |
+| RPC | 3901 | 3911 |
+| Web | 3902 | 3912 |
+| Admin API | 3903 | 3913 |
+
+### Data Directories
+
+- **Dev (persistent):** `~/.local/share/flowstate/garage/dev/` — survives restarts
+- **Test (ephemeral):** `/tmp/flowstate-garage-test-XXXXXXXX/` — wiped on `garage-test-stop`
+
 ## Keyboard Shortcuts
 
 ### Board (Normal mode)

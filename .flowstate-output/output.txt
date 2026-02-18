@@ -1,0 +1,34 @@
+Everything looks good. Here's a summary of what was implemented:
+
+## Summary
+
+### Files Changed
+
+| File | Status | Description |
+|------|--------|-------------|
+| `nix/garage.nix` | **NEW** | All 8 Garage script derivations as Nix `writeShellScriptBin` |
+| `flake.nix` | **MODIFIED** | Imports `nix/garage.nix`, adds scripts + `openssl` to devShell, extends shellHook |
+| `README.md` | **MODIFIED** | Added "Garage Object Store (Development)" section |
+
+### Scripts Implemented
+
+All 8 scripts are available in `nix develop`:
+
+- **`garage-dev-start`** — Starts persistent Garage on ports 3900-3903. First run generates secrets, writes `garage.toml`, bootstraps layout/bucket/key. Handles stale PIDs, port conflicts, concurrent starts via `flock`.
+- **`garage-dev-stop`** — Graceful SIGTERM with 10s timeout then SIGKILL.
+- **`garage-dev-status`** — Reports running/stopped with health check.
+- **`garage-dev-info`** — Prints credentials; `--env` flag for `eval $(...)` usage.
+- **`garage-test-start`** — Ephemeral instance on ports 3910-3913 with deterministic secrets, SQLite backend, fresh temp directory each time.
+- **`garage-test-stop`** — Stops and `rm -rf`s the entire temp directory.
+- **`garage-test-status`** — Reports running/stopped for test instance.
+- **`garage-test-info`** — Same as dev-info but for test instance.
+
+### Validated
+
+- Flake evaluates correctly (`nix flake show`)
+- All 8 scripts + `garage` binary on `$PATH` in dev shell
+- Dev lifecycle: start → status → info → double-start (idempotent) → stop → restart (persistent data)
+- Test lifecycle: start → bootstrap → status → info → stop → cleanup
+- Rust toolchain works (`cargo --version`)
+- All 13 existing tests pass
+- Config fix: Garage v1.3.1 requires `root_domain` in `[s3_web]` — added to both configs

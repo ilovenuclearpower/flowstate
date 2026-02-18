@@ -57,6 +57,8 @@
           meta.mainProgram = "flowstate-runner";
         });
 
+        garageScripts = import ./nix/garage.nix { inherit pkgs; };
+
       in {
         packages = {
           default = flowstate-tui;
@@ -82,11 +84,22 @@
           packages = [
             pkgs.sqlite
             pkgs.git
-          ];
+            pkgs.openssl
+          ] ++ garageScripts.all;
           shellHook = ''
             echo "flowstate dev shell"
             echo "  cargo: $(cargo --version)"
             echo "  rustc: $(rustc --version)"
+            echo ""
+            echo "Garage commands:"
+            echo "  garage-dev-start   - Start persistent Garage (S3 on :3900)"
+            echo "  garage-dev-stop    - Stop persistent Garage"
+            echo "  garage-dev-status  - Check persistent Garage status"
+            echo "  garage-dev-info    - Show S3 credentials"
+            echo "  garage-test-start  - Start ephemeral Garage (S3 on :3910)"
+            echo "  garage-test-stop   - Stop ephemeral Garage and wipe data"
+            echo "  garage-test-status - Check ephemeral Garage status"
+            echo "  garage-test-info   - Show test S3 credentials"
           '';
         };
       }
