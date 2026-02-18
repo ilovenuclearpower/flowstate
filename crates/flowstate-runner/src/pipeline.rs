@@ -185,6 +185,19 @@ pub async fn execute(
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    // 17b. Link PR to task
+    progress(service, &run.id, "Linking PR to task...").await;
+    let create_pr = flowstate_core::task_pr::CreateTaskPr {
+        task_id: task.id.clone(),
+        claude_run_id: Some(run.id.clone()),
+        pr_url: pr.url.clone(),
+        pr_number: pr.number as i64,
+        branch_name: pr.branch.clone(),
+    };
+    if let Err(e) = service.create_task_pr(&create_pr).await {
+        tracing::warn!("failed to link PR to task: {e}");
+    }
+
     // 18. Update task status to InReview
     let update = flowstate_core::task::UpdateTask {
         status: Some(flowstate_core::task::Status::InReview),

@@ -1,34 +1,24 @@
-Everything looks good. Here's a summary of what was implemented:
+All phases complete. Here's a summary of what was implemented:
 
 ## Summary
 
-### Files Changed
+### New Files (3)
+- **`crates/flowstate-core/src/task_pr.rs`** — `TaskPr` and `CreateTaskPr` model structs
+- **`crates/flowstate-db/src/queries/task_prs.rs`** — `create_task_pr` (idempotent via `INSERT OR IGNORE`) and `list_task_prs` query functions, plus 5 unit tests
+- **`crates/flowstate-server/src/routes/task_prs.rs`** — `POST` and `GET /api/tasks/{task_id}/prs` route handlers
 
-| File | Status | Description |
-|------|--------|-------------|
-| `nix/garage.nix` | **NEW** | All 8 Garage script derivations as Nix `writeShellScriptBin` |
-| `flake.nix` | **MODIFIED** | Imports `nix/garage.nix`, adds scripts + `openssl` to devShell, extends shellHook |
-| `README.md` | **MODIFIED** | Added "Garage Object Store (Development)" section |
+### Modified Files (9)
+- **`crates/flowstate-core/src/lib.rs`** — registered `task_pr` module
+- **`crates/flowstate-db/src/migrations.rs`** — added migration v6 creating `task_prs` table with indexes (`idx_task_prs_task`, unique `idx_task_prs_url`) and proper FK constraints (`ON DELETE CASCADE` for task, `ON DELETE SET NULL` for claude_run)
+- **`crates/flowstate-db/src/queries/mod.rs`** — registered `task_prs` module
+- **`crates/flowstate-service/src/traits.rs`** — added `create_task_pr` and `list_task_prs` to `TaskService` trait
+- **`crates/flowstate-service/src/local.rs`** — implemented trait methods (delegating to DB)
+- **`crates/flowstate-service/src/http.rs`** — implemented trait methods (HTTP calls)
+- **`crates/flowstate-service/src/blocking.rs`** — added blocking wrappers
+- **`crates/flowstate-server/src/routes/mod.rs`** — registered `task_prs` routes in protected router
+- **`crates/flowstate-runner/src/pipeline.rs`** — added step 17b to link PR to task after creation (non-fatal on error)
 
-### Scripts Implemented
-
-All 8 scripts are available in `nix develop`:
-
-- **`garage-dev-start`** — Starts persistent Garage on ports 3900-3903. First run generates secrets, writes `garage.toml`, bootstraps layout/bucket/key. Handles stale PIDs, port conflicts, concurrent starts via `flock`.
-- **`garage-dev-stop`** — Graceful SIGTERM with 10s timeout then SIGKILL.
-- **`garage-dev-status`** — Reports running/stopped with health check.
-- **`garage-dev-info`** — Prints credentials; `--env` flag for `eval $(...)` usage.
-- **`garage-test-start`** — Ephemeral instance on ports 3910-3913 with deterministic secrets, SQLite backend, fresh temp directory each time.
-- **`garage-test-stop`** — Stops and `rm -rf`s the entire temp directory.
-- **`garage-test-status`** — Reports running/stopped for test instance.
-- **`garage-test-info`** — Same as dev-info but for test instance.
-
-### Validated
-
-- Flake evaluates correctly (`nix flake show`)
-- All 8 scripts + `garage` binary on `$PATH` in dev shell
-- Dev lifecycle: start → status → info → double-start (idempotent) → stop → restart (persistent data)
-- Test lifecycle: start → bootstrap → status → info → stop → cleanup
-- Rust toolchain works (`cargo --version`)
-- All 13 existing tests pass
-- Config fix: Garage v1.3.1 requires `root_domain` in `[s3_web]` — added to both configs
+### Validation
+- `cargo build --workspace` — clean
+- `cargo test --workspace` — 18/18 tests pass (5 new)
+- `cargo clippy --workspace -- -D warnings` — zero warnings

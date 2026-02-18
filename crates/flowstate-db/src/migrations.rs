@@ -298,5 +298,25 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         )?;
     }
 
+    if current_version < 6 {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS task_prs (
+                id            TEXT PRIMARY KEY,
+                task_id       TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                claude_run_id TEXT REFERENCES claude_runs(id) ON DELETE SET NULL,
+                pr_url        TEXT NOT NULL,
+                pr_number     INTEGER NOT NULL,
+                branch_name   TEXT NOT NULL,
+                created_at    TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_task_prs_task ON task_prs(task_id);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_task_prs_url ON task_prs(pr_url);",
+        )?;
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (6, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }

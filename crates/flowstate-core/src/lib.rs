@@ -7,6 +7,7 @@ pub mod project;
 pub mod sprint;
 pub mod task;
 pub mod task_link;
+pub mod task_pr;
 pub mod verification;
 
 pub use error::FlowstateError;
