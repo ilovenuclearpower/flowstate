@@ -85,7 +85,6 @@ impl RepoProvider for GitHubProvider {
                 "--body", body,
                 "--head", branch,
                 "--base", base,
-                "--json", "number,url",
             ])
             .current_dir(work_dir)
             .output()
@@ -99,17 +98,16 @@ impl RepoProvider for GitHubProvider {
             )));
         }
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let json: serde_json::Value = serde_json::from_str(&stdout)
-            .map_err(|e| ProviderError::PrFailed(format!("parse gh output: {e}")))?;
-
-        let number = json["number"]
-            .as_u64()
-            .ok_or_else(|| ProviderError::PrFailed("missing number in gh output".into()))?;
-        let url = json["url"]
-            .as_str()
-            .ok_or_else(|| ProviderError::PrFailed("missing url in gh output".into()))?
-            .to_string();
+        // gh pr create prints the PR URL to stdout, e.g.:
+        // https://github.com/owner/repo/pull/42
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let number = url
+            .rsplit('/')
+            .next()
+            .and_then(|s| s.parse::<u64>().ok())
+            .ok_or_else(|| {
+                ProviderError::PrFailed(format!("could not parse PR number from: {url}"))
+            })?;
 
         info!("opened PR #{number}: {url}");
 
