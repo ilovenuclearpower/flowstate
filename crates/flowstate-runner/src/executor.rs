@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{Context, Result};
@@ -8,11 +8,14 @@ use flowstate_core::task::Task;
 use flowstate_prompts::{ChildTaskInfo, PromptContext};
 use flowstate_service::{HttpService, TaskService};
 use tokio::process::Command;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::pipeline;
+use crate::workspace;
 
 /// Dispatch a claimed run to the appropriate handler.
+/// Each run gets a fresh workspace directory keyed by run ID,
+/// which is cleaned up after the run completes (success or failure).
 pub async fn dispatch(
     service: &HttpService,
     run: &ClaudeRun,
@@ -20,11 +23,55 @@ pub async fn dispatch(
     project: &Project,
     workspace_root: &Option<PathBuf>,
 ) -> Result<()> {
-    match run.action {
-        ClaudeAction::Design => execute_design(service, run, task, project).await,
-        ClaudeAction::Plan => execute_plan(service, run, task, project).await,
+    let ws_dir = resolve_workspace_dir(workspace_root, &run.id);
+    info!("workspace for run {}: {}", run.id, ws_dir.display());
+
+    let result = match run.action {
+        ClaudeAction::Design => {
+            execute_design(service, run, task, project, &ws_dir).await
+        }
+        ClaudeAction::Plan => {
+            execute_plan(service, run, task, project, &ws_dir).await
+        }
         ClaudeAction::Build => {
-            pipeline::execute(service, run, task, project, workspace_root).await
+            pipeline::execute(service, run, task, project, &ws_dir).await
+        }
+    };
+
+    // Always clean up workspace after the run
+    cleanup_workspace(&ws_dir);
+
+    result
+}
+
+/// Resolve a per-run workspace directory.
+pub fn resolve_workspace_dir(workspace_root: &Option<PathBuf>, run_id: &str) -> PathBuf {
+    match workspace_root {
+        Some(root) => root.join(run_id),
+        None => {
+            if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+                PathBuf::from(xdg)
+                    .join("flowstate")
+                    .join("workspaces")
+                    .join(run_id)
+            } else if let Some(home) = std::env::var_os("HOME") {
+                PathBuf::from(home)
+                    .join(".local/share/flowstate/workspaces")
+                    .join(run_id)
+            } else {
+                PathBuf::from(".")
+                    .join("flowstate/workspaces")
+                    .join(run_id)
+            }
+        }
+    }
+}
+
+fn cleanup_workspace(dir: &Path) {
+    if dir.exists() {
+        info!("cleaning up workspace: {}", dir.display());
+        if let Err(e) = std::fs::remove_dir_all(dir) {
+            warn!("failed to remove workspace {}: {e}", dir.display());
         }
     }
 }
@@ -34,22 +81,25 @@ async fn execute_design(
     run: &ClaudeRun,
     task: &Task,
     project: &Project,
+    ws_dir: &Path,
 ) -> Result<()> {
+    // Clone repo so Claude can explore the codebase
+    progress(service, &run.id, "Cloning repository...").await;
+    let token = service.get_repo_token(&project.id).await.ok();
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+
     progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, ClaudeAction::Design).await;
     let prompt = flowstate_prompts::assemble_prompt(&ctx, ClaudeAction::Design);
 
-    let work_dir = task_work_dir(&task.id);
-    std::fs::create_dir_all(&work_dir)?;
-
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, &work_dir).await?;
+    let output = run_claude(&prompt, ws_dir).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
-        let spec_file = work_dir.join("SPECIFICATION.md");
+        let spec_file = ws_dir.join("SPECIFICATION.md");
         let content = std::fs::read_to_string(&spec_file)
             .unwrap_or_else(|_| output.stdout.clone());
 
@@ -68,8 +118,6 @@ async fn execute_design(
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-        let _ = std::fs::remove_file(&spec_file);
-
         report_success(service, &run.id, output.exit_code).await?;
         info!("design complete for task {}", task.id);
     } else {
@@ -84,22 +132,25 @@ async fn execute_plan(
     run: &ClaudeRun,
     task: &Task,
     project: &Project,
+    ws_dir: &Path,
 ) -> Result<()> {
+    // Clone repo so Claude can explore the codebase
+    progress(service, &run.id, "Cloning repository...").await;
+    let token = service.get_repo_token(&project.id).await.ok();
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+
     progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, ClaudeAction::Plan).await;
     let prompt = flowstate_prompts::assemble_prompt(&ctx, ClaudeAction::Plan);
 
-    let work_dir = task_work_dir(&task.id);
-    std::fs::create_dir_all(&work_dir)?;
-
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, &work_dir).await?;
+    let output = run_claude(&prompt, ws_dir).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
-        let plan_file = work_dir.join("PLAN.md");
+        let plan_file = ws_dir.join("PLAN.md");
         let content = std::fs::read_to_string(&plan_file)
             .unwrap_or_else(|_| output.stdout.clone());
 
@@ -117,8 +168,6 @@ async fn execute_plan(
             .update_task(&task.id, &update)
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-        let _ = std::fs::remove_file(&plan_file);
 
         report_success(service, &run.id, output.exit_code).await?;
         info!("plan complete for task {}", task.id);
@@ -207,26 +256,15 @@ pub async fn run_claude(prompt: &str, work_dir: &std::path::Path) -> Result<Clau
     })
 }
 
-fn task_work_dir(task_id: &str) -> PathBuf {
-    flowstate_db_data_dir().join("tasks").join(task_id)
-}
-
-fn flowstate_db_data_dir() -> PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+fn save_prompt(run_id: &str, prompt: &str) -> Result<()> {
+    let data_dir = if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
         PathBuf::from(xdg).join("flowstate")
     } else if let Some(home) = std::env::var_os("HOME") {
-        PathBuf::from(home)
-            .join(".local/share")
-            .join("flowstate")
+        PathBuf::from(home).join(".local/share/flowstate")
     } else {
         PathBuf::from(".").join("flowstate")
-    }
-}
-
-fn save_prompt(run_id: &str, prompt: &str) -> Result<()> {
-    let run_dir = flowstate_db_data_dir()
-        .join("claude_runs")
-        .join(run_id);
+    };
+    let run_dir = data_dir.join("claude_runs").join(run_id);
     std::fs::create_dir_all(&run_dir)?;
     std::fs::write(run_dir.join("prompt.md"), prompt)?;
     Ok(())

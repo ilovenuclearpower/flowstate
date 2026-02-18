@@ -4,29 +4,42 @@ use tokio::process::Command;
 use tracing::info;
 
 /// Ensure the workspace directory exists with a git clone/pull.
-pub async fn ensure_repo(workspace: &Path, repo_url: &str) -> Result<()> {
+pub async fn ensure_repo(
+    workspace: &Path,
+    repo_url: &str,
+    repo_token: Option<&str>,
+) -> Result<()> {
     if repo_url.is_empty() {
         bail!("project has no repo_url configured");
     }
 
+    let auth_url = inject_token(repo_url, repo_token);
+
     if workspace.join(".git").exists() {
-        // Pull latest on the default branch
+        // Update the remote URL in case token changed
+        let _ = Command::new("git")
+            .args(["remote", "set-url", "origin", &auth_url])
+            .current_dir(workspace)
+            .output()
+            .await;
+
+        // Fetch latest from origin (don't pull — we may be on a branch without tracking)
         let output = Command::new("git")
-            .args(["pull", "--ff-only"])
+            .args(["fetch", "origin"])
             .current_dir(workspace)
             .output()
             .await
-            .context("git pull")?;
+            .context("git fetch")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("git pull failed: {stderr}");
+            bail!("git fetch failed: {stderr}");
         }
-        info!("workspace updated via git pull");
+        info!("workspace updated via git fetch");
     } else {
         std::fs::create_dir_all(workspace).context("create workspace dir")?;
         let output = Command::new("git")
-            .args(["clone", repo_url, "."])
+            .args(["clone", &auth_url, "."])
             .current_dir(workspace)
             .output()
             .await
@@ -42,8 +55,32 @@ pub async fn ensure_repo(workspace: &Path, repo_url: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create and switch to a new branch.
+/// Inject a PAT into an HTTPS URL for authentication.
+/// e.g. `https://github.com/user/repo.git` → `https://x-access-token:{token}@github.com/user/repo.git`
+fn inject_token(url: &str, token: Option<&str>) -> String {
+    match token {
+        Some(t) if !t.is_empty() => {
+            if let Some(rest) = url.strip_prefix("https://") {
+                format!("https://x-access-token:{t}@{rest}")
+            } else {
+                url.to_string()
+            }
+        }
+        _ => url.to_string(),
+    }
+}
+
+/// Create and switch to a feature branch.
+/// If the branch already exists (e.g. from a previous failed run), delete and recreate it
+/// from the current HEAD so we start clean.
 pub async fn create_branch(dir: &Path, name: &str) -> Result<()> {
+    // Delete existing local branch if it exists (ignore errors if it doesn't)
+    let _ = Command::new("git")
+        .args(["branch", "-D", name])
+        .current_dir(dir)
+        .output()
+        .await;
+
     let output = Command::new("git")
         .args(["checkout", "-b", name])
         .current_dir(dir)
@@ -137,21 +174,3 @@ pub async fn detect_default_branch(dir: &Path) -> Result<String> {
     Ok("master".to_string())
 }
 
-/// Ensure we're on the default branch and up to date before creating a feature branch.
-pub async fn checkout_default_branch(dir: &Path) -> Result<String> {
-    let default = detect_default_branch(dir).await?;
-
-    let output = Command::new("git")
-        .args(["checkout", &default])
-        .current_dir(dir)
-        .output()
-        .await
-        .context("git checkout default branch")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git checkout {default} failed: {stderr}");
-    }
-
-    Ok(default)
-}

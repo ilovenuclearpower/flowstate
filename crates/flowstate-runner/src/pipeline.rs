@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun};
@@ -20,7 +20,7 @@ pub async fn execute(
     run: &ClaudeRun,
     task: &Task,
     project: &Project,
-    workspace_root: &Option<PathBuf>,
+    ws_dir: &Path,
 ) -> Result<()> {
     // 1. Validate prerequisites
     if task.spec_status != flowstate_core::task::ApprovalStatus::Approved {
@@ -41,21 +41,19 @@ pub async fn execute(
         anyhow::anyhow!("repo auth check failed: {e}")
     })?;
 
-    // 4. Clone/pull repo to workspace
-    progress(service, &run.id, "Cloning/pulling repository...").await;
-    let ws_dir = resolve_workspace_dir(workspace_root, &project.id);
-    workspace::ensure_repo(&ws_dir, &project.repo_url).await?;
+    // 4. Clone repo to fresh workspace
+    progress(service, &run.id, "Cloning repository...").await;
+    let token = service.get_repo_token(&project.id).await.ok();
+    let token_ref = token.as_deref();
+    workspace::ensure_repo(ws_dir, &project.repo_url, token_ref).await?;
 
-    // 5. Checkout default branch and detect it
-    let default_branch = workspace::checkout_default_branch(&ws_dir).await?;
-
-    // Pull latest on default branch
-    workspace::ensure_repo(&ws_dir, &project.repo_url).await?;
+    // 5. Detect default branch (fresh clone is already on it)
+    let default_branch = workspace::detect_default_branch(ws_dir).await?;
 
     // 6. Create feature branch
     progress(service, &run.id, "Creating feature branch...").await;
     let branch_name = format!("flowstate/{}", slugify(&task.title));
-    workspace::create_branch(&ws_dir, &branch_name).await?;
+    workspace::create_branch(ws_dir, &branch_name).await?;
 
     // 7. Read spec + plan from server
     let spec_content = service
@@ -99,7 +97,7 @@ pub async fn execute(
     // 10. Run claude in workspace
     progress(service, &run.id, "Running Claude CLI...").await;
     info!("running claude for build in {}", ws_dir.display());
-    let output = run_claude(&prompt, &ws_dir).await?;
+    let output = run_claude(&prompt, ws_dir).await?;
 
     if !output.success {
         let msg = if output.stderr.is_empty() {
@@ -124,7 +122,7 @@ pub async fn execute(
         progress(service, &run.id, "Running validation tests...").await;
         info!("running {} validation steps", validation_steps.len());
         let verifier = VerifyRunner::new();
-        let result = verifier.execute(&validation_steps, &ws_dir).await;
+        let result = verifier.execute(&validation_steps, ws_dir).await;
 
         match result.status {
             flowstate_verify::runner::RunStatus::Passed => {
@@ -157,11 +155,11 @@ pub async fn execute(
     // 14. Tests pass -> commit
     progress(service, &run.id, "Committing changes...").await;
     let commit_msg = format!("feat: {} [flowstate]", task.title);
-    workspace::add_and_commit(&ws_dir, &commit_msg).await?;
+    workspace::add_and_commit(ws_dir, &commit_msg).await?;
 
     // 15. Push branch
     progress(service, &run.id, "Pushing branch...").await;
-    provider.push_branch(&ws_dir, &branch_name).await.map_err(|e| {
+    provider.push_branch(ws_dir, &branch_name).await.map_err(|e| {
         anyhow::anyhow!("push failed: {e}")
     })?;
 
@@ -172,7 +170,7 @@ pub async fn execute(
         task.title, task.description
     );
     let pr = provider
-        .open_pull_request(&ws_dir, &branch_name, &task.title, &pr_body, &default_branch)
+        .open_pull_request(ws_dir, &branch_name, &task.title, &pr_body, &default_branch)
         .await
         .map_err(|e: ProviderError| anyhow::anyhow!("PR creation failed: {e}"))?;
 
@@ -208,28 +206,6 @@ pub async fn execute(
 async fn progress(service: &HttpService, run_id: &str, message: &str) {
     info!("{message}");
     let _ = service.update_claude_run_progress(run_id, message).await;
-}
-
-fn resolve_workspace_dir(workspace_root: &Option<PathBuf>, project_id: &str) -> PathBuf {
-    match workspace_root {
-        Some(root) => root.join(project_id),
-        None => {
-            if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-                PathBuf::from(xdg)
-                    .join("flowstate")
-                    .join("workspaces")
-                    .join(project_id)
-            } else if let Some(home) = std::env::var_os("HOME") {
-                PathBuf::from(home)
-                    .join(".local/share/flowstate/workspaces")
-                    .join(project_id)
-            } else {
-                PathBuf::from(".")
-                    .join("flowstate/workspaces")
-                    .join(project_id)
-            }
-        }
-    }
 }
 
 fn slugify(title: &str) -> String {
