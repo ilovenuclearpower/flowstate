@@ -86,6 +86,7 @@
             pkgs.git
             pkgs.openssl
           ] ++ garageScripts.all;
+          RUST_MIN_STACK = "16777216";
           shellHook = ''
             echo "flowstate dev shell"
             echo "  cargo: $(cargo --version)"
