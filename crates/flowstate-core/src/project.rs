@@ -9,6 +9,8 @@ pub struct Project {
     pub description: String,
     #[serde(default)]
     pub repo_url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo_token: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -28,4 +30,5 @@ pub struct UpdateProject {
     pub name: Option<String>,
     pub description: Option<String>,
     pub repo_url: Option<String>,
+    pub repo_token: Option<String>,
 }

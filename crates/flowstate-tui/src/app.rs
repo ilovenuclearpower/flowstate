@@ -72,6 +72,11 @@ pub enum Mode {
         project_id: String,
         input: String,
     },
+    /// Editing a project's repo token (PAT)
+    EditRepoToken {
+        project_id: String,
+        input: String,
+    },
     /// System health checks
     Health {
         checks: Vec<HealthCheck>,
@@ -174,6 +179,7 @@ impl App {
                 | Mode::EditDescription { .. }
                 | Mode::NewProject { .. }
                 | Mode::EditRepoUrl { .. }
+                | Mode::EditRepoToken { .. }
         )
     }
 
@@ -304,6 +310,9 @@ impl App {
             }
             Mode::EditRepoUrl { project_id, input } => {
                 self.handle_edit_repo_url(key, project_id.clone(), input.clone())
+            }
+            Mode::EditRepoToken { project_id, input } => {
+                self.handle_edit_repo_token(key, project_id.clone(), input.clone())
             }
         }
     }
@@ -748,6 +757,24 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('T') => {
+                if let Some(idx) = list_state.selected() {
+                    if let Some(project) = projects.get(idx) {
+                        if project.repo_url.is_empty() {
+                            self.status_message = Some("Set repo URL first (r)".into());
+                            self.mode = Mode::ProjectList {
+                                projects,
+                                list_state,
+                            };
+                        } else {
+                            self.mode = Mode::EditRepoToken {
+                                project_id: project.id.clone(),
+                                input: String::new(),
+                            };
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -1023,6 +1050,35 @@ impl App {
         }
     }
 
+    fn handle_edit_repo_token(&mut self, key: KeyEvent, project_id: String, mut input: String) {
+        match key.code {
+            KeyCode::Enter => {
+                let token = input.trim().to_string();
+                if token.is_empty() {
+                    self.status_message = Some("Token cannot be empty".into());
+                } else {
+                    match self.service.set_repo_token(&project_id, &token) {
+                        Ok(()) => {
+                            self.status_message = Some("Repo token saved (encrypted)".into());
+                        }
+                        Err(e) => self.status_message = Some(format!("Error: {e}")),
+                    }
+                }
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Backspace => {
+                input.pop();
+                self.mode = Mode::EditRepoToken { project_id, input };
+            }
+            KeyCode::Char(c) => {
+                input.push(c);
+                self.mode = Mode::EditRepoToken { project_id, input };
+            }
+            _ => {}
+        }
+    }
+
     fn handle_health(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('r') => {
@@ -1091,7 +1147,25 @@ impl App {
             }
         }
 
-        // 3. Git
+        // 3. Repo token — check via get_repo_token (returns error if not set)
+        if !self.project.repo_url.is_empty() {
+            let has_token = self.service.get_repo_token(&self.project.id).is_ok();
+            checks.push(HealthCheck {
+                name: "Repo Token".into(),
+                status: if has_token {
+                    CheckStatus::Passed
+                } else {
+                    CheckStatus::Failed
+                },
+                detail: if has_token {
+                    "Configured".into()
+                } else {
+                    "Not set (P > T to configure)".into()
+                },
+            });
+        }
+
+        // 4. Git
         let git = match std::process::Command::new("git")
             .arg("--version")
             .output()
@@ -1285,6 +1359,10 @@ impl App {
             Mode::EditRepoUrl { input, .. } => {
                 self.render_input_bar(frame, "Repo URL: ", input, area)
             }
+            Mode::EditRepoToken { input, .. } => {
+                let masked: String = "*".repeat(input.len());
+                self.render_input_bar(frame, "Repo Token (PAT): ", &masked, area)
+            }
         }
     }
 
@@ -1352,6 +1430,7 @@ impl App {
                 ("Enter", "switch"),
                 ("n", "new"),
                 ("r", "repo url"),
+                ("T", "repo token"),
                 ("d", "del"),
                 ("Esc", "back"),
             ],
@@ -1373,7 +1452,9 @@ impl App {
                 ("r", "reject"),
                 ("Esc", "cancel"),
             ],
-            Mode::EditRepoUrl { .. } => vec![("Enter", "save"), ("Esc", "cancel")],
+            Mode::EditRepoUrl { .. } | Mode::EditRepoToken { .. } => {
+                vec![("Enter", "save"), ("Esc", "cancel")]
+            }
             Mode::Health { .. } => vec![("r", "refresh"), ("Esc", "back")],
         };
 

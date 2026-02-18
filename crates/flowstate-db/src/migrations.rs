@@ -282,5 +282,21 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         )?;
     }
 
+    if current_version < 5 {
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if !has_column("projects", "repo_token") {
+            conn.execute_batch(
+                "ALTER TABLE projects ADD COLUMN repo_token TEXT;",
+            )?;
+        }
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (5, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }

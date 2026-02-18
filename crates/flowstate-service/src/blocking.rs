@@ -159,6 +159,14 @@ impl BlockingHttpService {
             .block_on(self.inner.write_task_plan(task_id, content))
     }
 
+    pub fn set_repo_token(&self, project_id: &str, token: &str) -> Result<(), ServiceError> {
+        self.rt.block_on(self.inner.set_repo_token(project_id, token))
+    }
+
+    pub fn get_repo_token(&self, project_id: &str) -> Result<String, ServiceError> {
+        self.rt.block_on(self.inner.get_repo_token(project_id))
+    }
+
     pub fn system_status(&self) -> Result<crate::SystemStatus, ServiceError> {
         self.rt.block_on(self.inner.system_status())
     }

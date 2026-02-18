@@ -12,6 +12,7 @@ fn row_to_project(row: &Row) -> rusqlite::Result<Project> {
         slug: row.get("slug")?,
         description: row.get("description")?,
         repo_url: row.get("repo_url")?,
+        repo_token: row.get("repo_token")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -94,6 +95,10 @@ impl Db {
             if let Some(ref repo_url) = update.repo_url {
                 sets.push("repo_url = ?");
                 values.push(Box::new(repo_url.clone()));
+            }
+            if let Some(ref repo_token) = update.repo_token {
+                sets.push("repo_token = ?");
+                values.push(Box::new(repo_token.clone()));
             }
 
             if sets.is_empty() {

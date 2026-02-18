@@ -282,6 +282,38 @@ impl HttpService {
         }
     }
 
+    /// Set the repo token for a project (encrypted server-side).
+    pub async fn set_repo_token(&self, project_id: &str, token: &str) -> Result<(), ServiceError> {
+        let builder = self
+            .client
+            .put(format!(
+                "{}/api/projects/{project_id}/repo-token",
+                self.base_url
+            ))
+            .json(&serde_json::json!({ "token": token }));
+        let resp = self
+            .with_auth(builder)
+            .send()
+            .await
+            .map_err(|e| ServiceError::Internal(e.to_string()))?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(parse_error(resp).await)
+        }
+    }
+
+    /// Get the decrypted repo token for a project (for runner use).
+    pub async fn get_repo_token(&self, project_id: &str) -> Result<String, ServiceError> {
+        let val: serde_json::Value = self
+            .get_json(&format!("/api/projects/{project_id}/repo-token"))
+            .await?;
+        val["token"]
+            .as_str()
+            .map(String::from)
+            .ok_or_else(|| ServiceError::Internal("missing token in response".into()))
+    }
+
     /// Fetch system status (server + runner connectivity).
     pub async fn system_status(&self) -> Result<SystemStatus, ServiceError> {
         self.get_json("/api/status").await

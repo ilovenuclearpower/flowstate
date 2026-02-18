@@ -7,6 +7,7 @@ pub mod tasks;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use aes_gcm::{Aes256Gcm, Key};
 use axum::{middleware, Router};
 use chrono::{DateTime, Utc};
 use flowstate_db::Db;
@@ -24,16 +25,23 @@ pub struct InnerAppState {
     pub db: Db,
     pub auth: Option<Arc<AuthConfig>>,
     pub runners: std::sync::Mutex<HashMap<String, RunnerInfo>>,
+    pub encryption_key: Key<Aes256Gcm>,
 }
 
 pub type AppState = Arc<InnerAppState>;
 
-pub fn build_router(service: LocalService, db: Db, auth: Option<Arc<AuthConfig>>) -> Router {
+pub fn build_router(
+    service: LocalService,
+    db: Db,
+    auth: Option<Arc<AuthConfig>>,
+    encryption_key: Key<Aes256Gcm>,
+) -> Router {
     let state: AppState = Arc::new(InnerAppState {
         service,
         db,
         auth,
         runners: std::sync::Mutex::new(HashMap::new()),
+        encryption_key,
     });
 
     let public = Router::new().merge(health::routes());
