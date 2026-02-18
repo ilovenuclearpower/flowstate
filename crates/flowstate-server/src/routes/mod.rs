@@ -2,6 +2,7 @@ pub mod claude_runs;
 pub mod health;
 pub mod projects;
 pub mod task_links;
+pub mod task_prs;
 pub mod tasks;
 
 use std::collections::HashMap;
@@ -50,6 +51,7 @@ pub fn build_router(
         .merge(projects::routes())
         .merge(tasks::routes())
         .merge(task_links::routes())
+        .merge(task_prs::routes())
         .merge(claude_runs::routes())
         .merge(health::protected_routes())
         .route_layer(middleware::from_fn_with_state(

@@ -3,6 +3,7 @@ use flowstate_core::claude_run::{ClaudeRun, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
+use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
 use tokio::runtime::Runtime;
 
 use crate::{HttpService, ServiceError, TaskService};
@@ -107,6 +108,14 @@ impl BlockingHttpService {
 
     pub fn delete_task_link(&self, id: &str) -> Result<(), ServiceError> {
         self.rt.block_on(self.inner.delete_task_link(id))
+    }
+
+    pub fn create_task_pr(&self, input: &CreateTaskPr) -> Result<TaskPr, ServiceError> {
+        self.rt.block_on(self.inner.create_task_pr(input))
+    }
+
+    pub fn list_task_prs(&self, task_id: &str) -> Result<Vec<TaskPr>, ServiceError> {
+        self.rt.block_on(self.inner.list_task_prs(task_id))
     }
 
     pub fn create_claude_run(&self, input: &CreateClaudeRun) -> Result<ClaudeRun, ServiceError> {

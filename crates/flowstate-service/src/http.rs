@@ -4,6 +4,7 @@ use flowstate_core::claude_run::{ClaudeRun, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
+use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
 use reqwest::{Client, RequestBuilder, StatusCode};
 
 use crate::{ServiceError, TaskService};
@@ -474,6 +475,15 @@ impl TaskService for HttpService {
 
     async fn delete_task_link(&self, id: &str) -> Result<(), ServiceError> {
         self.delete_req(&format!("/api/task-links/{id}")).await
+    }
+
+    async fn create_task_pr(&self, input: &CreateTaskPr) -> Result<TaskPr, ServiceError> {
+        self.post_json(&format!("/api/tasks/{}/prs", input.task_id), input)
+            .await
+    }
+
+    async fn list_task_prs(&self, task_id: &str) -> Result<Vec<TaskPr>, ServiceError> {
+        self.get_json(&format!("/api/tasks/{task_id}/prs")).await
     }
 
     async fn create_claude_run(&self, input: &CreateClaudeRun) -> Result<ClaudeRun, ServiceError> {

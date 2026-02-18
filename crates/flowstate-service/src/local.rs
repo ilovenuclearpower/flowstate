@@ -4,6 +4,7 @@ use flowstate_core::claude_run::{ClaudeRun, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
+use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
 use flowstate_db::Db;
 
 use crate::{ServiceError, TaskService};
@@ -99,6 +100,14 @@ impl TaskService for LocalService {
 
     async fn delete_task_link(&self, id: &str) -> Result<(), ServiceError> {
         Ok(self.db.delete_task_link(id)?)
+    }
+
+    async fn create_task_pr(&self, input: &CreateTaskPr) -> Result<TaskPr, ServiceError> {
+        Ok(self.db.create_task_pr(input)?)
+    }
+
+    async fn list_task_prs(&self, task_id: &str) -> Result<Vec<TaskPr>, ServiceError> {
+        Ok(self.db.list_task_prs(task_id)?)
     }
 
     async fn create_claude_run(&self, input: &CreateClaudeRun) -> Result<ClaudeRun, ServiceError> {

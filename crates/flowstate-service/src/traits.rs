@@ -4,6 +4,7 @@ use flowstate_core::claude_run::{ClaudeRun, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
+use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -53,6 +54,10 @@ pub trait TaskService: Send + Sync {
     async fn create_task_link(&self, input: &CreateTaskLink) -> Result<TaskLink, ServiceError>;
     async fn list_task_links(&self, task_id: &str) -> Result<Vec<TaskLink>, ServiceError>;
     async fn delete_task_link(&self, id: &str) -> Result<(), ServiceError>;
+
+    // -- Task PRs --
+    async fn create_task_pr(&self, input: &CreateTaskPr) -> Result<TaskPr, ServiceError>;
+    async fn list_task_prs(&self, task_id: &str) -> Result<Vec<TaskPr>, ServiceError>;
 
     // -- Claude Runs --
     async fn create_claude_run(&self, input: &CreateClaudeRun) -> Result<ClaudeRun, ServiceError>;
