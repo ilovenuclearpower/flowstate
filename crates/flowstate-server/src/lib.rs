@@ -14,8 +14,26 @@ use auth::AuthConfig;
 
 pub async fn serve(listener: TcpListener, db: Db, auth: Option<Arc<AuthConfig>>) -> Result<()> {
     let encryption_key = crypto::load_or_generate_key();
+    let store_config = flowstate_store::StoreConfig::from_env();
+    if store_config.is_s3() {
+        tracing::info!(
+            "storage backend: s3 (endpoint={}, bucket={})",
+            store_config.endpoint_url.as_deref().unwrap_or("?"),
+            store_config.bucket.as_deref().unwrap_or("?"),
+        );
+    } else {
+        tracing::info!(
+            "storage backend: local ({})",
+            store_config
+                .local_data_dir
+                .as_deref()
+                .unwrap_or(&flowstate_db::data_dir().to_string_lossy()),
+        );
+    }
+    let store = flowstate_store::create_store(&store_config)
+        .map_err(|e| anyhow::anyhow!("failed to create object store: {e}"))?;
     let service = LocalService::new(db.clone());
-    let app = routes::build_router(service, db, auth, encryption_key);
+    let app = routes::build_router(service, db, auth, encryption_key, store);
     axum::serve(listener, app).await?;
     Ok(())
 }

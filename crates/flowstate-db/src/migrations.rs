@@ -318,5 +318,44 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         )?;
     }
 
+    if current_version < 7 {
+        // Rename disk_path → store_key in attachments table
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if has_column("attachments", "disk_path") {
+            conn.execute_batch("ALTER TABLE attachments RENAME COLUMN disk_path TO store_key;")?;
+
+            // Convert absolute filesystem paths to relative object keys.
+            // Existing disk_path values look like:
+            //   /home/user/.local/share/flowstate/tasks/abc/attachments/foo.png
+            // We need to strip the data_dir prefix to produce:
+            //   tasks/abc/attachments/foo.png
+            let data_prefix = crate::data_dir().to_string_lossy().to_string();
+            let mut stmt =
+                conn.prepare("SELECT id, store_key FROM attachments WHERE store_key LIKE '/%'")?;
+            let rows: Vec<(String, String)> = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            for (id, abs_path) in rows {
+                let relative = abs_path
+                    .strip_prefix(&data_prefix)
+                    .unwrap_or(&abs_path)
+                    .trim_start_matches('/');
+                conn.execute(
+                    "UPDATE attachments SET store_key = ?1 WHERE id = ?2",
+                    rusqlite::params![relative, id],
+                )?;
+            }
+        }
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (7, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }

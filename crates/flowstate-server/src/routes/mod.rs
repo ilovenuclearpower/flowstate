@@ -13,6 +13,7 @@ use axum::{middleware, Router};
 use chrono::{DateTime, Utc};
 use flowstate_db::Db;
 use flowstate_service::LocalService;
+use flowstate_store::ObjectStore;
 
 use crate::auth::{auth_middleware, AuthConfig};
 
@@ -27,6 +28,7 @@ pub struct InnerAppState {
     pub auth: Option<Arc<AuthConfig>>,
     pub runners: std::sync::Mutex<HashMap<String, RunnerInfo>>,
     pub encryption_key: Key<Aes256Gcm>,
+    pub store: Arc<dyn ObjectStore>,
 }
 
 pub type AppState = Arc<InnerAppState>;
@@ -36,6 +38,7 @@ pub fn build_router(
     db: Db,
     auth: Option<Arc<AuthConfig>>,
     encryption_key: Key<Aes256Gcm>,
+    store: Arc<dyn ObjectStore>,
 ) -> Router {
     let state: AppState = Arc::new(InnerAppState {
         service,
@@ -43,6 +46,7 @@ pub fn build_router(
         auth,
         runners: std::sync::Mutex::new(HashMap::new()),
         encryption_key,
+        store,
     });
 
     let public = Router::new().merge(health::routes());
