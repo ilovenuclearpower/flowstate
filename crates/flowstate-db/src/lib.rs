@@ -94,6 +94,14 @@ pub fn task_plan_path(task_id: &str) -> PathBuf {
     task_dir(task_id).join("plan.md")
 }
 
+pub fn task_research_path(task_id: &str) -> PathBuf {
+    task_dir(task_id).join("research.md")
+}
+
+pub fn task_verification_path(task_id: &str) -> PathBuf {
+    task_dir(task_id).join("verification.md")
+}
+
 pub fn task_attachments_dir(task_id: &str) -> PathBuf {
     task_dir(task_id).join("attachments")
 }

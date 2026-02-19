@@ -17,6 +17,9 @@ pub struct PromptContext {
     pub task_description: String,
     pub spec_content: Option<String>,
     pub plan_content: Option<String>,
+    pub research_content: Option<String>,
+    pub verification_content: Option<String>,
+    pub distill_feedback: Option<String>,
     pub child_tasks: Vec<ChildTaskInfo>,
 }
 
@@ -31,6 +34,12 @@ impl PromptContext {
         prompt.push_str(&format!("# Task: {}\n\n", self.task_title));
         prompt.push_str(&format!("## Description\n\n{}\n\n", self.task_description));
 
+        if let Some(ref research) = self.research_content {
+            prompt.push_str("## Research\n\n");
+            prompt.push_str(research);
+            prompt.push_str("\n\n");
+        }
+
         if let Some(ref spec) = self.spec_content {
             prompt.push_str("## Specification\n\n");
             prompt.push_str(spec);
@@ -40,6 +49,12 @@ impl PromptContext {
         if let Some(ref plan) = self.plan_content {
             prompt.push_str("## Implementation Plan\n\n");
             prompt.push_str(plan);
+            prompt.push_str("\n\n");
+        }
+
+        if let Some(ref verification) = self.verification_content {
+            prompt.push_str("## Verification\n\n");
+            prompt.push_str(verification);
             prompt.push_str("\n\n");
         }
 

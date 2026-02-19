@@ -6,25 +6,43 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClaudeAction {
+    Research,
     Design,
     Plan,
     Build,
+    Verify,
+    ResearchDistill,
+    DesignDistill,
+    PlanDistill,
+    VerifyDistill,
 }
 
 impl ClaudeAction {
     pub fn as_str(&self) -> &'static str {
         match self {
+            ClaudeAction::Research => "research",
             ClaudeAction::Design => "design",
             ClaudeAction::Plan => "plan",
             ClaudeAction::Build => "build",
+            ClaudeAction::Verify => "verify",
+            ClaudeAction::ResearchDistill => "research_distill",
+            ClaudeAction::DesignDistill => "design_distill",
+            ClaudeAction::PlanDistill => "plan_distill",
+            ClaudeAction::VerifyDistill => "verify_distill",
         }
     }
 
     pub fn parse_str(s: &str) -> Option<Self> {
         match s {
+            "research" => Some(ClaudeAction::Research),
             "design" => Some(ClaudeAction::Design),
             "plan" => Some(ClaudeAction::Plan),
             "build" => Some(ClaudeAction::Build),
+            "verify" => Some(ClaudeAction::Verify),
+            "research_distill" => Some(ClaudeAction::ResearchDistill),
+            "design_distill" => Some(ClaudeAction::DesignDistill),
+            "plan_distill" => Some(ClaudeAction::PlanDistill),
+            "verify_distill" => Some(ClaudeAction::VerifyDistill),
             _ => None,
         }
     }

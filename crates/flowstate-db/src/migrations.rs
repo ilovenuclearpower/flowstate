@@ -357,5 +357,140 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         )?;
     }
 
+    if current_version < 8 {
+        // v8: Five-phase workflow with review-distill support
+
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+
+        // Add new approval and feedback columns to tasks
+        if !has_column("tasks", "research_status") {
+            conn.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN research_status TEXT NOT NULL DEFAULT 'none';
+                 ALTER TABLE tasks ADD COLUMN verify_status TEXT NOT NULL DEFAULT 'none';
+                 ALTER TABLE tasks ADD COLUMN research_approved_hash TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE tasks ADD COLUMN research_feedback TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE tasks ADD COLUMN spec_feedback TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE tasks ADD COLUMN plan_feedback TEXT NOT NULL DEFAULT '';
+                 ALTER TABLE tasks ADD COLUMN verify_feedback TEXT NOT NULL DEFAULT '';",
+            )?;
+        }
+
+        // Migrate task statuses: map old values to new
+        conn.execute_batch(
+            "UPDATE tasks SET status = 'todo' WHERE status = 'backlog';
+             UPDATE tasks SET status = 'build' WHERE status = 'in_progress';
+             UPDATE tasks SET status = 'verify' WHERE status = 'in_review';",
+        )?;
+
+        // Recreate claude_runs table with expanded CHECK constraint
+        // to include the new action values (research, verify, and distill variants).
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS claude_runs_new (
+                id               TEXT PRIMARY KEY,
+                task_id          TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                action           TEXT NOT NULL CHECK(action IN (
+                    'research', 'design', 'plan', 'build', 'verify',
+                    'research_distill', 'design_distill', 'plan_distill', 'verify_distill'
+                )),
+                status           TEXT NOT NULL DEFAULT 'queued'
+                                     CHECK(status IN ('queued','running','completed','failed','cancelled')),
+                error_message    TEXT,
+                exit_code        INTEGER,
+                pr_url           TEXT,
+                pr_number        INTEGER,
+                branch_name      TEXT,
+                progress_message TEXT,
+                started_at       TEXT NOT NULL,
+                finished_at      TEXT
+            );
+
+            INSERT OR IGNORE INTO claude_runs_new
+                SELECT id, task_id, action, status, error_message, exit_code,
+                       pr_url, pr_number, branch_name, progress_message,
+                       started_at, finished_at
+                FROM claude_runs;
+
+            DROP TABLE claude_runs;
+            ALTER TABLE claude_runs_new RENAME TO claude_runs;
+            CREATE INDEX IF NOT EXISTS idx_claude_runs_task ON claude_runs(task_id);",
+        )?;
+
+        // Recreate tasks table with updated status CHECK constraint.
+        // We need PRAGMA foreign_keys = OFF for this since tasks has FK references.
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+
+        conn.execute_batch(
+            "CREATE TABLE tasks_new (
+                id                     TEXT PRIMARY KEY,
+                project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                sprint_id              TEXT REFERENCES sprints(id) ON DELETE SET NULL,
+                title                  TEXT NOT NULL,
+                description            TEXT NOT NULL DEFAULT '',
+                status                 TEXT NOT NULL DEFAULT 'todo'
+                                           CHECK(status IN (
+                                               'todo', 'research', 'design', 'plan',
+                                               'build', 'verify', 'done', 'cancelled'
+                                           )),
+                priority               TEXT NOT NULL DEFAULT 'medium'
+                                           CHECK(priority IN ('urgent', 'high', 'medium', 'low', 'none')),
+                sort_order             REAL NOT NULL DEFAULT 0,
+                created_at             TEXT NOT NULL,
+                updated_at             TEXT NOT NULL,
+                parent_id              TEXT REFERENCES tasks_new(id) ON DELETE SET NULL,
+                reviewer               TEXT NOT NULL DEFAULT '',
+                spec_status            TEXT NOT NULL DEFAULT 'none',
+                plan_status            TEXT NOT NULL DEFAULT 'none',
+                spec_approved_hash     TEXT NOT NULL DEFAULT '',
+                research_status        TEXT NOT NULL DEFAULT 'none',
+                verify_status          TEXT NOT NULL DEFAULT 'none',
+                research_approved_hash TEXT NOT NULL DEFAULT '',
+                research_feedback      TEXT NOT NULL DEFAULT '',
+                spec_feedback          TEXT NOT NULL DEFAULT '',
+                plan_feedback          TEXT NOT NULL DEFAULT '',
+                verify_feedback        TEXT NOT NULL DEFAULT ''
+            );
+
+            INSERT INTO tasks_new (
+                id, project_id, sprint_id, title, description, status, priority,
+                sort_order, created_at, updated_at, parent_id, reviewer,
+                spec_status, plan_status, spec_approved_hash,
+                research_status, verify_status, research_approved_hash,
+                research_feedback, spec_feedback, plan_feedback, verify_feedback
+            )
+            SELECT
+                id, project_id, sprint_id, title, description, status, priority,
+                sort_order, created_at, updated_at, parent_id, reviewer,
+                spec_status, plan_status, spec_approved_hash,
+                research_status, verify_status, research_approved_hash,
+                research_feedback, spec_feedback, plan_feedback, verify_feedback
+            FROM tasks;
+
+            DROP TABLE tasks;
+            ALTER TABLE tasks_new RENAME TO tasks;
+
+            CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
+            CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(project_id, status);
+            CREATE INDEX IF NOT EXISTS idx_tasks_sprint  ON tasks(sprint_id);
+            CREATE INDEX IF NOT EXISTS idx_tasks_parent  ON tasks(parent_id);",
+        )?;
+
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+
+        // Verify FK integrity
+        let mut fk_stmt = conn.prepare("PRAGMA foreign_key_check")?;
+        let fk_errors: i64 = fk_stmt.query_map([], |_row| Ok(1))?.count() as i64;
+        if fk_errors > 0 {
+            eprintln!("WARNING: foreign key check found {fk_errors} issues after v8 migration");
+        }
+
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (8, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }

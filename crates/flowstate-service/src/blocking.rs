@@ -168,6 +168,22 @@ impl BlockingHttpService {
             .block_on(self.inner.write_task_plan(task_id, content))
     }
 
+    pub fn read_task_research(&self, task_id: &str) -> Result<String, ServiceError> {
+        self.rt.block_on(self.inner.read_task_research(task_id))
+    }
+
+    pub fn write_task_research(&self, task_id: &str, content: &str) -> Result<(), ServiceError> {
+        self.rt.block_on(self.inner.write_task_research(task_id, content))
+    }
+
+    pub fn read_task_verification(&self, task_id: &str) -> Result<String, ServiceError> {
+        self.rt.block_on(self.inner.read_task_verification(task_id))
+    }
+
+    pub fn write_task_verification(&self, task_id: &str, content: &str) -> Result<(), ServiceError> {
+        self.rt.block_on(self.inner.write_task_verification(task_id, content))
+    }
+
     pub fn set_repo_token(&self, project_id: &str, token: &str) -> Result<(), ServiceError> {
         self.rt.block_on(self.inner.set_repo_token(project_id, token))
     }

@@ -6,38 +6,46 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
-    Backlog,
     Todo,
-    InProgress,
-    InReview,
+    Research,
+    Design,
+    Plan,
+    Build,
+    Verify,
     Done,
     Cancelled,
 }
 
 impl Status {
     pub const ALL: &[Status] = &[
-        Status::Backlog,
         Status::Todo,
-        Status::InProgress,
-        Status::InReview,
+        Status::Research,
+        Status::Design,
+        Status::Plan,
+        Status::Build,
+        Status::Verify,
         Status::Done,
         Status::Cancelled,
     ];
 
     pub const BOARD_COLUMNS: &[Status] = &[
-        Status::Backlog,
         Status::Todo,
-        Status::InProgress,
-        Status::InReview,
+        Status::Research,
+        Status::Design,
+        Status::Plan,
+        Status::Build,
+        Status::Verify,
         Status::Done,
     ];
 
     pub fn as_str(&self) -> &'static str {
         match self {
-            Status::Backlog => "backlog",
             Status::Todo => "todo",
-            Status::InProgress => "in_progress",
-            Status::InReview => "in_review",
+            Status::Research => "research",
+            Status::Design => "design",
+            Status::Plan => "plan",
+            Status::Build => "build",
+            Status::Verify => "verify",
             Status::Done => "done",
             Status::Cancelled => "cancelled",
         }
@@ -45,10 +53,12 @@ impl Status {
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            Status::Backlog => "Backlog",
             Status::Todo => "Todo",
-            Status::InProgress => "In Progress",
-            Status::InReview => "In Review",
+            Status::Research => "Research",
+            Status::Design => "Design",
+            Status::Plan => "Plan",
+            Status::Build => "Build",
+            Status::Verify => "Verify",
             Status::Done => "Done",
             Status::Cancelled => "Cancelled",
         }
@@ -56,12 +66,18 @@ impl Status {
 
     pub fn parse_str(s: &str) -> Option<Self> {
         match s {
-            "backlog" => Some(Status::Backlog),
             "todo" => Some(Status::Todo),
-            "in_progress" => Some(Status::InProgress),
-            "in_review" => Some(Status::InReview),
+            "research" => Some(Status::Research),
+            "design" => Some(Status::Design),
+            "plan" => Some(Status::Plan),
+            "build" => Some(Status::Build),
+            "verify" => Some(Status::Verify),
             "done" => Some(Status::Done),
             "cancelled" => Some(Status::Cancelled),
+            // Legacy aliases for backward-compatible deserialization
+            "backlog" => Some(Status::Todo),
+            "in_progress" => Some(Status::Build),
+            "in_review" => Some(Status::Verify),
             _ => None,
         }
     }
@@ -188,9 +204,16 @@ pub struct Task {
     pub title: String,
     pub description: String,
     pub reviewer: String,
+    pub research_status: ApprovalStatus,
     pub spec_status: ApprovalStatus,
     pub plan_status: ApprovalStatus,
+    pub verify_status: ApprovalStatus,
     pub spec_approved_hash: String,
+    pub research_approved_hash: String,
+    pub research_feedback: String,
+    pub spec_feedback: String,
+    pub plan_feedback: String,
+    pub verify_feedback: String,
     pub status: Status,
     pub priority: Priority,
     pub sort_order: f64,
@@ -222,9 +245,16 @@ pub struct UpdateTask {
     pub sort_order: Option<f64>,
     pub parent_id: Option<Option<String>>,
     pub reviewer: Option<String>,
+    pub research_status: Option<ApprovalStatus>,
     pub spec_status: Option<ApprovalStatus>,
     pub plan_status: Option<ApprovalStatus>,
+    pub verify_status: Option<ApprovalStatus>,
     pub spec_approved_hash: Option<String>,
+    pub research_approved_hash: Option<String>,
+    pub research_feedback: Option<String>,
+    pub spec_feedback: Option<String>,
+    pub plan_feedback: Option<String>,
+    pub verify_feedback: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

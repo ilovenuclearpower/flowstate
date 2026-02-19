@@ -27,14 +27,20 @@ pub async fn dispatch(
     info!("workspace for run {}: {}", run.id, ws_dir.display());
 
     let result = match run.action {
-        ClaudeAction::Design => {
+        ClaudeAction::Research | ClaudeAction::ResearchDistill => {
+            execute_research(service, run, task, project, &ws_dir).await
+        }
+        ClaudeAction::Design | ClaudeAction::DesignDistill => {
             execute_design(service, run, task, project, &ws_dir).await
         }
-        ClaudeAction::Plan => {
+        ClaudeAction::Plan | ClaudeAction::PlanDistill => {
             execute_plan(service, run, task, project, &ws_dir).await
         }
         ClaudeAction::Build => {
             pipeline::execute(service, run, task, project, &ws_dir).await
+        }
+        ClaudeAction::Verify | ClaudeAction::VerifyDistill => {
+            execute_verify(service, run, task, project, &ws_dir).await
         }
     };
 
@@ -76,6 +82,57 @@ fn cleanup_workspace(dir: &Path) {
     }
 }
 
+async fn execute_research(
+    service: &HttpService,
+    run: &ClaudeRun,
+    task: &Task,
+    project: &Project,
+    ws_dir: &Path,
+) -> Result<()> {
+    // Clone repo so Claude can explore the codebase
+    progress(service, &run.id, "Cloning repository...").await;
+    let token = service.get_repo_token(&project.id).await.ok();
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+
+    progress(service, &run.id, "Assembling prompt...").await;
+    let ctx = build_prompt_context(service, task, project, run.action).await;
+    let prompt = flowstate_prompts::assemble_prompt(&ctx, run.action);
+
+    save_prompt(&run.id, &prompt)?;
+
+    progress(service, &run.id, "Running Claude CLI...").await;
+    let output = run_claude(&prompt, ws_dir).await?;
+
+    if output.success {
+        progress(service, &run.id, "Reading output...").await;
+        let research_file = ws_dir.join("RESEARCH.md");
+        let content = std::fs::read_to_string(&research_file)
+            .unwrap_or_else(|_| output.stdout.clone());
+
+        progress(service, &run.id, "Writing research to server...").await;
+        service
+            .write_task_research(&task.id, &content)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let update = flowstate_core::task::UpdateTask {
+            research_status: Some(flowstate_core::task::ApprovalStatus::Pending),
+            ..Default::default()
+        };
+        service
+            .update_task(&task.id, &update)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        report_success(service, &run.id, output.exit_code).await?;
+        info!("research complete for task {}", task.id);
+    } else {
+        report_failure(service, &run.id, &output.stderr, output.exit_code).await?;
+    }
+
+    Ok(())
+}
+
 async fn execute_design(
     service: &HttpService,
     run: &ClaudeRun,
@@ -89,8 +146,8 @@ async fn execute_design(
     workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
 
     progress(service, &run.id, "Assembling prompt...").await;
-    let ctx = build_prompt_context(service, task, project, ClaudeAction::Design).await;
-    let prompt = flowstate_prompts::assemble_prompt(&ctx, ClaudeAction::Design);
+    let ctx = build_prompt_context(service, task, project, run.action).await;
+    let prompt = flowstate_prompts::assemble_prompt(&ctx, run.action);
 
     save_prompt(&run.id, &prompt)?;
 
@@ -140,8 +197,8 @@ async fn execute_plan(
     workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
 
     progress(service, &run.id, "Assembling prompt...").await;
-    let ctx = build_prompt_context(service, task, project, ClaudeAction::Plan).await;
-    let prompt = flowstate_prompts::assemble_prompt(&ctx, ClaudeAction::Plan);
+    let ctx = build_prompt_context(service, task, project, run.action).await;
+    let prompt = flowstate_prompts::assemble_prompt(&ctx, run.action);
 
     save_prompt(&run.id, &prompt)?;
 
@@ -178,22 +235,120 @@ async fn execute_plan(
     Ok(())
 }
 
+async fn execute_verify(
+    service: &HttpService,
+    run: &ClaudeRun,
+    task: &Task,
+    project: &Project,
+    ws_dir: &Path,
+) -> Result<()> {
+    // Clone repo so Claude can explore the codebase
+    progress(service, &run.id, "Cloning repository...").await;
+    let token = service.get_repo_token(&project.id).await.ok();
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+
+    // Checkout the feature branch from the most recent completed build run
+    let runs = service.list_claude_runs(&task.id).await.unwrap_or_default();
+    let build_branch = runs.iter()
+        .rfind(|r| r.action == ClaudeAction::Build && r.status == flowstate_core::claude_run::ClaudeRunStatus::Completed)
+        .and_then(|r| r.branch_name.clone());
+    if let Some(ref branch) = build_branch {
+        progress(service, &run.id, "Checking out feature branch...").await;
+        let status = tokio::process::Command::new("git")
+            .args(["checkout", branch])
+            .current_dir(ws_dir)
+            .status()
+            .await?;
+        if !status.success() {
+            warn!("failed to checkout branch {branch}, continuing on default branch");
+        }
+    }
+
+    progress(service, &run.id, "Assembling prompt...").await;
+    let ctx = build_prompt_context(service, task, project, run.action).await;
+    let prompt = flowstate_prompts::assemble_prompt(&ctx, run.action);
+
+    save_prompt(&run.id, &prompt)?;
+
+    progress(service, &run.id, "Running Claude CLI...").await;
+    let output = run_claude(&prompt, ws_dir).await?;
+
+    if output.success {
+        progress(service, &run.id, "Reading output...").await;
+        let verification_file = ws_dir.join("VERIFICATION.md");
+        let content = std::fs::read_to_string(&verification_file)
+            .unwrap_or_else(|_| output.stdout.clone());
+
+        progress(service, &run.id, "Writing verification to server...").await;
+        service
+            .write_task_verification(&task.id, &content)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let update = flowstate_core::task::UpdateTask {
+            verify_status: Some(flowstate_core::task::ApprovalStatus::Pending),
+            ..Default::default()
+        };
+        service
+            .update_task(&task.id, &update)
+            .await
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        report_success(service, &run.id, output.exit_code).await?;
+        info!("verify complete for task {}", task.id);
+    } else {
+        report_failure(service, &run.id, &output.stderr, output.exit_code).await?;
+    }
+
+    Ok(())
+}
+
 async fn build_prompt_context(
     service: &HttpService,
     task: &Task,
     project: &Project,
     action: ClaudeAction,
 ) -> PromptContext {
-    let spec_content = if matches!(action, ClaudeAction::Plan | ClaudeAction::Build) {
+    // Fetch research content for downstream phases
+    let research_content = if matches!(action,
+        ClaudeAction::Design | ClaudeAction::Plan | ClaudeAction::Build |
+        ClaudeAction::Verify | ClaudeAction::DesignDistill | ClaudeAction::PlanDistill |
+        ClaudeAction::VerifyDistill | ClaudeAction::ResearchDistill
+    ) {
+        service.read_task_research(&task.id).await.ok()
+    } else {
+        None
+    };
+
+    let spec_content = if matches!(action,
+        ClaudeAction::Plan | ClaudeAction::Build | ClaudeAction::Verify |
+        ClaudeAction::PlanDistill | ClaudeAction::VerifyDistill
+    ) {
         service.read_task_spec(&task.id).await.ok()
     } else {
         None
     };
 
-    let plan_content = if matches!(action, ClaudeAction::Build) {
+    let plan_content = if matches!(action,
+        ClaudeAction::Build | ClaudeAction::Verify | ClaudeAction::VerifyDistill
+    ) {
         service.read_task_plan(&task.id).await.ok()
     } else {
         None
+    };
+
+    let verification_content = if matches!(action, ClaudeAction::VerifyDistill) {
+        service.read_task_verification(&task.id).await.ok()
+    } else {
+        None
+    };
+
+    let distill_feedback = match action {
+        ClaudeAction::ResearchDistill => Some(task.research_feedback.clone()),
+        ClaudeAction::DesignDistill => Some(task.spec_feedback.clone()),
+        ClaudeAction::PlanDistill => Some(task.plan_feedback.clone()),
+        ClaudeAction::VerifyDistill => Some(task.verify_feedback.clone()),
+        _ => None,
     };
 
     let child_tasks = service
@@ -213,8 +368,11 @@ async fn build_prompt_context(
         repo_url: project.repo_url.clone(),
         task_title: task.title.clone(),
         task_description: task.description.clone(),
+        research_content,
         spec_content,
         plan_content,
+        verification_content,
+        distill_feedback,
         child_tasks,
     }
 }

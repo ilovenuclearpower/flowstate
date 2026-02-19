@@ -126,6 +126,10 @@ pub async fn execute_run(
                     ClaudeAction::Build => {
                         // Build output is just logged, no file copy needed
                     }
+                    _ => {
+                        // Other actions (Research, Verify, distill variants)
+                        // are handled by the runner, not the server executor
+                    }
                 }
 
                 let _ = db.update_claude_run_status(
@@ -193,6 +197,9 @@ fn build_prompt(db: &Db, task: &Task, project: &Project, action: ClaudeAction) -
         task_description: task.description.clone(),
         spec_content,
         plan_content,
+        research_content: None,
+        verification_content: None,
+        distill_feedback: None,
         child_tasks,
     };
 

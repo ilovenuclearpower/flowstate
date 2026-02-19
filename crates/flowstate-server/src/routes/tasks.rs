@@ -26,6 +26,9 @@ pub fn routes() -> Router<AppState> {
         .route("/api/tasks/{id}/children", get(list_children))
         .route("/api/tasks/{id}/spec", get(read_spec).put(write_spec))
         .route("/api/tasks/{id}/plan", get(read_plan).put(write_plan))
+        .route("/api/tasks/{id}/research", get(read_research).put(write_research))
+        .route("/api/tasks/{id}/verification", get(read_verification).put(write_verification))
+        .route("/api/tasks/{id}/feedback", axum::routing::put(write_feedback))
         .route("/api/tasks/{id}/attachments", get(list_attachments))
 }
 
@@ -84,6 +87,14 @@ async fn update_task(
         if let Ok(Some(data)) = state.store.get_opt(&key).await {
             let content = String::from_utf8_lossy(&data);
             input.spec_approved_hash = Some(sha256_hex(&content));
+        }
+    }
+    // On research approval, compute and store the research content hash
+    if input.research_status == Some(ApprovalStatus::Approved) {
+        let key = flowstate_store::task_research_key(&id);
+        if let Ok(Some(data)) = state.store.get_opt(&key).await {
+            let content = String::from_utf8_lossy(&data);
+            input.research_approved_hash = Some(sha256_hex(&content));
         }
     }
     state.service.update_task(&id, &input).await
@@ -225,6 +236,147 @@ async fn write_plan(
         let _ = state.service.update_task(&id, &update).await;
     }
 
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn read_research(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let _task = state.service.get_task(&id).await.map_err(to_error)?;
+    let key = flowstate_store::task_research_key(&id);
+    match state.store.get_opt(&key).await {
+        Ok(Some(data)) => {
+            let content = String::from_utf8_lossy(&data);
+            Ok(Response::builder()
+                .header("Content-Type", "text/markdown")
+                .body(Body::from(content.into_owned()))
+                .unwrap())
+        }
+        Ok(None) => Ok(Response::builder()
+            .header("Content-Type", "text/markdown")
+            .body(Body::from(""))
+            .unwrap()),
+        Err(e) => Err(to_error(flowstate_service::ServiceError::Internal(
+            format!("read research: {e}"),
+        ))),
+    }
+}
+
+async fn write_research(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    body: String,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let task = state.service.get_task(&id).await.map_err(to_error)?;
+    let key = flowstate_store::task_research_key(&id);
+    state.store.put(&key, Bytes::from(body.clone())).await
+        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
+
+    // Server-side status management
+    if task.research_status == ApprovalStatus::Approved && !task.research_approved_hash.is_empty() {
+        // Revoke approval if content changed
+        let new_hash = sha256_hex(&body);
+        if new_hash != task.research_approved_hash {
+            let update = UpdateTask {
+                research_status: Some(ApprovalStatus::Pending),
+                research_approved_hash: Some(String::new()),
+                ..Default::default()
+            };
+            let _ = state.service.update_task(&id, &update).await;
+        }
+    } else if task.research_status == ApprovalStatus::None && !body.trim().is_empty() {
+        // Auto-set to Pending when content written for the first time
+        let update = UpdateTask {
+            research_status: Some(ApprovalStatus::Pending),
+            ..Default::default()
+        };
+        let _ = state.service.update_task(&id, &update).await;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn read_verification(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Response, (StatusCode, Json<Value>)> {
+    let _task = state.service.get_task(&id).await.map_err(to_error)?;
+    let key = flowstate_store::task_verification_key(&id);
+    match state.store.get_opt(&key).await {
+        Ok(Some(data)) => {
+            let content = String::from_utf8_lossy(&data);
+            Ok(Response::builder()
+                .header("Content-Type", "text/markdown")
+                .body(Body::from(content.into_owned()))
+                .unwrap())
+        }
+        Ok(None) => Ok(Response::builder()
+            .header("Content-Type", "text/markdown")
+            .body(Body::from(""))
+            .unwrap()),
+        Err(e) => Err(to_error(flowstate_service::ServiceError::Internal(
+            format!("read verification: {e}"),
+        ))),
+    }
+}
+
+async fn write_verification(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    body: String,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let task = state.service.get_task(&id).await.map_err(to_error)?;
+    let key = flowstate_store::task_verification_key(&id);
+    state.store.put(&key, Bytes::from(body.clone())).await
+        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
+
+    // Auto-set verify_status to Pending if currently None and content is non-empty
+    if task.verify_status == ApprovalStatus::None && !body.trim().is_empty() {
+        let update = UpdateTask {
+            verify_status: Some(ApprovalStatus::Pending),
+            ..Default::default()
+        };
+        let _ = state.service.update_task(&id, &update).await;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Debug, Deserialize)]
+struct FeedbackInput {
+    phase: String,
+    feedback: String,
+}
+
+async fn write_feedback(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(input): Json<FeedbackInput>,
+) -> Result<StatusCode, (StatusCode, Json<Value>)> {
+    let _task = state.service.get_task(&id).await.map_err(to_error)?;
+    let update = match input.phase.as_str() {
+        "research" => UpdateTask {
+            research_feedback: Some(input.feedback),
+            ..Default::default()
+        },
+        "design" => UpdateTask {
+            spec_feedback: Some(input.feedback),
+            ..Default::default()
+        },
+        "plan" => UpdateTask {
+            plan_feedback: Some(input.feedback),
+            ..Default::default()
+        },
+        "verify" => UpdateTask {
+            verify_feedback: Some(input.feedback),
+            ..Default::default()
+        },
+        _ => return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+            format!("invalid phase: {}", input.phase),
+        ))),
+    };
+    state.service.update_task(&id, &update).await.map_err(to_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
