@@ -216,6 +216,22 @@ impl HttpService {
             .await
     }
 
+    pub async fn read_task_research(&self, task_id: &str) -> Result<String, ServiceError> {
+        self.get_text(&format!("/api/tasks/{task_id}/research")).await
+    }
+
+    pub async fn write_task_research(&self, task_id: &str, content: &str) -> Result<(), ServiceError> {
+        self.put_text(&format!("/api/tasks/{task_id}/research"), content).await
+    }
+
+    pub async fn read_task_verification(&self, task_id: &str) -> Result<String, ServiceError> {
+        self.get_text(&format!("/api/tasks/{task_id}/verification")).await
+    }
+
+    pub async fn write_task_verification(&self, task_id: &str, content: &str) -> Result<(), ServiceError> {
+        self.put_text(&format!("/api/tasks/{task_id}/verification"), content).await
+    }
+
     /// Claim the next queued claude run, atomically setting it to Running.
     /// Returns None if no queued runs exist (server returns 204).
     pub async fn claim_claude_run(&self) -> Result<Option<ClaudeRun>, ServiceError> {

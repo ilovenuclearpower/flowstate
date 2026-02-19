@@ -86,6 +86,9 @@ pub async fn execute(
         task_description: task.description.clone(),
         spec_content,
         plan_content: plan_content.clone(),
+        research_content: None,
+        verification_content: None,
+        distill_feedback: None,
         child_tasks,
     };
 
@@ -198,9 +201,9 @@ pub async fn execute(
         tracing::warn!("failed to link PR to task: {e}");
     }
 
-    // 18. Update task status to InReview
+    // 18. Update task status to Verify
     let update = flowstate_core::task::UpdateTask {
-        status: Some(flowstate_core::task::Status::InReview),
+        status: Some(flowstate_core::task::Status::Verify),
         ..Default::default()
     };
     service

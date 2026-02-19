@@ -48,7 +48,7 @@ impl TaskBoard {
         self.columns
             .get(self.active_column)
             .map(|c| c.status)
-            .unwrap_or(Status::Backlog)
+            .unwrap_or(Status::Todo)
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {

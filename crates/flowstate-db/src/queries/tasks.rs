@@ -12,6 +12,8 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
     let priority_str: String = row.get("priority")?;
     let spec_status_str: String = row.get("spec_status")?;
     let plan_status_str: String = row.get("plan_status")?;
+    let research_status_str: String = row.get("research_status")?;
+    let verify_status_str: String = row.get("verify_status")?;
     Ok(Task {
         id: row.get("id")?,
         project_id: row.get("project_id")?,
@@ -20,10 +22,19 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
         title: row.get("title")?,
         description: row.get("description")?,
         reviewer: row.get("reviewer")?,
+        research_status: ApprovalStatus::parse_str(&research_status_str)
+            .unwrap_or(ApprovalStatus::None),
         spec_status: ApprovalStatus::parse_str(&spec_status_str).unwrap_or(ApprovalStatus::None),
         plan_status: ApprovalStatus::parse_str(&plan_status_str).unwrap_or(ApprovalStatus::None),
+        verify_status: ApprovalStatus::parse_str(&verify_status_str)
+            .unwrap_or(ApprovalStatus::None),
         spec_approved_hash: row.get("spec_approved_hash")?,
-        status: Status::parse_str(&status_str).unwrap_or(Status::Backlog),
+        research_approved_hash: row.get("research_approved_hash")?,
+        research_feedback: row.get("research_feedback")?,
+        spec_feedback: row.get("spec_feedback")?,
+        plan_feedback: row.get("plan_feedback")?,
+        verify_feedback: row.get("verify_feedback")?,
+        status: Status::parse_str(&status_str).unwrap_or(Status::Todo),
         priority: Priority::parse_str(&priority_str).unwrap_or(Priority::Medium),
         sort_order: row.get("sort_order")?,
         created_at: row.get("created_at")?,
@@ -186,6 +197,10 @@ impl Db {
                 param_values.push(Box::new(reviewer.clone()));
                 sets.push(format!("reviewer = ?{}", param_values.len()));
             }
+            if let Some(research_status) = update.research_status {
+                param_values.push(Box::new(research_status.as_str().to_string()));
+                sets.push(format!("research_status = ?{}", param_values.len()));
+            }
             if let Some(spec_status) = update.spec_status {
                 param_values.push(Box::new(spec_status.as_str().to_string()));
                 sets.push(format!("spec_status = ?{}", param_values.len()));
@@ -194,9 +209,33 @@ impl Db {
                 param_values.push(Box::new(plan_status.as_str().to_string()));
                 sets.push(format!("plan_status = ?{}", param_values.len()));
             }
+            if let Some(verify_status) = update.verify_status {
+                param_values.push(Box::new(verify_status.as_str().to_string()));
+                sets.push(format!("verify_status = ?{}", param_values.len()));
+            }
             if let Some(ref hash) = update.spec_approved_hash {
                 param_values.push(Box::new(hash.clone()));
                 sets.push(format!("spec_approved_hash = ?{}", param_values.len()));
+            }
+            if let Some(ref hash) = update.research_approved_hash {
+                param_values.push(Box::new(hash.clone()));
+                sets.push(format!("research_approved_hash = ?{}", param_values.len()));
+            }
+            if let Some(ref feedback) = update.research_feedback {
+                param_values.push(Box::new(feedback.clone()));
+                sets.push(format!("research_feedback = ?{}", param_values.len()));
+            }
+            if let Some(ref feedback) = update.spec_feedback {
+                param_values.push(Box::new(feedback.clone()));
+                sets.push(format!("spec_feedback = ?{}", param_values.len()));
+            }
+            if let Some(ref feedback) = update.plan_feedback {
+                param_values.push(Box::new(feedback.clone()));
+                sets.push(format!("plan_feedback = ?{}", param_values.len()));
+            }
+            if let Some(ref feedback) = update.verify_feedback {
+                param_values.push(Box::new(feedback.clone()));
+                sets.push(format!("verify_feedback = ?{}", param_values.len()));
             }
 
             param_values.push(Box::new(id.to_string()));
@@ -294,12 +333,12 @@ mod tests {
             .update_task(
                 &task.id,
                 &UpdateTask {
-                    status: Some(Status::InProgress),
+                    status: Some(Status::Build),
                     ..Default::default()
                 },
             )
             .unwrap();
-        assert_eq!(updated.status, Status::InProgress);
+        assert_eq!(updated.status, Status::Build);
 
         db.delete_task(&task.id).unwrap();
         assert!(db.get_task(&task.id).is_err());

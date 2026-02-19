@@ -64,6 +64,14 @@ pub fn task_plan_key(task_id: &str) -> String {
     format!("tasks/{task_id}/plan.md")
 }
 
+pub fn task_research_key(task_id: &str) -> String {
+    format!("tasks/{task_id}/research.md")
+}
+
+pub fn task_verification_key(task_id: &str) -> String {
+    format!("tasks/{task_id}/verification.md")
+}
+
 pub fn task_attachment_key(task_id: &str, attachment_id: &str, filename: &str) -> String {
     format!("tasks/{task_id}/attachments/{attachment_id}/{filename}")
 }
@@ -170,6 +178,14 @@ mod tests {
         assert_eq!(
             claude_run_output_key("run-1"),
             "claude_runs/run-1/output.txt"
+        );
+        assert_eq!(
+            task_research_key("abc-123"),
+            "tasks/abc-123/research.md"
+        );
+        assert_eq!(
+            task_verification_key("abc-123"),
+            "tasks/abc-123/verification.md"
         );
     }
 

@@ -40,12 +40,44 @@ async fn trigger_claude_run(
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
     let action = ClaudeAction::parse_str(&input.action).ok_or_else(|| {
         to_error(flowstate_service::ServiceError::InvalidInput(format!(
-            "invalid action: {} (expected design, plan, or build)",
+            "invalid action: {} (expected research, design, plan, build, verify, research_distill, design_distill, plan_distill, or verify_distill)",
             input.action
         )))
     })?;
 
     let task = state.service.get_task(&task_id).await.map_err(to_error)?;
+
+    // Research: no prerequisites
+
+    // ResearchDistill: research artifact must exist
+    if action == ClaudeAction::ResearchDistill
+        && task.research_status == flowstate_core::task::ApprovalStatus::None
+    {
+        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+            "cannot distill research: research artifact must exist first".to_string(),
+        )));
+    }
+
+    // Design: research must be approved
+    if action == ClaudeAction::Design
+        && task.research_status != flowstate_core::task::ApprovalStatus::Approved
+    {
+        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+            format!(
+                "cannot design: research must be approved first (current: {})",
+                task.research_status.display_name()
+            ),
+        )));
+    }
+
+    // DesignDistill: spec artifact must exist
+    if action == ClaudeAction::DesignDistill
+        && task.spec_status == flowstate_core::task::ApprovalStatus::None
+    {
+        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+            "cannot distill design: spec artifact must exist first".to_string(),
+        )));
+    }
 
     // Spec must be approved before planning
     if action == ClaudeAction::Plan
@@ -56,6 +88,15 @@ async fn trigger_claude_run(
                 "cannot plan: spec must be approved first (current: {})",
                 task.spec_status.display_name()
             ),
+        )));
+    }
+
+    // PlanDistill: plan artifact must exist
+    if action == ClaudeAction::PlanDistill
+        && task.plan_status == flowstate_core::task::ApprovalStatus::None
+    {
+        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+            "cannot distill plan: plan artifact must exist first".to_string(),
         )));
     }
 
@@ -77,6 +118,29 @@ async fn trigger_claude_run(
                 ),
             )));
         }
+    }
+
+    // Verify: build must be completed or a PR must be linked
+    if action == ClaudeAction::Verify {
+        let runs = state.service.list_claude_runs(&task_id).await.map_err(to_error)?;
+        let has_completed_build = runs.iter().any(|r|
+            r.action == ClaudeAction::Build && r.status == ClaudeRunStatus::Completed
+        );
+        let prs = state.service.list_task_prs(&task_id).await.map_err(to_error)?;
+        if !has_completed_build && prs.is_empty() {
+            return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+                "cannot verify: build must be completed or a PR must be linked first".to_string(),
+            )));
+        }
+    }
+
+    // VerifyDistill: verify artifact must exist
+    if action == ClaudeAction::VerifyDistill
+        && task.verify_status == flowstate_core::task::ApprovalStatus::None
+    {
+        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+            "cannot distill verification: verification artifact must exist first".to_string(),
+        )));
     }
 
     let create = CreateClaudeRun {

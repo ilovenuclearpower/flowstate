@@ -67,6 +67,12 @@ pub enum Mode {
     ViewSpec { task: Task, scroll: u16 },
     /// Read-only plan viewer
     ViewPlan { task: Task, scroll: u16 },
+    /// Read-only research viewer
+    ViewResearch { task: Task, scroll: u16 },
+    /// Read-only verification viewer
+    ViewVerification { task: Task, scroll: u16 },
+    /// Entering feedback text for rejection
+    FeedbackInput { task: Task, field: String, input: String },
     /// Editing a project's repo URL
     EditRepoUrl {
         project_id: String,
@@ -180,6 +186,7 @@ impl App {
                 | Mode::NewProject { .. }
                 | Mode::EditRepoUrl { .. }
                 | Mode::EditRepoToken { .. }
+                | Mode::FeedbackInput { .. }
         )
     }
 
@@ -234,10 +241,12 @@ impl App {
             // Read the edited file and push it to the server
             match std::fs::read_to_string(&req.path) {
                 Ok(content) => {
-                    let write_result = if req.kind == "spec" {
-                        self.service.write_task_spec(&req.task_id, &content)
-                    } else {
-                        self.service.write_task_plan(&req.task_id, &content)
+                    let write_result = match req.kind.as_str() {
+                        "spec" => self.service.write_task_spec(&req.task_id, &content),
+                        "plan" => self.service.write_task_plan(&req.task_id, &content),
+                        "research" => self.service.write_task_research(&req.task_id, &content),
+                        "verification" => self.service.write_task_verification(&req.task_id, &content),
+                        _ => self.service.write_task_spec(&req.task_id, &content),
                     };
 
                     if let Err(e) = write_result {
@@ -307,6 +316,15 @@ impl App {
             }
             Mode::ViewPlan { task, scroll } => {
                 self.handle_view_scroll(key, task.clone(), *scroll, "plan")
+            }
+            Mode::ViewResearch { task, scroll } => {
+                self.handle_view_scroll(key, task.clone(), *scroll, "research")
+            }
+            Mode::ViewVerification { task, scroll } => {
+                self.handle_view_scroll(key, task.clone(), *scroll, "verification")
+            }
+            Mode::FeedbackInput { task, field, input } => {
+                self.handle_feedback_input(key, task.clone(), field.clone(), input.clone())
             }
             Mode::EditRepoUrl { project_id, input } => {
                 self.handle_edit_repo_url(key, project_id.clone(), input.clone())
@@ -522,10 +540,47 @@ impl App {
                     kind: "plan".into(),
                 });
             }
+            // View research
+            KeyCode::Char('w') => {
+                self.mode = Mode::ViewResearch { task, scroll: 0 };
+            }
+            // Edit research in $EDITOR
+            KeyCode::Char('W') => {
+                let path = flowstate_db::task_research_path(&task.id);
+                let _ = std::fs::create_dir_all(path.parent().unwrap());
+                let content = self.service.read_task_research(&task.id).unwrap_or_default();
+                let _ = std::fs::write(&path, &content);
+                self.editor_request = Some(EditorRequest {
+                    path,
+                    task_id: task.id.clone(),
+                    kind: "research".into(),
+                });
+            }
+            // View verification
+            KeyCode::Char('v') => {
+                self.mode = Mode::ViewVerification { task, scroll: 0 };
+            }
+            // Edit verification in $EDITOR
+            KeyCode::Char('V') => {
+                let path = flowstate_db::task_verification_path(&task.id);
+                let _ = std::fs::create_dir_all(path.parent().unwrap());
+                let content = self.service.read_task_verification(&task.id).unwrap_or_default();
+                let _ = std::fs::write(&path, &content);
+                self.editor_request = Some(EditorRequest {
+                    path,
+                    task_id: task.id.clone(),
+                    kind: "verification".into(),
+                });
+            }
             // Approve/reject
             KeyCode::Char('a') => {
                 // Pick which field to approve based on what's pending
-                if task.spec_status == ApprovalStatus::Pending {
+                if task.research_status == ApprovalStatus::Pending {
+                    self.mode = Mode::ApprovalPick {
+                        task,
+                        field: "research".into(),
+                    };
+                } else if task.spec_status == ApprovalStatus::Pending {
                     self.mode = Mode::ApprovalPick {
                         task,
                         field: "spec".into(),
@@ -534,6 +589,11 @@ impl App {
                     self.mode = Mode::ApprovalPick {
                         task,
                         field: "plan".into(),
+                    };
+                } else if task.verify_status == ApprovalStatus::Pending {
+                    self.mode = Mode::ApprovalPick {
+                        task,
+                        field: "verify".into(),
                     };
                 } else {
                     self.status_message = Some("Nothing pending approval".into());
@@ -880,6 +940,22 @@ impl App {
 
     fn handle_claude_action_pick(&mut self, key: KeyEvent, task: Task) {
         match key.code {
+            KeyCode::Char('r') => {
+                match self.service.trigger_claude_run(&task.id, "research") {
+                    Ok(run) => {
+                        self.status_message = Some("Claude researching...".into());
+                        self.mode = Mode::ClaudeRunning {
+                            task,
+                            run_id: run.id,
+                            progress: None,
+                        };
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {e}"));
+                        self.mode = Mode::TaskDetail { task };
+                    }
+                }
+            }
             KeyCode::Char('d') => {
                 match self.service.trigger_claude_run(&task.id, "design") {
                     Ok(run) => {
@@ -936,7 +1012,140 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('v') => {
+                match self.service.trigger_claude_run(&task.id, "verify") {
+                    Ok(run) => {
+                        self.status_message = Some("Claude verifying...".into());
+                        self.mode = Mode::ClaudeRunning {
+                            task,
+                            run_id: run.id,
+                            progress: None,
+                        };
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {e}"));
+                        self.mode = Mode::TaskDetail { task };
+                    }
+                }
+            }
+            KeyCode::Char('R') => {
+                match self.service.trigger_claude_run(&task.id, "research_distill") {
+                    Ok(run) => {
+                        self.status_message = Some("Claude refining research...".into());
+                        self.mode = Mode::ClaudeRunning {
+                            task,
+                            run_id: run.id,
+                            progress: None,
+                        };
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {e}"));
+                        self.mode = Mode::TaskDetail { task };
+                    }
+                }
+            }
+            KeyCode::Char('D') => {
+                match self.service.trigger_claude_run(&task.id, "design_distill") {
+                    Ok(run) => {
+                        self.status_message = Some("Claude refining design...".into());
+                        self.mode = Mode::ClaudeRunning {
+                            task,
+                            run_id: run.id,
+                            progress: None,
+                        };
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {e}"));
+                        self.mode = Mode::TaskDetail { task };
+                    }
+                }
+            }
+            KeyCode::Char('P') => {
+                match self.service.trigger_claude_run(&task.id, "plan_distill") {
+                    Ok(run) => {
+                        self.status_message = Some("Claude refining plan...".into());
+                        self.mode = Mode::ClaudeRunning {
+                            task,
+                            run_id: run.id,
+                            progress: None,
+                        };
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {e}"));
+                        self.mode = Mode::TaskDetail { task };
+                    }
+                }
+            }
+            KeyCode::Char('V') => {
+                match self.service.trigger_claude_run(&task.id, "verify_distill") {
+                    Ok(run) => {
+                        self.status_message = Some("Claude refining verification...".into());
+                        self.mode = Mode::ClaudeRunning {
+                            task,
+                            run_id: run.id,
+                            progress: None,
+                        };
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {e}"));
+                        self.mode = Mode::TaskDetail { task };
+                    }
+                }
+            }
             KeyCode::Esc => self.mode = Mode::TaskDetail { task },
+            _ => {}
+        }
+    }
+
+    fn handle_feedback_input(&mut self, key: KeyEvent, task: Task, field: String, mut input: String) {
+        match key.code {
+            KeyCode::Enter => {
+                let feedback_update = match field.as_str() {
+                    "research" => UpdateTask {
+                        research_feedback: Some(input),
+                        research_status: Some(ApprovalStatus::Rejected),
+                        ..Default::default()
+                    },
+                    "spec" | "design" => UpdateTask {
+                        spec_feedback: Some(input),
+                        spec_status: Some(ApprovalStatus::Rejected),
+                        ..Default::default()
+                    },
+                    "plan" => UpdateTask {
+                        plan_feedback: Some(input),
+                        plan_status: Some(ApprovalStatus::Rejected),
+                        ..Default::default()
+                    },
+                    "verify" => UpdateTask {
+                        verify_feedback: Some(input),
+                        verify_status: Some(ApprovalStatus::Rejected),
+                        ..Default::default()
+                    },
+                    _ => UpdateTask::default(),
+                };
+                match self.service.update_task(&task.id, &feedback_update) {
+                    Ok(updated) => {
+                        self.refresh();
+                        self.status_message = Some(format!("{field} rejected with feedback"));
+                        self.mode = Mode::TaskDetail { task: updated };
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Error: {e}"));
+                        self.mode = Mode::TaskDetail { task };
+                    }
+                }
+            }
+            KeyCode::Esc => {
+                self.mode = Mode::TaskDetail { task };
+            }
+            KeyCode::Backspace => {
+                input.pop();
+                self.mode = Mode::FeedbackInput { task, field, input };
+            }
+            KeyCode::Char(c) => {
+                input.push(c);
+                self.mode = Mode::FeedbackInput { task, field, input };
+            }
             _ => {}
         }
     }
@@ -973,16 +1182,24 @@ impl App {
     fn handle_approval_pick(&mut self, key: KeyEvent, task: Task, field: String) {
         match key.code {
             KeyCode::Char('a') => {
-                let update = if field == "spec" {
-                    UpdateTask {
+                let update = match field.as_str() {
+                    "research" => UpdateTask {
+                        research_status: Some(ApprovalStatus::Approved),
+                        ..Default::default()
+                    },
+                    "spec" => UpdateTask {
                         spec_status: Some(ApprovalStatus::Approved),
                         ..Default::default()
-                    }
-                } else {
-                    UpdateTask {
+                    },
+                    "plan" => UpdateTask {
                         plan_status: Some(ApprovalStatus::Approved),
                         ..Default::default()
-                    }
+                    },
+                    "verify" => UpdateTask {
+                        verify_status: Some(ApprovalStatus::Approved),
+                        ..Default::default()
+                    },
+                    _ => UpdateTask::default(),
                 };
                 match self.service.update_task(&task.id, &update) {
                     Ok(updated) => {
@@ -997,16 +1214,24 @@ impl App {
                 }
             }
             KeyCode::Char('r') => {
-                let update = if field == "spec" {
-                    UpdateTask {
+                let update = match field.as_str() {
+                    "research" => UpdateTask {
+                        research_status: Some(ApprovalStatus::Rejected),
+                        ..Default::default()
+                    },
+                    "spec" => UpdateTask {
                         spec_status: Some(ApprovalStatus::Rejected),
                         ..Default::default()
-                    }
-                } else {
-                    UpdateTask {
+                    },
+                    "plan" => UpdateTask {
                         plan_status: Some(ApprovalStatus::Rejected),
                         ..Default::default()
-                    }
+                    },
+                    "verify" => UpdateTask {
+                        verify_status: Some(ApprovalStatus::Rejected),
+                        ..Default::default()
+                    },
+                    _ => UpdateTask::default(),
                 };
                 match self.service.update_task(&task.id, &update) {
                     Ok(updated) => {
@@ -1032,18 +1257,22 @@ impl App {
             }
             KeyCode::Char('j') | KeyCode::Down => {
                 scroll = scroll.saturating_add(1);
-                if kind == "spec" {
-                    self.mode = Mode::ViewSpec { task, scroll };
-                } else {
-                    self.mode = Mode::ViewPlan { task, scroll };
+                match kind {
+                    "spec" => self.mode = Mode::ViewSpec { task, scroll },
+                    "plan" => self.mode = Mode::ViewPlan { task, scroll },
+                    "research" => self.mode = Mode::ViewResearch { task, scroll },
+                    "verification" => self.mode = Mode::ViewVerification { task, scroll },
+                    _ => self.mode = Mode::ViewSpec { task, scroll },
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
                 scroll = scroll.saturating_sub(1);
-                if kind == "spec" {
-                    self.mode = Mode::ViewSpec { task, scroll };
-                } else {
-                    self.mode = Mode::ViewPlan { task, scroll };
+                match kind {
+                    "spec" => self.mode = Mode::ViewSpec { task, scroll },
+                    "plan" => self.mode = Mode::ViewPlan { task, scroll },
+                    "research" => self.mode = Mode::ViewResearch { task, scroll },
+                    "verification" => self.mode = Mode::ViewVerification { task, scroll },
+                    _ => self.mode = Mode::ViewSpec { task, scroll },
                 }
             }
             _ => {}
@@ -1356,6 +1585,33 @@ impl App {
                 };
                 self.render_scrollable_text(frame, " Plan ", &display, *scroll, area)
             }
+            Mode::ViewResearch { task, scroll } => {
+                let content = self
+                    .service
+                    .read_task_research(&task.id)
+                    .unwrap_or_else(|_| "(error reading research)".into());
+                let display = if content.trim().is_empty() {
+                    "(no research yet)".into()
+                } else {
+                    content
+                };
+                self.render_scrollable_text(frame, " Research ", &display, *scroll, area)
+            }
+            Mode::ViewVerification { task, scroll } => {
+                let content = self
+                    .service
+                    .read_task_verification(&task.id)
+                    .unwrap_or_else(|_| "(error reading verification)".into());
+                let display = if content.trim().is_empty() {
+                    "(no verification yet)".into()
+                } else {
+                    content
+                };
+                self.render_scrollable_text(frame, " Verification ", &display, *scroll, area)
+            }
+            Mode::FeedbackInput { input, field, .. } => {
+                self.render_input_bar(frame, &format!("Feedback ({field}): "), input, area)
+            }
             Mode::EditRepoUrl { input, .. } => {
                 self.render_input_bar(frame, "Repo URL: ", input, area)
             }
@@ -1410,6 +1666,8 @@ impl App {
                 ("c", "claude"),
                 ("s/S", "spec"),
                 ("i/I", "plan"),
+                ("w/W", "research"),
+                ("v/V", "verify"),
                 ("a", "approve"),
                 ("Esc", "back"),
             ],
@@ -1438,15 +1696,19 @@ impl App {
                 vec![("Tab", "next field"), ("Enter", "confirm"), ("Esc", "cancel")]
             }
             Mode::ClaudeActionPick { .. } => vec![
+                ("r", "research"),
                 ("d", "design"),
                 ("p", "plan"),
                 ("b", "build"),
+                ("v", "verify"),
+                ("R/D/P/V", "distill"),
                 ("Esc", "cancel"),
             ],
             Mode::ClaudeRunning { .. } => vec![("Esc", "background")],
-            Mode::ClaudeOutput { .. } | Mode::ViewSpec { .. } | Mode::ViewPlan { .. } => {
+            Mode::ClaudeOutput { .. } | Mode::ViewSpec { .. } | Mode::ViewPlan { .. } | Mode::ViewResearch { .. } | Mode::ViewVerification { .. } => {
                 vec![("j/k", "scroll"), ("Esc", "back")]
             }
+            Mode::FeedbackInput { .. } => vec![("Enter", "submit"), ("Esc", "cancel")],
             Mode::ApprovalPick { .. } => vec![
                 ("a", "approve"),
                 ("r", "reject"),
@@ -1521,7 +1783,14 @@ impl App {
             ]),
         ];
 
-        // Spec/plan status
+        // Approval statuses
+        lines.push(Line::from(vec![
+            Span::styled("Research: ", Style::default().bold()),
+            Span::styled(
+                task.research_status.display_name(),
+                approval_style(task.research_status),
+            ),
+        ]));
         lines.push(Line::from(vec![
             Span::styled("Spec: ", Style::default().bold()),
             Span::styled(
@@ -1534,6 +1803,13 @@ impl App {
             Span::styled(
                 task.plan_status.display_name(),
                 approval_style(task.plan_status),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Verify: ", Style::default().bold()),
+            Span::styled(
+                task.verify_status.display_name(),
+                approval_style(task.verify_status),
             ),
         ]));
 
@@ -1744,7 +2020,7 @@ impl App {
     }
 
     fn render_claude_action_pick(&self, frame: &mut Frame, task: &Task, area: Rect) {
-        let popup = centered_rect(40, 25, area);
+        let popup = centered_rect(50, 50, area);
         frame.render_widget(Clear, popup);
 
         let block = Block::default()
@@ -1752,34 +2028,42 @@ impl App {
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Green));
 
-        let plan_available = task.spec_status == ApprovalStatus::Approved;
-        let (plan_key_style, plan_text) = if plan_available {
-            (
-                Style::default().fg(Color::Yellow).bold(),
-                "Plan — produce implementation plan".to_string(),
-            )
-        } else {
-            (
-                Style::default().fg(Color::DarkGray),
-                "Plan — produce implementation plan (spec not approved)".to_string(),
-            )
+        let research_ok = true;
+        let design_ok = task.research_status == ApprovalStatus::Approved;
+        let plan_ok = task.spec_status == ApprovalStatus::Approved;
+        let build_ok = task.spec_status == ApprovalStatus::Approved && task.plan_status == ApprovalStatus::Approved;
+
+        let action_line = |key: &str, name: &str, available: bool, note: &str| -> Line {
+            let style = if available {
+                Style::default().fg(Color::Yellow).bold()
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let text_style = if available { Style::default() } else { Style::default().fg(Color::DarkGray) };
+            let suffix = if !available && !note.is_empty() {
+                format!(" ({})", note)
+            } else {
+                String::new()
+            };
+            Line::from(vec![
+                Span::styled(format!("[{key}] "), style),
+                Span::styled(format!("{name}{suffix}"), text_style),
+            ])
         };
 
         let lines = vec![
-            Line::from(vec![
-                Span::styled("[d] ", Style::default().fg(Color::Yellow).bold()),
-                Span::raw("Design — produce specification"),
-            ]),
+            Line::from(Span::styled("  Primary Actions", Style::default().bold())),
+            action_line("r", "Research", research_ok, ""),
+            action_line("d", "Design", design_ok, "research not approved"),
+            action_line("p", "Plan", plan_ok, "spec not approved"),
+            action_line("b", "Build", build_ok, "spec+plan not approved"),
+            action_line("v", "Verify", true, ""),
             Line::from(""),
-            Line::from(vec![
-                Span::styled("[p] ", plan_key_style),
-                Span::styled(plan_text, if plan_available { Style::default() } else { Style::default().fg(Color::DarkGray) }),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("[b] ", Style::default().fg(Color::Yellow).bold()),
-                Span::raw("Build — implement the solution"),
-            ]),
+            Line::from(Span::styled("  Distill (Refine)", Style::default().bold())),
+            action_line("R", "Research Distill", task.research_status != ApprovalStatus::None, "no research"),
+            action_line("D", "Design Distill", task.spec_status != ApprovalStatus::None, "no spec"),
+            action_line("P", "Plan Distill", task.plan_status != ApprovalStatus::None, "no plan"),
+            action_line("V", "Verify Distill", task.verify_status != ApprovalStatus::None, "no verification"),
         ];
 
         let paragraph = Paragraph::new(lines).block(block);
@@ -1924,10 +2208,12 @@ impl App {
 
 fn next_status(s: Status) -> Option<Status> {
     match s {
-        Status::Backlog => Some(Status::Todo),
-        Status::Todo => Some(Status::InProgress),
-        Status::InProgress => Some(Status::InReview),
-        Status::InReview => Some(Status::Done),
+        Status::Todo => Some(Status::Research),
+        Status::Research => Some(Status::Design),
+        Status::Design => Some(Status::Plan),
+        Status::Plan => Some(Status::Build),
+        Status::Build => Some(Status::Verify),
+        Status::Verify => Some(Status::Done),
         Status::Done => None,
         Status::Cancelled => None,
     }
@@ -1935,11 +2221,13 @@ fn next_status(s: Status) -> Option<Status> {
 
 fn prev_status(s: Status) -> Option<Status> {
     match s {
-        Status::Backlog => None,
-        Status::Todo => Some(Status::Backlog),
-        Status::InProgress => Some(Status::Todo),
-        Status::InReview => Some(Status::InProgress),
-        Status::Done => Some(Status::InReview),
+        Status::Todo => None,
+        Status::Research => Some(Status::Todo),
+        Status::Design => Some(Status::Research),
+        Status::Plan => Some(Status::Design),
+        Status::Build => Some(Status::Plan),
+        Status::Verify => Some(Status::Build),
+        Status::Done => Some(Status::Verify),
         Status::Cancelled => None,
     }
 }
