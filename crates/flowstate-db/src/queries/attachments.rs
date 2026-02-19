@@ -10,7 +10,7 @@ fn row_to_attachment(row: &Row) -> rusqlite::Result<Attachment> {
         id: row.get("id")?,
         task_id: row.get("task_id")?,
         filename: row.get("filename")?,
-        disk_path: row.get("disk_path")?,
+        store_key: row.get("store_key")?,
         size_bytes: row.get("size_bytes")?,
         created_at: row.get("created_at")?,
     })
@@ -21,16 +21,16 @@ impl Db {
         &self,
         task_id: &str,
         filename: &str,
-        disk_path: &str,
+        store_key: &str,
         size_bytes: i64,
     ) -> Result<Attachment, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
             conn.execute(
-                "INSERT INTO attachments (id, task_id, filename, disk_path, size_bytes, created_at)
+                "INSERT INTO attachments (id, task_id, filename, store_key, size_bytes, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![id, task_id, filename, disk_path, size_bytes, now],
+                params![id, task_id, filename, store_key, size_bytes, now],
             )?;
             conn.query_row(
                 "SELECT * FROM attachments WHERE id = ?1",

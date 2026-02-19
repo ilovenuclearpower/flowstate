@@ -1,0 +1,21 @@
+[package]
+name = "flowstate-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+tracing = { workspace = true }
+rust-s3 = { version = "0.37", default-features = false, features = ["tokio-rustls-tls"], optional = true }
+
+[features]
+default = ["s3"]
+s3 = ["dep:rust-s3"]
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["full", "test-util"] }

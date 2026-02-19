@@ -6,6 +6,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use bytes::Bytes;
 use flowstate_core::task::{ApprovalStatus, CreateTask, Priority, Status, TaskFilter, UpdateTask};
 use flowstate_service::TaskService;
 use serde::Deserialize;
@@ -79,8 +80,9 @@ async fn update_task(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     // On spec approval, compute and store the spec content hash
     if input.spec_status == Some(ApprovalStatus::Approved) {
-        let spec_path = flowstate_db::task_spec_path(&id);
-        if let Ok(content) = std::fs::read_to_string(&spec_path) {
+        let key = flowstate_store::task_spec_key(&id);
+        if let Ok(Some(data)) = state.store.get_opt(&key).await {
+            let content = String::from_utf8_lossy(&data);
             input.spec_approved_hash = Some(sha256_hex(&content));
         }
     }
@@ -127,13 +129,16 @@ async fn read_spec(
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     // Verify task exists
     let _task = state.service.get_task(&id).await.map_err(to_error)?;
-    let path = flowstate_db::task_spec_path(&id);
-    match std::fs::read_to_string(&path) {
-        Ok(content) => Ok(Response::builder()
-            .header("Content-Type", "text/markdown")
-            .body(Body::from(content))
-            .unwrap()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Response::builder()
+    let key = flowstate_store::task_spec_key(&id);
+    match state.store.get_opt(&key).await {
+        Ok(Some(data)) => {
+            let content = String::from_utf8_lossy(&data);
+            Ok(Response::builder()
+                .header("Content-Type", "text/markdown")
+                .body(Body::from(content.into_owned()))
+                .unwrap())
+        }
+        Ok(None) => Ok(Response::builder()
             .header("Content-Type", "text/markdown")
             .body(Body::from(""))
             .unwrap()),
@@ -149,10 +154,8 @@ async fn write_spec(
     body: String,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let task = state.service.get_task(&id).await.map_err(to_error)?;
-    let path = flowstate_db::task_spec_path(&id);
-    std::fs::create_dir_all(path.parent().unwrap())
-        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("mkdir: {e}"))))?;
-    std::fs::write(&path, &body)
+    let key = flowstate_store::task_spec_key(&id);
+    state.store.put(&key, Bytes::from(body.clone())).await
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
 
     // Server-side status management
@@ -184,13 +187,16 @@ async fn read_plan(
     Path(id): Path<String>,
 ) -> Result<Response, (StatusCode, Json<Value>)> {
     let _task = state.service.get_task(&id).await.map_err(to_error)?;
-    let path = flowstate_db::task_plan_path(&id);
-    match std::fs::read_to_string(&path) {
-        Ok(content) => Ok(Response::builder()
-            .header("Content-Type", "text/markdown")
-            .body(Body::from(content))
-            .unwrap()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Response::builder()
+    let key = flowstate_store::task_plan_key(&id);
+    match state.store.get_opt(&key).await {
+        Ok(Some(data)) => {
+            let content = String::from_utf8_lossy(&data);
+            Ok(Response::builder()
+                .header("Content-Type", "text/markdown")
+                .body(Body::from(content.into_owned()))
+                .unwrap())
+        }
+        Ok(None) => Ok(Response::builder()
             .header("Content-Type", "text/markdown")
             .body(Body::from(""))
             .unwrap()),
@@ -206,10 +212,8 @@ async fn write_plan(
     body: String,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let task = state.service.get_task(&id).await.map_err(to_error)?;
-    let path = flowstate_db::task_plan_path(&id);
-    std::fs::create_dir_all(path.parent().unwrap())
-        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("mkdir: {e}"))))?;
-    std::fs::write(&path, &body)
+    let key = flowstate_store::task_plan_key(&id);
+    state.store.put(&key, Bytes::from(body.clone())).await
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
 
     // Auto-set plan_status to Pending if currently None and content is non-empty

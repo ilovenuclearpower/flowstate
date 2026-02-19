@@ -225,24 +225,21 @@ async fn get_claude_run_output(
     Path(id): Path<String>,
 ) -> Result<String, (StatusCode, Json<Value>)> {
     // First verify the run exists
-    let _run = state
-        .service
-        .get_claude_run(&id)
-        .await
-        .map_err(to_error)?;
+    let _run = state.service.get_claude_run(&id).await.map_err(to_error)?;
 
-    let output_path = flowstate_db::claude_run_dir(&id).join("output.txt");
-    std::fs::read_to_string(&output_path).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::NotFound {
-            to_error(flowstate_service::ServiceError::NotFound(
-                "output not yet available".into(),
-            ))
-        } else {
-            to_error(flowstate_service::ServiceError::Internal(format!(
-                "read output: {e}"
-            )))
+    let key = flowstate_store::claude_run_output_key(&id);
+    match state.store.get_opt(&key).await {
+        Ok(Some(data)) => {
+            let content = String::from_utf8_lossy(&data);
+            Ok(content.into_owned())
         }
-    })
+        Ok(None) => Err(to_error(flowstate_service::ServiceError::NotFound(
+            "output not yet available".into(),
+        ))),
+        Err(e) => Err(to_error(flowstate_service::ServiceError::Internal(
+            format!("read output: {e}"),
+        ))),
+    }
 }
 
 fn to_error(e: flowstate_service::ServiceError) -> (StatusCode, Json<Value>) {
