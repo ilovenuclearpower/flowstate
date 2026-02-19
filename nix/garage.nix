@@ -187,22 +187,29 @@ let
       fi
       echo "Node ID: $NODE_ID"
 
-      # Assign layout
-      if ! garage -c "$CONFIG" layout assign -z dc1 -c 1G "$NODE_ID"; then
-        echo "ERROR: Failed to assign layout."
-        rm -f "$CRED_FILE"
-        kill "$GARAGE_PID" 2>/dev/null || true
-        rm -f "$PID_FILE"
-        exit 1
-      fi
+      # Assign layout (skip if already applied)
+      LAYOUT_STATUS=$(garage -c "$CONFIG" layout show 2>&1 || true)
+      if echo "$LAYOUT_STATUS" | grep -q "No nodes"; then
+        if ! garage -c "$CONFIG" layout assign -z dc1 -c 1G "$NODE_ID"; then
+          echo "ERROR: Failed to assign layout."
+          rm -f "$CRED_FILE"
+          kill "$GARAGE_PID" 2>/dev/null || true
+          rm -f "$PID_FILE"
+          exit 1
+        fi
 
-      # Apply layout
-      if ! garage -c "$CONFIG" layout apply --version 1; then
-        echo "ERROR: Failed to apply layout."
-        rm -f "$CRED_FILE"
-        kill "$GARAGE_PID" 2>/dev/null || true
-        rm -f "$PID_FILE"
-        exit 1
+        # Apply layout (only needed for fresh clusters)
+        CURRENT_VERSION=$(garage -c "$CONFIG" layout show 2>&1 | grep "Current cluster layout version:" | awk '{print $NF}' || echo "0")
+        NEXT_VERSION=$((CURRENT_VERSION + 1))
+        if ! garage -c "$CONFIG" layout apply --version "$NEXT_VERSION"; then
+          echo "ERROR: Failed to apply layout."
+          rm -f "$CRED_FILE"
+          kill "$GARAGE_PID" 2>/dev/null || true
+          rm -f "$PID_FILE"
+          exit 1
+        fi
+      else
+        echo "Layout already configured, skipping."
       fi
 
       # Create bucket
@@ -225,7 +232,7 @@ let
       fi
 
       # Extract credentials from key info
-      KEY_INFO=$(garage -c "$CONFIG" key info flowstate-dev 2>/dev/null)
+      KEY_INFO=$(garage -c "$CONFIG" key info --show-secret flowstate-dev 2>/dev/null)
       KEY_ID=$(echo "$KEY_INFO" | grep "Key ID:" | awk '{print $3}')
       KEY_SECRET=$(echo "$KEY_INFO" | grep "Secret key:" | awk '{print $3}')
 

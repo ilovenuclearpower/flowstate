@@ -91,6 +91,16 @@
             echo "flowstate dev shell"
             echo "  cargo: $(cargo --version)"
             echo "  rustc: $(rustc --version)"
+
+            # Auto-load Garage dev credentials if instance is running
+            GARAGE_CRED_FILE="''${XDG_DATA_HOME:-$HOME/.local/share}/flowstate/garage/dev/credentials/s3.env"
+            if [ -f "$GARAGE_CRED_FILE" ]; then
+              set -a
+              source "$GARAGE_CRED_FILE"
+              set +a
+              echo "  garage: loaded S3 credentials (endpoint=$AWS_ENDPOINT_URL)"
+            fi
+
             echo ""
             echo "Garage commands:"
             echo "  garage-dev-start   - Start persistent Garage (S3 on :3900)"

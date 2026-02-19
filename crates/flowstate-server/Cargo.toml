@@ -32,3 +32,4 @@ base64 = { workspace = true }
 flowstate-store = { path = "../flowstate-store" }
 bytes = { workspace = true }
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
