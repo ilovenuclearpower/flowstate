@@ -1,42 +1,41 @@
-All 7 phases are complete. Here's a summary of everything that was implemented:
+All phases are complete. Here's a summary of what was implemented:
 
-## Summary
+## Summary of Changes
 
-### Phase 1: Database Trait & ApiKey Migration
-- Moved `ApiKey` struct from `flowstate-db` to `flowstate-core/src/api_key.rs`
-- Defined async `Database` trait with 39 methods across 7 domains (Projects, Tasks, Claude Runs, Task Links, Task PRs, Attachments, API Keys)
-- Created `DbError` enum, `DbConfig` struct, and `open_database()` factory function
-- Added feature flags: `sqlite` (default) and `postgres`
+### Files Modified
+1. **`crates/flowstate-runner/src/config.rs`** — Added 3 new CLI flags with validation:
+   - `--max-concurrent` (env: `FLOWSTATE_MAX_CONCURRENT`, default: 5) — total parallel runs
+   - `--max-builds` (env: `FLOWSTATE_MAX_BUILDS`, default: 1) — concurrent build limit
+   - `--shutdown-timeout` (env: `FLOWSTATE_SHUTDOWN_TIMEOUT`, default: 120s) — graceful shutdown grace period
+   - Added `validate()` method ensuring `max_builds <= max_concurrent` and both >= 1
+   - Added `is_build_action()` helper
 
-### Phase 2: SQLite Submodule Reorganization
-- Moved all SQLite code from `src/queries/` to `src/sqlite/queries/`
-- Created `SqliteDatabase` struct wrapping `Arc<Mutex<Connection>>`
-- All sync methods got `_sync` suffix, called from `spawn_blocking` in trait impl
-- Added `SqliteResultExt` trait for rusqlite error conversion
+2. **`crates/flowstate-runner/src/main.rs`** — Complete rewrite of the poll loop:
+   - **Concurrent execution** via `tokio::task::JoinSet` — spawns runs as independent async tasks
+   - **Two-semaphore model** — `total_semaphore` (max_concurrent permits) + `build_semaphore` (max_builds permits) ensures builds are serialized while light actions run in parallel
+   - **Claim-then-requeue** — when a Build is claimed but no build capacity, re-queues via status update and breaks the claim loop
+   - **Graceful shutdown** — SIGINT/SIGTERM sets an `AtomicBool` flag, stops claiming, drains JoinSet with configurable timeout, then force-aborts
+   - **Enhanced health endpoint** — returns capacity info (max/active/available) and per-run metadata (run_id, task_id, action, elapsed_seconds) via Axum state
+   - **Structured logging** — each spawned task wrapped in `tracing::info_span!` with run_id, task_id, action fields
+   - **Salvage under build lock** — timed-out builds run salvage within the same task holding the build semaphore permit
 
-### Phase 3: Consumer Migration
-- Updated `flowstate-server` (main.rs, auth.rs, watchdog.rs, claude.rs, all routes) to use `Arc<dyn Database>`
-- Updated `flowstate-service/local.rs` to use `Arc<dyn Database>` with `.await`
-- Added `.await` to all direct DB calls in route handlers
-- Updated Cargo.toml files with `default-features = false` + feature forwarding
+3. **`crates/flowstate-runner/src/lib.rs`** — Added `pub mod run_tracker;`
 
-### Phase 4: PostgresDatabase Implementation
-- Full Postgres backend using `sqlx::PgPool`
-- V1 migration SQL covering all tables (equivalent to SQLite v0–v9)
-- All 39 Database trait methods implemented with native async sqlx queries
-- `FOR UPDATE SKIP LOCKED` for concurrent claim operations
-- `#[derive(sqlx::FromRow)]` row structs with conversion to core types
+### Files Created
+4. **`crates/flowstate-runner/src/run_tracker.rs`** — Shared state types:
+   - `RunTracker` — HashMap-backed tracker with insert/remove/snapshot methods
+   - `ActiveRun` — in-progress run metadata (run_id, task_id, action, started_at)
+   - `ActiveRunSnapshot` — serializable snapshot for health endpoint
+   - `RunResult` / `RunOutcome` — return types from spawned tasks
 
-### Phase 5: Backend-Agnostic Testing
-- 13 shared test functions in `tests/common/mod.rs` testing through `&dyn Database`
-- `sqlite_parity.rs` — runs all 13 against in-memory SQLite
-- `postgres_parity.rs` — runs all 13 against Postgres (requires `DATABASE_URL`, `#[ignore]`)
+5. **`docs/CONFIGURATION.md`** — Complete configuration reference documenting all 12 runner variables with examples for sequential, moderate, and high-throughput deployments
 
-### Phase 6: Nix Integration
-- Created `nix/postgres.nix` mirroring `garage.nix` pattern (dev on port 5710, test on 5711)
-- Updated `flake.nix` with `server-postgres` package, postgres scripts in devShell, auto-credential loading
+### Files NOT Modified (confirmed safe)
+- `executor.rs`, `pipeline.rs`, `salvage.rs`, `process.rs`, `workspace.rs`, `preflight.rs`, `Cargo.toml` — all already concurrent-safe per the spec analysis
 
-### Validation
-- **`cargo check --workspace`** — clean
-- **`cargo clippy --workspace --all-features -- -D warnings`** — zero warnings
-- **57 tests pass** (19 SQLite unit + 13 SQLite parity + 3 runner + 22 store)
+### Validation Results
+- `cargo build --workspace` — clean
+- `cargo clippy --workspace -- -D warnings` — zero warnings
+- `cargo test --workspace` — all 57 tests pass
+- CLI `--help` shows correct new flags with defaults
+- Config validation correctly rejects invalid combinations

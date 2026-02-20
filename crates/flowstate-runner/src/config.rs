@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use anyhow::{bail, Result};
 use clap::Parser;
 use flowstate_core::claude_run::ClaudeAction;
 
@@ -44,9 +45,39 @@ pub struct RunnerConfig {
     /// Activity timeout: if no file changes for this many seconds, consider hung (seconds).
     #[arg(long, env = "FLOWSTATE_ACTIVITY_TIMEOUT", default_value = "900")]
     pub activity_timeout: u64,
+
+    /// Maximum number of runs executing simultaneously.
+    #[arg(long, env = "FLOWSTATE_MAX_CONCURRENT", default_value = "5")]
+    pub max_concurrent: usize,
+
+    /// Maximum number of concurrent Build actions (must be <= max_concurrent).
+    #[arg(long, env = "FLOWSTATE_MAX_BUILDS", default_value = "1")]
+    pub max_builds: usize,
+
+    /// Seconds to wait for in-progress runs during graceful shutdown before force-killing.
+    #[arg(long, env = "FLOWSTATE_SHUTDOWN_TIMEOUT", default_value = "120")]
+    pub shutdown_timeout: u64,
 }
 
 impl RunnerConfig {
+    /// Validate configuration constraints. Call after parsing.
+    pub fn validate(&self) -> Result<()> {
+        if self.max_concurrent < 1 {
+            bail!("--max-concurrent must be >= 1, got {}", self.max_concurrent);
+        }
+        if self.max_builds < 1 {
+            bail!("--max-builds must be >= 1, got {}", self.max_builds);
+        }
+        if self.max_builds > self.max_concurrent {
+            bail!(
+                "--max-builds ({}) must be <= --max-concurrent ({})",
+                self.max_builds,
+                self.max_concurrent
+            );
+        }
+        Ok(())
+    }
+
     /// Return the appropriate timeout duration for a given action type.
     pub fn timeout_for_action(&self, action: ClaudeAction) -> Duration {
         let secs = match action {
@@ -54,5 +85,10 @@ impl RunnerConfig {
             _ => self.light_timeout,
         };
         Duration::from_secs(secs)
+    }
+
+    /// Returns true if the given action is a Build action (requires the build lock).
+    pub fn is_build_action(action: ClaudeAction) -> bool {
+        matches!(action, ClaudeAction::Build)
     }
 }
