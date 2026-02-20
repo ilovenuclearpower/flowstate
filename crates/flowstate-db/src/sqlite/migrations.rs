@@ -1,9 +1,10 @@
 use rusqlite::Connection;
 
 use crate::DbError;
+use super::SqliteResultExt;
 
 pub fn run(conn: &Connection) -> Result<(), DbError> {
-    // Original schema — idempotent CREATE TABLE IF NOT EXISTS
+    // Original schema -- idempotent CREATE TABLE IF NOT EXISTS
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS projects (
@@ -149,7 +150,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_commits_sha_task
             ON commit_links(sha, task_id);
         ",
-    )?;
+    )
+    .to_db()?;
 
     // Versioned migrations
     conn.execute_batch(
@@ -157,7 +159,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
             version    INTEGER PRIMARY KEY,
             applied_at TEXT NOT NULL
         );",
-    )?;
+    )
+    .to_db()?;
 
     let current_version: i64 = conn
         .query_row(
@@ -176,7 +179,10 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         };
 
         if !has_column("projects", "repo_url") {
-            conn.execute_batch("ALTER TABLE projects ADD COLUMN repo_url TEXT NOT NULL DEFAULT '';")?;
+            conn.execute_batch(
+                "ALTER TABLE projects ADD COLUMN repo_url TEXT NOT NULL DEFAULT '';",
+            )
+            .to_db()?;
         }
 
         if !has_column("tasks", "parent_id") {
@@ -185,7 +191,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                  ALTER TABLE tasks ADD COLUMN reviewer TEXT NOT NULL DEFAULT '';
                  ALTER TABLE tasks ADD COLUMN spec_status TEXT NOT NULL DEFAULT 'none';
                  ALTER TABLE tasks ADD COLUMN plan_status TEXT NOT NULL DEFAULT 'none';",
-            )?;
+            )
+            .to_db()?;
         }
 
         conn.execute_batch(
@@ -224,12 +231,14 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                  created_at   TEXT NOT NULL
              );
              CREATE INDEX IF NOT EXISTS idx_attachments_task ON attachments(task_id);",
-        )?;
+        )
+        .to_db()?;
 
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (1, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     if current_version < 2 {
@@ -240,12 +249,14 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         if !has_column("tasks", "spec_approved_hash") {
             conn.execute_batch(
                 "ALTER TABLE tasks ADD COLUMN spec_approved_hash TEXT NOT NULL DEFAULT '';",
-            )?;
+            )
+            .to_db()?;
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (2, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     if current_version < 3 {
@@ -258,12 +269,14 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                 "ALTER TABLE claude_runs ADD COLUMN pr_url TEXT;
                  ALTER TABLE claude_runs ADD COLUMN pr_number INTEGER;
                  ALTER TABLE claude_runs ADD COLUMN branch_name TEXT;",
-            )?;
+            )
+            .to_db()?;
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (3, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     if current_version < 4 {
@@ -274,12 +287,14 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         if !has_column("claude_runs", "progress_message") {
             conn.execute_batch(
                 "ALTER TABLE claude_runs ADD COLUMN progress_message TEXT;",
-            )?;
+            )
+            .to_db()?;
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (4, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     if current_version < 5 {
@@ -290,12 +305,14 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         if !has_column("projects", "repo_token") {
             conn.execute_batch(
                 "ALTER TABLE projects ADD COLUMN repo_token TEXT;",
-            )?;
+            )
+            .to_db()?;
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (5, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     if current_version < 6 {
@@ -311,21 +328,26 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
             );
             CREATE INDEX IF NOT EXISTS idx_task_prs_task ON task_prs(task_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_task_prs_url ON task_prs(pr_url);",
-        )?;
+        )
+        .to_db()?;
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (6, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     if current_version < 7 {
-        // Rename disk_path → store_key in attachments table
+        // Rename disk_path -> store_key in attachments table
         let has_column = |table: &str, col: &str| -> bool {
             conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
                 .is_ok()
         };
         if has_column("attachments", "disk_path") {
-            conn.execute_batch("ALTER TABLE attachments RENAME COLUMN disk_path TO store_key;")?;
+            conn.execute_batch(
+                "ALTER TABLE attachments RENAME COLUMN disk_path TO store_key;",
+            )
+            .to_db()?;
 
             // Convert absolute filesystem paths to relative object keys.
             // Existing disk_path values look like:
@@ -333,13 +355,16 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
             // We need to strip the data_dir prefix to produce:
             //   tasks/abc/attachments/foo.png
             let data_prefix = crate::data_dir().to_string_lossy().to_string();
-            let mut stmt =
-                conn.prepare("SELECT id, store_key FROM attachments WHERE store_key LIKE '/%'")?;
+            let mut stmt = conn
+                .prepare("SELECT id, store_key FROM attachments WHERE store_key LIKE '/%'")
+                .to_db()?;
             let rows: Vec<(String, String)> = stmt
                 .query_map([], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
+                })
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             for (id, abs_path) in rows {
                 let relative = abs_path
                     .strip_prefix(&data_prefix)
@@ -348,13 +373,15 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                 conn.execute(
                     "UPDATE attachments SET store_key = ?1 WHERE id = ?2",
                     rusqlite::params![relative, id],
-                )?;
+                )
+                .to_db()?;
             }
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (7, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     if current_version < 8 {
@@ -375,7 +402,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                  ALTER TABLE tasks ADD COLUMN spec_feedback TEXT NOT NULL DEFAULT '';
                  ALTER TABLE tasks ADD COLUMN plan_feedback TEXT NOT NULL DEFAULT '';
                  ALTER TABLE tasks ADD COLUMN verify_feedback TEXT NOT NULL DEFAULT '';",
-            )?;
+            )
+            .to_db()?;
         }
 
         // Migrate task statuses: map old values to new
@@ -383,7 +411,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
             "UPDATE tasks SET status = 'todo' WHERE status = 'backlog';
              UPDATE tasks SET status = 'build' WHERE status = 'in_progress';
              UPDATE tasks SET status = 'verify' WHERE status = 'in_review';",
-        )?;
+        )
+        .to_db()?;
 
         // Recreate claude_runs table with expanded CHECK constraint
         // to include the new action values (research, verify, and distill variants).
@@ -416,11 +445,12 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
             DROP TABLE claude_runs;
             ALTER TABLE claude_runs_new RENAME TO claude_runs;
             CREATE INDEX IF NOT EXISTS idx_claude_runs_task ON claude_runs(task_id);",
-        )?;
+        )
+        .to_db()?;
 
         // Recreate tasks table with updated status CHECK constraint.
         // We need PRAGMA foreign_keys = OFF for this since tasks has FK references.
-        conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+        conn.execute_batch("PRAGMA foreign_keys = OFF;").to_db()?;
 
         conn.execute_batch(
             "CREATE TABLE tasks_new (
@@ -475,25 +505,32 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
             CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(project_id, status);
             CREATE INDEX IF NOT EXISTS idx_tasks_sprint  ON tasks(sprint_id);
             CREATE INDEX IF NOT EXISTS idx_tasks_parent  ON tasks(parent_id);",
-        )?;
+        )
+        .to_db()?;
 
-        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        conn.execute_batch("PRAGMA foreign_keys = ON;").to_db()?;
 
         // Verify FK integrity
-        let mut fk_stmt = conn.prepare("PRAGMA foreign_key_check")?;
-        let fk_errors: i64 = fk_stmt.query_map([], |_row| Ok(1))?.count() as i64;
+        let mut fk_stmt = conn.prepare("PRAGMA foreign_key_check").to_db()?;
+        let fk_errors: i64 = fk_stmt
+            .query_map([], |_row| Ok(1))
+            .to_db()?
+            .count() as i64;
         if fk_errors > 0 {
-            eprintln!("WARNING: foreign key check found {fk_errors} issues after v8 migration");
+            eprintln!(
+                "WARNING: foreign key check found {fk_errors} issues after v8 migration"
+            );
         }
 
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (8, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     if current_version < 9 {
-        // v9: Salvage logic support — add TimedOut/Salvaging status variants and runner_id column
+        // v9: Salvage logic support -- add TimedOut/Salvaging status variants and runner_id column
 
         // Recreate claude_runs table with expanded status CHECK and runner_id column
         conn.execute_batch(
@@ -531,12 +568,14 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
             ALTER TABLE claude_runs_new RENAME TO claude_runs;
             CREATE INDEX IF NOT EXISTS idx_claude_runs_task ON claude_runs(task_id);
             CREATE INDEX IF NOT EXISTS idx_claude_runs_status ON claude_runs(status);",
-        )?;
+        )
+        .to_db()?;
 
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (9, datetime('now'))",
             [],
-        )?;
+        )
+        .to_db()?;
     }
 
     Ok(())

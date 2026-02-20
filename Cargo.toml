@@ -46,3 +46,4 @@ base64 = "0.22"
 bytes = "1"
 nix = { version = "0.29", features = ["signal", "process"] }
 libc = "0.2"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid"] }

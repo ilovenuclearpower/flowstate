@@ -1,7 +1,9 @@
+use std::sync::Arc;
+
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus};
 use flowstate_core::project::Project;
 use flowstate_core::task::Task;
-use flowstate_db::Db;
+use flowstate_db::Database;
 use flowstate_prompts::{ChildTaskInfo, PromptContext};
 use std::process::Stdio;
 use tokio::process::Command;
@@ -12,19 +14,19 @@ use tokio::process::Command;
 /// It assembles a prompt, invokes `claude -p`, captures output,
 /// and updates the DB record.
 pub async fn execute_run(
-    db: Db,
+    db: Arc<dyn Database>,
     run_id: String,
     task: Task,
     project: Project,
     action: ClaudeAction,
 ) {
     // Mark as running
-    if let Err(e) = db.update_claude_run_status(&run_id, ClaudeRunStatus::Running, None, None) {
+    if let Err(e) = db.update_claude_run_status(&run_id, ClaudeRunStatus::Running, None, None).await {
         eprintln!("claude-runner: failed to mark run {run_id} as running: {e}");
         return;
     }
 
-    let prompt = build_prompt(&db, &task, &project, action);
+    let prompt = build_prompt(&*db, &task, &project, action).await;
 
     // Set up output directory
     let run_dir = flowstate_db::claude_run_dir(&run_id);
@@ -35,7 +37,7 @@ pub async fn execute_run(
             ClaudeRunStatus::Failed,
             Some(&format!("create run dir: {e}")),
             None,
-        );
+        ).await;
         return;
     }
 
@@ -54,7 +56,7 @@ pub async fn execute_run(
                     ClaudeRunStatus::Failed,
                     Some(&format!("workspace setup: {e}")),
                     None,
-                );
+                ).await;
                 return;
             }
             ws
@@ -106,7 +108,7 @@ pub async fn execute_run(
                             spec_status: Some(flowstate_core::task::ApprovalStatus::Pending),
                             ..Default::default()
                         };
-                        let _ = db.update_task(&task.id, &update);
+                        let _ = db.update_task(&task.id, &update).await;
                     }
                     ClaudeAction::Plan => {
                         let written = work_dir.join("PLAN.md");
@@ -121,7 +123,7 @@ pub async fn execute_run(
                             plan_status: Some(flowstate_core::task::ApprovalStatus::Pending),
                             ..Default::default()
                         };
-                        let _ = db.update_task(&task.id, &update);
+                        let _ = db.update_task(&task.id, &update).await;
                     }
                     ClaudeAction::Build => {
                         // Build output is just logged, no file copy needed
@@ -137,7 +139,7 @@ pub async fn execute_run(
                     ClaudeRunStatus::Completed,
                     None,
                     Some(exit_code),
-                );
+                ).await;
             } else {
                 let error_msg = if stderr.is_empty() {
                     format!("exit code {exit_code}")
@@ -149,7 +151,7 @@ pub async fn execute_run(
                     ClaudeRunStatus::Failed,
                     Some(&error_msg),
                     Some(exit_code),
-                );
+                ).await;
             }
         }
         Err(e) => {
@@ -158,13 +160,13 @@ pub async fn execute_run(
                 ClaudeRunStatus::Failed,
                 Some(&format!("spawn claude: {e}")),
                 None,
-            );
+            ).await;
         }
     }
 }
 
 /// Build the prompt using flowstate-prompts, reading spec/plan/children from the DB/filesystem.
-fn build_prompt(db: &Db, task: &Task, project: &Project, action: ClaudeAction) -> String {
+async fn build_prompt(db: &dyn Database, task: &Task, project: &Project, action: ClaudeAction) -> String {
     let spec_content = if matches!(action, ClaudeAction::Plan | ClaudeAction::Build) {
         let spec_path = flowstate_db::task_spec_path(&task.id);
         std::fs::read_to_string(&spec_path).ok()
@@ -181,6 +183,7 @@ fn build_prompt(db: &Db, task: &Task, project: &Project, action: ClaudeAction) -
 
     let child_tasks = db
         .list_child_tasks(&task.id)
+        .await
         .unwrap_or_default()
         .into_iter()
         .map(|c| ChildTaskInfo {

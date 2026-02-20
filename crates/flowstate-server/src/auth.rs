@@ -10,7 +10,7 @@ use axum::{
 use sha2::{Digest, Sha256};
 use serde_json::json;
 
-use flowstate_db::Db;
+use flowstate_db::Database;
 
 use crate::routes::AppState;
 
@@ -19,7 +19,7 @@ pub struct AuthConfig {
     /// SHA-256 hash of the `FLOWSTATE_API_KEY` env var (if set).
     pub env_key_hash: Option<String>,
     /// Database handle for DB-backed API keys.
-    pub db: Db,
+    pub db: Arc<dyn Database>,
 }
 
 /// SHA-256 hash a raw key, returning the hex-encoded digest.
@@ -87,13 +87,13 @@ pub async fn auth_middleware(
     // Check DB keys
     let db = auth.db.clone();
     let hash_for_db = token_hash.clone();
-    match db.find_api_key_by_hash(&hash_for_db) {
+    match db.find_api_key_by_hash(&hash_for_db).await {
         Ok(Some(api_key)) => {
             // Fire-and-forget: update last_used_at
             let db2 = db.clone();
             let key_id = api_key.id.clone();
-            tokio::task::spawn_blocking(move || {
-                let _ = db2.touch_api_key(&key_id);
+            tokio::spawn(async move {
+                let _ = db2.touch_api_key(&key_id).await;
             });
             return next.run(request).await;
         }
@@ -124,13 +124,13 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 ///
 /// Returns `None` (open access) when neither `FLOWSTATE_API_KEY` is set
 /// nor any DB-backed keys exist.
-pub fn build_auth_config(db: &Db) -> Option<Arc<AuthConfig>> {
+pub async fn build_auth_config(db: Arc<dyn Database>) -> Option<Arc<AuthConfig>> {
     let env_key_hash = std::env::var("FLOWSTATE_API_KEY")
         .ok()
         .filter(|k| !k.is_empty())
         .map(|k| sha256_hex(&k));
 
-    let has_db_keys = db.has_api_keys().unwrap_or(false);
+    let has_db_keys = db.has_api_keys().await.unwrap_or(false);
 
     if env_key_hash.is_none() && !has_db_keys {
         return None;
@@ -138,6 +138,6 @@ pub fn build_auth_config(db: &Db) -> Option<Arc<AuthConfig>> {
 
     Some(Arc::new(AuthConfig {
         env_key_hash,
-        db: db.clone(),
+        db,
     }))
 }

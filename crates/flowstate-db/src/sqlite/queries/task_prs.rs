@@ -3,7 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
 
-use crate::{Db, DbError};
+use crate::DbError;
+use super::super::{SqliteDatabase, SqliteResultExt};
 
 fn row_to_task_pr(row: &Row) -> rusqlite::Result<TaskPr> {
     Ok(TaskPr {
@@ -17,8 +18,8 @@ fn row_to_task_pr(row: &Row) -> rusqlite::Result<TaskPr> {
     })
 }
 
-impl Db {
-    pub fn create_task_pr(&self, input: &CreateTaskPr) -> Result<TaskPr, DbError> {
+impl SqliteDatabase {
+    pub fn create_task_pr_sync(&self, input: &CreateTaskPr) -> Result<TaskPr, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
@@ -34,24 +35,29 @@ impl Db {
                     input.branch_name,
                     now,
                 ],
-            )?;
+            )
+            .to_db()?;
             conn.query_row(
                 "SELECT * FROM task_prs WHERE pr_url = ?1",
                 params![input.pr_url],
                 row_to_task_pr,
             )
-            .map_err(DbError::from)
+            .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
-    pub fn list_task_prs(&self, task_id: &str) -> Result<Vec<TaskPr>, DbError> {
+    pub fn list_task_prs_sync(&self, task_id: &str) -> Result<Vec<TaskPr>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM task_prs WHERE task_id = ?1 ORDER BY created_at DESC",
-            )?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT * FROM task_prs WHERE task_id = ?1 ORDER BY created_at DESC",
+                )
+                .to_db()?;
             let prs = stmt
-                .query_map(params![task_id], row_to_task_pr)?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map(params![task_id], row_to_task_pr)
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(prs)
         })
     }
@@ -69,7 +75,7 @@ mod tests {
     fn setup_db() -> (Db, String, String) {
         let db = Db::open_in_memory().unwrap();
         let project = db
-            .create_project(&CreateProject {
+            .create_project_sync(&CreateProject {
                 name: "Test".into(),
                 slug: "test".into(),
                 description: String::new(),
@@ -77,7 +83,7 @@ mod tests {
             })
             .unwrap();
         let task = db
-            .create_task(&CreateTask {
+            .create_task_sync(&CreateTask {
                 project_id: project.id.clone(),
                 title: "Task 1".into(),
                 description: String::new(),
@@ -94,14 +100,14 @@ mod tests {
     fn test_create_and_list_task_prs() {
         let (db, _project_id, task_id) = setup_db();
         let run = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
             })
             .unwrap();
 
         let pr = db
-            .create_task_pr(&CreateTaskPr {
+            .create_task_pr_sync(&CreateTaskPr {
                 task_id: task_id.clone(),
                 claude_run_id: Some(run.id.clone()),
                 pr_url: "https://github.com/owner/repo/pull/42".into(),
@@ -116,7 +122,7 @@ mod tests {
         assert_eq!(pr.pr_number, 42);
         assert_eq!(pr.branch_name, "flowstate/my-feature");
 
-        let prs = db.list_task_prs(&task_id).unwrap();
+        let prs = db.list_task_prs_sync(&task_id).unwrap();
         assert_eq!(prs.len(), 1);
         assert_eq!(prs[0].id, pr.id);
     }
@@ -126,7 +132,7 @@ mod tests {
         let (db, _project_id, task_id) = setup_db();
 
         let pr1 = db
-            .create_task_pr(&CreateTaskPr {
+            .create_task_pr_sync(&CreateTaskPr {
                 task_id: task_id.clone(),
                 claude_run_id: None,
                 pr_url: "https://github.com/owner/repo/pull/1".into(),
@@ -136,7 +142,7 @@ mod tests {
             .unwrap();
 
         let pr2 = db
-            .create_task_pr(&CreateTaskPr {
+            .create_task_pr_sync(&CreateTaskPr {
                 task_id: task_id.clone(),
                 claude_run_id: None,
                 pr_url: "https://github.com/owner/repo/pull/1".into(),
@@ -146,7 +152,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(pr1.id, pr2.id);
-        let prs = db.list_task_prs(&task_id).unwrap();
+        let prs = db.list_task_prs_sync(&task_id).unwrap();
         assert_eq!(prs.len(), 1);
     }
 
@@ -154,7 +160,7 @@ mod tests {
     fn test_multiple_prs_per_task() {
         let (db, _project_id, task_id) = setup_db();
 
-        db.create_task_pr(&CreateTaskPr {
+        db.create_task_pr_sync(&CreateTaskPr {
             task_id: task_id.clone(),
             claude_run_id: None,
             pr_url: "https://github.com/owner/repo/pull/10".into(),
@@ -163,7 +169,7 @@ mod tests {
         })
         .unwrap();
 
-        db.create_task_pr(&CreateTaskPr {
+        db.create_task_pr_sync(&CreateTaskPr {
             task_id: task_id.clone(),
             claude_run_id: None,
             pr_url: "https://github.com/owner/repo/pull/11".into(),
@@ -172,7 +178,7 @@ mod tests {
         })
         .unwrap();
 
-        let prs = db.list_task_prs(&task_id).unwrap();
+        let prs = db.list_task_prs_sync(&task_id).unwrap();
         assert_eq!(prs.len(), 2);
     }
 
@@ -180,7 +186,7 @@ mod tests {
     fn test_cascade_delete_task() {
         let (db, _project_id, task_id) = setup_db();
 
-        db.create_task_pr(&CreateTaskPr {
+        db.create_task_pr_sync(&CreateTaskPr {
             task_id: task_id.clone(),
             claude_run_id: None,
             pr_url: "https://github.com/owner/repo/pull/5".into(),
@@ -189,8 +195,8 @@ mod tests {
         })
         .unwrap();
 
-        db.delete_task(&task_id).unwrap();
-        let prs = db.list_task_prs(&task_id).unwrap();
+        db.delete_task_sync(&task_id).unwrap();
+        let prs = db.list_task_prs_sync(&task_id).unwrap();
         assert!(prs.is_empty());
     }
 
@@ -198,14 +204,14 @@ mod tests {
     fn test_set_null_on_run_delete() {
         let (db, _project_id, task_id) = setup_db();
         let run = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
             })
             .unwrap();
 
         let pr = db
-            .create_task_pr(&CreateTaskPr {
+            .create_task_pr_sync(&CreateTaskPr {
                 task_id: task_id.clone(),
                 claude_run_id: Some(run.id.clone()),
                 pr_url: "https://github.com/owner/repo/pull/7".into(),
@@ -218,12 +224,13 @@ mod tests {
 
         // Delete the claude_run directly via SQL
         db.with_conn(|conn| {
-            conn.execute("DELETE FROM claude_runs WHERE id = ?1", params![run.id])?;
+            conn.execute("DELETE FROM claude_runs WHERE id = ?1", params![run.id])
+                .map_err(|e| crate::DbError::Internal(e.to_string()))?;
             Ok(())
         })
         .unwrap();
 
-        let prs = db.list_task_prs(&task_id).unwrap();
+        let prs = db.list_task_prs_sync(&task_id).unwrap();
         assert_eq!(prs.len(), 1);
         assert!(prs[0].claude_run_id.is_none());
     }
