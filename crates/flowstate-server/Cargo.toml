@@ -13,7 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 flowstate-core = { path = "../flowstate-core" }
-flowstate-db = { path = "../flowstate-db" }
+flowstate-db = { path = "../flowstate-db", default-features = false }
 flowstate-service = { path = "../flowstate-service" }
 axum = { workspace = true }
 tokio = { workspace = true }
@@ -32,3 +32,8 @@ flowstate-store = { path = "../flowstate-store" }
 bytes = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+
+[features]
+default = ["sqlite"]
+sqlite = ["flowstate-db/sqlite"]
+postgres = ["flowstate-db/postgres"]

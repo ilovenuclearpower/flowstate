@@ -1,7 +1,9 @@
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use flowstate_db::Database;
 use tokio::net::TcpListener;
 
 use flowstate_server::auth;
@@ -40,13 +42,14 @@ async fn main() -> Result<()> {
         .init();
 
     let cli = Cli::parse();
-    let db = flowstate_db::Db::open_default()?;
+    let config = flowstate_db::DbConfig::from_env();
+    let db: Arc<dyn Database> = flowstate_db::open_database(&config).await?;
 
     match cli.command {
         Some(Commands::Keygen { name }) => {
             let raw_key = auth::generate_api_key();
             let hash = auth::sha256_hex(&raw_key);
-            let api_key = db.insert_api_key(&name, &hash)?;
+            let api_key = db.insert_api_key(&name, &hash).await?;
             eprintln!("Created API key (id: {})", api_key.id);
             if !name.is_empty() {
                 eprintln!("  name: {name}");
@@ -56,7 +59,7 @@ async fn main() -> Result<()> {
             eprintln!("\nSave this key — it cannot be retrieved again.");
         }
         Some(Commands::ListKeys) => {
-            let keys = db.list_api_keys()?;
+            let keys = db.list_api_keys().await?;
             if keys.is_empty() {
                 eprintln!("No API keys found.");
             } else {
@@ -73,7 +76,7 @@ async fn main() -> Result<()> {
             }
         }
         Some(Commands::RevokeKey { id }) => {
-            db.delete_api_key(&id)?;
+            db.delete_api_key(&id).await?;
             eprintln!("Revoked API key {id}");
         }
         None => {
@@ -86,7 +89,7 @@ async fn main() -> Result<()> {
 
             let addr = SocketAddr::new(bind.parse()?, port);
 
-            let auth = auth::build_auth_config(&db);
+            let auth = auth::build_auth_config(db.clone()).await;
             if auth.is_some() {
                 eprintln!("authentication enabled");
             } else {

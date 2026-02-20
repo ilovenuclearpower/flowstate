@@ -1,3 +1,4 @@
+pub mod api_key;
 pub mod attachment;
 pub mod claude_run;
 pub mod commit;

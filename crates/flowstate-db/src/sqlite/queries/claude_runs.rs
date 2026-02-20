@@ -3,7 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
 
-use crate::{Db, DbError};
+use crate::DbError;
+use super::super::{SqliteDatabase, SqliteResultExt};
 
 fn row_to_claude_run(row: &Row) -> rusqlite::Result<ClaudeRun> {
     let action_str: String = row.get("action")?;
@@ -25,8 +26,11 @@ fn row_to_claude_run(row: &Row) -> rusqlite::Result<ClaudeRun> {
     })
 }
 
-impl Db {
-    pub fn create_claude_run(&self, input: &CreateClaudeRun) -> Result<ClaudeRun, DbError> {
+impl SqliteDatabase {
+    pub fn create_claude_run_sync(
+        &self,
+        input: &CreateClaudeRun,
+    ) -> Result<ClaudeRun, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
@@ -34,17 +38,18 @@ impl Db {
                 "INSERT INTO claude_runs (id, task_id, action, status, started_at)
                  VALUES (?1, ?2, ?3, 'queued', ?4)",
                 params![id, input.task_id, input.action.as_str(), now],
-            )?;
+            )
+            .to_db()?;
             conn.query_row(
                 "SELECT * FROM claude_runs WHERE id = ?1",
                 params![id],
                 row_to_claude_run,
             )
-            .map_err(DbError::from)
+            .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
-    pub fn get_claude_run(&self, id: &str) -> Result<ClaudeRun, DbError> {
+    pub fn get_claude_run_sync(&self, id: &str) -> Result<ClaudeRun, DbError> {
         self.with_conn(|conn| {
             conn.query_row(
                 "SELECT * FROM claude_runs WHERE id = ?1",
@@ -55,24 +60,31 @@ impl Db {
                 rusqlite::Error::QueryReturnedNoRows => {
                     DbError::NotFound(format!("claude_run {id}"))
                 }
-                other => DbError::Sqlite(other),
+                other => DbError::Internal(other.to_string()),
             })
         })
     }
 
-    pub fn list_claude_runs_for_task(&self, task_id: &str) -> Result<Vec<ClaudeRun>, DbError> {
+    pub fn list_claude_runs_for_task_sync(
+        &self,
+        task_id: &str,
+    ) -> Result<Vec<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM claude_runs WHERE task_id = ?1 ORDER BY started_at DESC",
-            )?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT * FROM claude_runs WHERE task_id = ?1 ORDER BY started_at DESC",
+                )
+                .to_db()?;
             let runs = stmt
-                .query_map(params![task_id], row_to_claude_run)?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map(params![task_id], row_to_claude_run)
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(runs)
         })
     }
 
-    pub fn update_claude_run_status(
+    pub fn update_claude_run_status_sync(
         &self,
         id: &str,
         status: ClaudeRunStatus,
@@ -97,20 +109,21 @@ impl Db {
                 "UPDATE claude_runs SET status = ?1, error_message = ?2, exit_code = ?3, finished_at = ?4
                  WHERE id = ?5",
                 params![status.as_str(), error_message, exit_code, finished, id],
-            )?;
+            )
+            .to_db()?;
 
             conn.query_row(
                 "SELECT * FROM claude_runs WHERE id = ?1",
                 params![id],
                 row_to_claude_run,
             )
-            .map_err(DbError::from)
+            .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
     /// Atomically claim the oldest queued run, setting it to Running.
     /// Returns None if no queued runs exist.
-    pub fn claim_next_claude_run(&self) -> Result<Option<ClaudeRun>, DbError> {
+    pub fn claim_next_claude_run_sync(&self) -> Result<Option<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
             let now = Utc::now();
             let result = conn.query_row(
@@ -130,13 +143,13 @@ impl Db {
             match result {
                 Ok(run) => Ok(Some(run)),
                 Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(DbError::Sqlite(e)),
+                Err(e) => Err(DbError::Internal(e.to_string())),
             }
         })
     }
 
     /// Update the progress message on a claude run.
-    pub fn update_claude_run_progress(
+    pub fn update_claude_run_progress_sync(
         &self,
         id: &str,
         message: &str,
@@ -145,13 +158,14 @@ impl Db {
             conn.execute(
                 "UPDATE claude_runs SET progress_message = ?1 WHERE id = ?2",
                 params![message, id],
-            )?;
+            )
+            .to_db()?;
             Ok(())
         })
     }
 
     /// Update PR info on a claude run.
-    pub fn update_claude_run_pr(
+    pub fn update_claude_run_pr_sync(
         &self,
         id: &str,
         pr_url: Option<&str>,
@@ -163,65 +177,76 @@ impl Db {
                 "UPDATE claude_runs SET pr_url = ?1, pr_number = ?2, branch_name = ?3
                  WHERE id = ?4",
                 params![pr_url, pr_number, branch_name, id],
-            )?;
+            )
+            .to_db()?;
 
             conn.query_row(
                 "SELECT * FROM claude_runs WHERE id = ?1",
                 params![id],
                 row_to_claude_run,
             )
-            .map_err(DbError::from)
+            .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
     /// Find all runs stuck in Running status beyond the given threshold.
     /// Used by the server-side watchdog.
-    pub fn find_stale_running_runs(
+    pub fn find_stale_running_runs_sync(
         &self,
         older_than: DateTime<Utc>,
     ) -> Result<Vec<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM claude_runs WHERE status = 'running' AND started_at < ?1",
-            )?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT * FROM claude_runs WHERE status = 'running' AND started_at < ?1",
+                )
+                .to_db()?;
             let runs = stmt
-                .query_map(params![older_than], row_to_claude_run)?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map(params![older_than], row_to_claude_run)
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(runs)
         })
     }
 
     /// Find all runs stuck in Salvaging status beyond the given threshold.
     /// Used by the server-side watchdog.
-    pub fn find_stale_salvaging_runs(
+    pub fn find_stale_salvaging_runs_sync(
         &self,
         older_than: DateTime<Utc>,
     ) -> Result<Vec<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM claude_runs WHERE status = 'salvaging' AND started_at < ?1",
-            )?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT * FROM claude_runs WHERE status = 'salvaging' AND started_at < ?1",
+                )
+                .to_db()?;
             let runs = stmt
-                .query_map(params![older_than], row_to_claude_run)?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map(params![older_than], row_to_claude_run)
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(runs)
         })
     }
 
     /// Atomically transition a run from Running or Salvaging to TimedOut.
     /// Returns Ok(None) if the run was not in those statuses (race-safe).
-    pub fn timeout_claude_run(
+    pub fn timeout_claude_run_sync(
         &self,
         id: &str,
         error_message: &str,
     ) -> Result<Option<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
             let now = Utc::now();
-            let affected = conn.execute(
-                "UPDATE claude_runs SET status = 'timed_out', error_message = ?1, finished_at = ?2
-                 WHERE id = ?3 AND status IN ('running', 'salvaging')",
-                params![error_message, now, id],
-            )?;
+            let affected = conn
+                .execute(
+                    "UPDATE claude_runs SET status = 'timed_out', error_message = ?1, finished_at = ?2
+                     WHERE id = ?3 AND status IN ('running', 'salvaging')",
+                    params![error_message, now, id],
+                )
+                .to_db()?;
 
             if affected == 0 {
                 return Ok(None);
@@ -233,12 +258,12 @@ impl Db {
                 row_to_claude_run,
             )
             .map(Some)
-            .map_err(DbError::from)
+            .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
     /// Set runner_id on a claude run (at claim time).
-    pub fn set_claude_run_runner(
+    pub fn set_claude_run_runner_sync(
         &self,
         id: &str,
         runner_id: &str,
@@ -247,7 +272,8 @@ impl Db {
             conn.execute(
                 "UPDATE claude_runs SET runner_id = ?1 WHERE id = ?2",
                 params![runner_id, id],
-            )?;
+            )
+            .to_db()?;
             Ok(())
         })
     }
@@ -263,7 +289,7 @@ mod tests {
     fn setup() -> (Db, String) {
         let db = Db::open_in_memory().unwrap();
         let project = db
-            .create_project(&CreateProject {
+            .create_project_sync(&CreateProject {
                 name: "Test".into(),
                 slug: "test".into(),
                 description: String::new(),
@@ -271,7 +297,7 @@ mod tests {
             })
             .unwrap();
         let task = db
-            .create_task(&CreateTask {
+            .create_task_sync(&CreateTask {
                 project_id: project.id,
                 title: "Test task".into(),
                 description: String::new(),
@@ -289,7 +315,7 @@ mod tests {
         let (db, task_id) = setup();
 
         let run = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Design,
             })
@@ -301,16 +327,16 @@ mod tests {
         assert!(run.branch_name.is_none());
         assert!(run.runner_id.is_none());
 
-        let fetched = db.get_claude_run(&run.id).unwrap();
+        let fetched = db.get_claude_run_sync(&run.id).unwrap();
         assert_eq!(fetched.id, run.id);
 
         let updated = db
-            .update_claude_run_status(&run.id, ClaudeRunStatus::Completed, None, Some(0))
+            .update_claude_run_status_sync(&run.id, ClaudeRunStatus::Completed, None, Some(0))
             .unwrap();
         assert_eq!(updated.status, ClaudeRunStatus::Completed);
         assert!(updated.finished_at.is_some());
 
-        let runs = db.list_claude_runs_for_task(&task_id).unwrap();
+        let runs = db.list_claude_runs_for_task_sync(&task_id).unwrap();
         assert_eq!(runs.len(), 1);
     }
 
@@ -318,34 +344,34 @@ mod tests {
     fn test_claim_next_claude_run() {
         let (db, task_id) = setup();
 
-        // No queued runs → None
-        assert!(db.claim_next_claude_run().unwrap().is_none());
+        // No queued runs -> None
+        assert!(db.claim_next_claude_run_sync().unwrap().is_none());
 
         // Create two runs
         let run1 = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Design,
             })
             .unwrap();
         let _run2 = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Plan,
             })
             .unwrap();
 
         // Claim should get the oldest (run1)
-        let claimed = db.claim_next_claude_run().unwrap().unwrap();
+        let claimed = db.claim_next_claude_run_sync().unwrap().unwrap();
         assert_eq!(claimed.id, run1.id);
         assert_eq!(claimed.status, ClaudeRunStatus::Running);
 
         // Next claim gets run2
-        let claimed2 = db.claim_next_claude_run().unwrap().unwrap();
+        let claimed2 = db.claim_next_claude_run_sync().unwrap().unwrap();
         assert_eq!(claimed2.action, ClaudeAction::Plan);
 
         // No more queued
-        assert!(db.claim_next_claude_run().unwrap().is_none());
+        assert!(db.claim_next_claude_run_sync().unwrap().is_none());
     }
 
     #[test]
@@ -353,14 +379,14 @@ mod tests {
         let (db, task_id) = setup();
 
         let run = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id,
                 action: ClaudeAction::Build,
             })
             .unwrap();
 
         let updated = db
-            .update_claude_run_pr(
+            .update_claude_run_pr_sync(
                 &run.id,
                 Some("https://github.com/org/repo/pull/42"),
                 Some(42),
@@ -382,13 +408,18 @@ mod tests {
 
         // Test TimedOut status
         let run = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
             })
             .unwrap();
         let updated = db
-            .update_claude_run_status(&run.id, ClaudeRunStatus::TimedOut, Some("timed out"), None)
+            .update_claude_run_status_sync(
+                &run.id,
+                ClaudeRunStatus::TimedOut,
+                Some("timed out"),
+                None,
+            )
             .unwrap();
         assert_eq!(updated.status, ClaudeRunStatus::TimedOut);
         assert!(updated.finished_at.is_some());
@@ -396,14 +427,14 @@ mod tests {
 
         // Test Salvaging status (non-terminal, no finished_at)
         let run2 = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
             })
             .unwrap();
-        let _ = db.claim_next_claude_run().unwrap(); // claim run2 to set it Running
+        let _ = db.claim_next_claude_run_sync().unwrap(); // claim run2 to set it Running
         let updated2 = db
-            .update_claude_run_status(&run2.id, ClaudeRunStatus::Salvaging, None, None)
+            .update_claude_run_status_sync(&run2.id, ClaudeRunStatus::Salvaging, None, None)
             .unwrap();
         assert_eq!(updated2.status, ClaudeRunStatus::Salvaging);
         assert!(updated2.finished_at.is_none());
@@ -415,27 +446,32 @@ mod tests {
 
         // Create and claim a run (sets it to Running)
         let run = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
             })
             .unwrap();
-        let _claimed = db.claim_next_claude_run().unwrap().unwrap();
+        let _claimed = db.claim_next_claude_run_sync().unwrap().unwrap();
 
         // With a threshold in the future, the run should be returned
         let future = chrono::Utc::now() + chrono::Duration::hours(1);
-        let stale = db.find_stale_running_runs(future).unwrap();
+        let stale = db.find_stale_running_runs_sync(future).unwrap();
         assert_eq!(stale.len(), 1);
         assert_eq!(stale[0].id, run.id);
 
         // With a threshold in the past, no runs should be returned
         let past = chrono::Utc::now() - chrono::Duration::hours(1);
-        let stale = db.find_stale_running_runs(past).unwrap();
+        let stale = db.find_stale_running_runs_sync(past).unwrap();
         assert!(stale.is_empty());
 
         // Completed runs should not be returned
-        let _ = db.update_claude_run_status(&run.id, ClaudeRunStatus::Completed, None, Some(0));
-        let stale = db.find_stale_running_runs(future).unwrap();
+        let _ = db.update_claude_run_status_sync(
+            &run.id,
+            ClaudeRunStatus::Completed,
+            None,
+            Some(0),
+        );
+        let stale = db.find_stale_running_runs_sync(future).unwrap();
         assert!(stale.is_empty());
     }
 
@@ -444,17 +480,19 @@ mod tests {
         let (db, task_id) = setup();
 
         let run = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
             })
             .unwrap();
 
         // Claim to set Running
-        let _claimed = db.claim_next_claude_run().unwrap().unwrap();
+        let _claimed = db.claim_next_claude_run_sync().unwrap().unwrap();
 
-        // Timeout should transition Running → TimedOut
-        let result = db.timeout_claude_run(&run.id, "watchdog timeout").unwrap();
+        // Timeout should transition Running -> TimedOut
+        let result = db
+            .timeout_claude_run_sync(&run.id, "watchdog timeout")
+            .unwrap();
         assert!(result.is_some());
         let timed_out = result.unwrap();
         assert_eq!(timed_out.status, ClaudeRunStatus::TimedOut);
@@ -462,7 +500,9 @@ mod tests {
         assert!(timed_out.finished_at.is_some());
 
         // Calling again on a TimedOut run should return None (already terminal)
-        let result2 = db.timeout_claude_run(&run.id, "second timeout").unwrap();
+        let result2 = db
+            .timeout_claude_run_sync(&run.id, "second timeout")
+            .unwrap();
         assert!(result2.is_none());
     }
 
@@ -471,16 +511,16 @@ mod tests {
         let (db, task_id) = setup();
 
         let run = db
-            .create_claude_run(&CreateClaudeRun {
+            .create_claude_run_sync(&CreateClaudeRun {
                 task_id,
                 action: ClaudeAction::Build,
             })
             .unwrap();
         assert!(run.runner_id.is_none());
 
-        db.set_claude_run_runner(&run.id, "runner-1").unwrap();
+        db.set_claude_run_runner_sync(&run.id, "runner-1").unwrap();
 
-        let fetched = db.get_claude_run(&run.id).unwrap();
+        let fetched = db.get_claude_run_sync(&run.id).unwrap();
         assert_eq!(fetched.runner_id.as_deref(), Some("runner-1"));
     }
 }

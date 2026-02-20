@@ -5,7 +5,8 @@ use flowstate_core::task::{
     ApprovalStatus, CreateTask, Priority, Status, Task, TaskFilter, UpdateTask,
 };
 
-use crate::{Db, DbError};
+use crate::DbError;
+use super::super::{SqliteDatabase, SqliteResultExt};
 
 fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
     let status_str: String = row.get("status")?;
@@ -42,8 +43,8 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
     })
 }
 
-impl Db {
-    pub fn create_task(&self, input: &CreateTask) -> Result<Task, DbError> {
+impl SqliteDatabase {
+    pub fn create_task_sync(&self, input: &CreateTask) -> Result<Task, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
@@ -74,30 +75,33 @@ impl Db {
                     now,
                     now,
                 ],
-            )?;
+            )
+            .to_db()?;
 
-            let task = conn.query_row(
-                "SELECT * FROM tasks WHERE id = ?1",
-                params![id],
-                row_to_task,
-            )?;
+            let task = conn
+                .query_row(
+                    "SELECT * FROM tasks WHERE id = ?1",
+                    params![id],
+                    row_to_task,
+                )
+                .to_db()?;
             Ok(task)
         })
     }
 
-    pub fn get_task(&self, id: &str) -> Result<Task, DbError> {
+    pub fn get_task_sync(&self, id: &str) -> Result<Task, DbError> {
         self.with_conn(|conn| {
             conn.query_row("SELECT * FROM tasks WHERE id = ?1", params![id], row_to_task)
                 .map_err(|e| match e {
                     rusqlite::Error::QueryReturnedNoRows => {
                         DbError::NotFound(format!("task {id}"))
                     }
-                    other => DbError::Sqlite(other),
+                    other => DbError::Internal(other.to_string()),
                 })
         })
     }
 
-    pub fn list_tasks(&self, filter: &TaskFilter) -> Result<Vec<Task>, DbError> {
+    pub fn list_tasks_sync(&self, filter: &TaskFilter) -> Result<Vec<Task>, DbError> {
         self.with_conn(|conn| {
             let mut sql = String::from("SELECT * FROM tasks WHERE 1=1");
             let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -140,26 +144,31 @@ impl Db {
             let params_ref: Vec<&dyn rusqlite::types::ToSql> =
                 param_values.iter().map(|p| p.as_ref()).collect();
 
-            let mut stmt = conn.prepare(&sql)?;
+            let mut stmt = conn.prepare(&sql).to_db()?;
             let tasks = stmt
-                .query_map(params_ref.as_slice(), row_to_task)?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map(params_ref.as_slice(), row_to_task)
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(tasks)
         })
     }
 
-    pub fn list_child_tasks(&self, parent_id: &str) -> Result<Vec<Task>, DbError> {
+    pub fn list_child_tasks_sync(&self, parent_id: &str) -> Result<Vec<Task>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt =
-                conn.prepare("SELECT * FROM tasks WHERE parent_id = ?1 ORDER BY sort_order ASC")?;
+            let mut stmt = conn
+                .prepare("SELECT * FROM tasks WHERE parent_id = ?1 ORDER BY sort_order ASC")
+                .to_db()?;
             let tasks = stmt
-                .query_map(params![parent_id], row_to_task)?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map(params![parent_id], row_to_task)
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(tasks)
         })
     }
 
-    pub fn update_task(&self, id: &str, update: &UpdateTask) -> Result<Task, DbError> {
+    pub fn update_task_sync(&self, id: &str, update: &UpdateTask) -> Result<Task, DbError> {
         self.with_conn(|conn| {
             let now = Utc::now();
             let mut sets = vec!["updated_at = ?1".to_string()];
@@ -250,19 +259,20 @@ impl Db {
             let params_ref: Vec<&dyn rusqlite::types::ToSql> =
                 param_values.iter().map(|p| p.as_ref()).collect();
 
-            let changed = conn.execute(&sql, params_ref.as_slice())?;
+            let changed = conn.execute(&sql, params_ref.as_slice()).to_db()?;
             if changed == 0 {
                 return Err(DbError::NotFound(format!("task {id}")));
             }
 
             conn.query_row("SELECT * FROM tasks WHERE id = ?1", params![id], row_to_task)
-                .map_err(DbError::from)
+                .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
-    pub fn delete_task(&self, id: &str) -> Result<(), DbError> {
+    pub fn delete_task_sync(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
-            let changed = conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
+            let changed =
+                conn.execute("DELETE FROM tasks WHERE id = ?1", params![id]).to_db()?;
             if changed == 0 {
                 return Err(DbError::NotFound(format!("task {id}")));
             }
@@ -270,17 +280,24 @@ impl Db {
         })
     }
 
-    pub fn count_tasks_by_status(&self, project_id: &str) -> Result<Vec<(String, i64)>, DbError> {
+    pub fn count_tasks_by_status_sync(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<(String, i64)>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT status, COUNT(*) as cnt FROM tasks
-                 WHERE project_id = ?1 GROUP BY status",
-            )?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT status, COUNT(*) as cnt FROM tasks
+                     WHERE project_id = ?1 GROUP BY status",
+                )
+                .to_db()?;
             let counts = stmt
                 .query_map(params![project_id], |row| {
                     Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
+                })
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(counts)
         })
     }
@@ -296,7 +313,7 @@ mod tests {
     fn setup() -> (Db, String) {
         let db = Db::open_in_memory().unwrap();
         let project = db
-            .create_project(&CreateProject {
+            .create_project_sync(&CreateProject {
                 name: "Test".into(),
                 slug: "test".into(),
                 description: String::new(),
@@ -311,7 +328,7 @@ mod tests {
         let (db, project_id) = setup();
 
         let task = db
-            .create_task(&CreateTask {
+            .create_task_sync(&CreateTask {
                 project_id: project_id.clone(),
                 title: "First task".into(),
                 description: "Do something".into(),
@@ -326,11 +343,11 @@ mod tests {
         assert_eq!(task.status, Status::Todo);
         assert_eq!(task.priority, Priority::High);
 
-        let fetched = db.get_task(&task.id).unwrap();
+        let fetched = db.get_task_sync(&task.id).unwrap();
         assert_eq!(fetched.id, task.id);
 
         let updated = db
-            .update_task(
+            .update_task_sync(
                 &task.id,
                 &UpdateTask {
                     status: Some(Status::Build),
@@ -340,8 +357,8 @@ mod tests {
             .unwrap();
         assert_eq!(updated.status, Status::Build);
 
-        db.delete_task(&task.id).unwrap();
-        assert!(db.get_task(&task.id).is_err());
+        db.delete_task_sync(&task.id).unwrap();
+        assert!(db.get_task_sync(&task.id).is_err());
     }
 
     #[test]
@@ -349,7 +366,7 @@ mod tests {
         let (db, project_id) = setup();
 
         for i in 0..5 {
-            db.create_task(&CreateTask {
+            db.create_task_sync(&CreateTask {
                 project_id: project_id.clone(),
                 title: format!("Task {i}"),
                 description: String::new(),
@@ -362,7 +379,7 @@ mod tests {
         }
 
         let all = db
-            .list_tasks(&TaskFilter {
+            .list_tasks_sync(&TaskFilter {
                 project_id: Some(project_id.clone()),
                 ..Default::default()
             })
@@ -370,7 +387,7 @@ mod tests {
         assert_eq!(all.len(), 5);
 
         let todos = db
-            .list_tasks(&TaskFilter {
+            .list_tasks_sync(&TaskFilter {
                 project_id: Some(project_id.clone()),
                 status: Some(Status::Todo),
                 ..Default::default()
@@ -379,7 +396,7 @@ mod tests {
         assert_eq!(todos.len(), 3);
 
         let limited = db
-            .list_tasks(&TaskFilter {
+            .list_tasks_sync(&TaskFilter {
                 project_id: Some(project_id.clone()),
                 limit: Some(2),
                 ..Default::default()
@@ -393,7 +410,7 @@ mod tests {
         let (db, project_id) = setup();
 
         let t1 = db
-            .create_task(&CreateTask {
+            .create_task_sync(&CreateTask {
                 project_id: project_id.clone(),
                 title: "First".into(),
                 description: String::new(),
@@ -405,7 +422,7 @@ mod tests {
             .unwrap();
 
         let t2 = db
-            .create_task(&CreateTask {
+            .create_task_sync(&CreateTask {
                 project_id: project_id.clone(),
                 title: "Second".into(),
                 description: String::new(),
@@ -423,7 +440,7 @@ mod tests {
     fn test_count_by_status() {
         let (db, project_id) = setup();
 
-        db.create_task(&CreateTask {
+        db.create_task_sync(&CreateTask {
             project_id: project_id.clone(),
             title: "A".into(),
             description: String::new(),
@@ -433,7 +450,7 @@ mod tests {
             reviewer: String::new(),
         })
         .unwrap();
-        db.create_task(&CreateTask {
+        db.create_task_sync(&CreateTask {
             project_id: project_id.clone(),
             title: "B".into(),
             description: String::new(),
@@ -443,7 +460,7 @@ mod tests {
             reviewer: String::new(),
         })
         .unwrap();
-        db.create_task(&CreateTask {
+        db.create_task_sync(&CreateTask {
             project_id: project_id.clone(),
             title: "C".into(),
             description: String::new(),
@@ -454,7 +471,7 @@ mod tests {
         })
         .unwrap();
 
-        let counts = db.count_tasks_by_status(&project_id).unwrap();
+        let counts = db.count_tasks_by_status_sync(&project_id).unwrap();
         let todo_count = counts.iter().find(|(s, _)| s == "todo").map(|(_, c)| *c);
         let done_count = counts.iter().find(|(s, _)| s == "done").map(|(_, c)| *c);
         assert_eq!(todo_count, Some(2));

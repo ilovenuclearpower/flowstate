@@ -11,7 +11,7 @@ use std::sync::Arc;
 use aes_gcm::{Aes256Gcm, Key};
 use axum::{middleware, Router};
 use chrono::{DateTime, Utc};
-use flowstate_db::Db;
+use flowstate_db::Database;
 use flowstate_service::LocalService;
 use flowstate_store::ObjectStore;
 
@@ -24,7 +24,7 @@ pub struct RunnerInfo {
 
 pub struct InnerAppState {
     pub service: LocalService,
-    pub db: Db,
+    pub db: Arc<dyn Database>,
     pub auth: Option<Arc<AuthConfig>>,
     pub runners: std::sync::Mutex<HashMap<String, RunnerInfo>>,
     pub encryption_key: Key<Aes256Gcm>,
@@ -35,7 +35,7 @@ pub type AppState = Arc<InnerAppState>;
 
 pub fn build_router(
     service: LocalService,
-    db: Db,
+    db: Arc<dyn Database>,
     auth: Option<Arc<AuthConfig>>,
     encryption_key: Key<Aes256Gcm>,
     store: Arc<dyn ObjectStore>,

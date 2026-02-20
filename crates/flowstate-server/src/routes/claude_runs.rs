@@ -179,14 +179,14 @@ async fn claim_claude_run(
         },
     );
 
-    let result = state.db.claim_next_claude_run().map_err(|e| {
+    let result = state.db.claim_next_claude_run().await.map_err(|e| {
         to_error(flowstate_service::ServiceError::Internal(e.to_string()))
     })?;
 
     match result {
         Some(run) => {
             // Record which runner claimed this run
-            let _ = state.db.set_claude_run_runner(&run.id, &runner_id);
+            let _ = state.db.set_claude_run_runner(&run.id, &runner_id).await;
             Ok((StatusCode::OK, Json(json!(run))))
         }
         None => Ok((StatusCode::NO_CONTENT, Json(json!(null)))),
@@ -228,6 +228,7 @@ async fn update_claude_run_status(
             input.error_message.as_deref(),
             input.exit_code,
         )
+        .await
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(e.to_string())))?;
 
     // Update PR info if provided
@@ -240,6 +241,7 @@ async fn update_claude_run_status(
                 input.pr_number,
                 input.branch_name.as_deref(),
             )
+            .await
             .map_err(|e| to_error(flowstate_service::ServiceError::Internal(e.to_string())))?;
         return Ok(Json(json!(run)));
     }
@@ -260,6 +262,7 @@ async fn update_claude_run_progress(
     state
         .db
         .update_claude_run_progress(&id, &input.message)
+        .await
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(e.to_string())))?;
     Ok(StatusCode::NO_CONTENT)
 }

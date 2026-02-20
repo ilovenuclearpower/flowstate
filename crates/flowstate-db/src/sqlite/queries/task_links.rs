@@ -3,7 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::task_link::{CreateTaskLink, LinkType, TaskLink};
 
-use crate::{Db, DbError};
+use crate::DbError;
+use super::super::{SqliteDatabase, SqliteResultExt};
 
 fn row_to_task_link(row: &Row) -> rusqlite::Result<TaskLink> {
     let link_type_str: String = row.get("link_type")?;
@@ -16,8 +17,11 @@ fn row_to_task_link(row: &Row) -> rusqlite::Result<TaskLink> {
     })
 }
 
-impl Db {
-    pub fn create_task_link(&self, input: &CreateTaskLink) -> Result<TaskLink, DbError> {
+impl SqliteDatabase {
+    pub fn create_task_link_sync(
+        &self,
+        input: &CreateTaskLink,
+    ) -> Result<TaskLink, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
@@ -31,33 +35,40 @@ impl Db {
                     input.link_type.as_str(),
                     now,
                 ],
-            )?;
+            )
+            .to_db()?;
             conn.query_row(
                 "SELECT * FROM task_links WHERE id = ?1",
                 params![id],
                 row_to_task_link,
             )
-            .map_err(DbError::from)
+            .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
-    pub fn list_task_links(&self, task_id: &str) -> Result<Vec<TaskLink>, DbError> {
+    pub fn list_task_links_sync(&self, task_id: &str) -> Result<Vec<TaskLink>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM task_links
-                 WHERE source_task_id = ?1 OR target_task_id = ?1
-                 ORDER BY created_at DESC",
-            )?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT * FROM task_links
+                     WHERE source_task_id = ?1 OR target_task_id = ?1
+                     ORDER BY created_at DESC",
+                )
+                .to_db()?;
             let links = stmt
-                .query_map(params![task_id], row_to_task_link)?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map(params![task_id], row_to_task_link)
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(links)
         })
     }
 
-    pub fn delete_task_link(&self, id: &str) -> Result<(), DbError> {
+    pub fn delete_task_link_sync(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
-            let changed = conn.execute("DELETE FROM task_links WHERE id = ?1", params![id])?;
+            let changed = conn
+                .execute("DELETE FROM task_links WHERE id = ?1", params![id])
+                .to_db()?;
             if changed == 0 {
                 return Err(DbError::NotFound(format!("task_link {id}")));
             }
@@ -77,7 +88,7 @@ mod tests {
     fn test_task_link_crud() {
         let db = Db::open_in_memory().unwrap();
         let project = db
-            .create_project(&CreateProject {
+            .create_project_sync(&CreateProject {
                 name: "Test".into(),
                 slug: "test".into(),
                 description: String::new(),
@@ -86,7 +97,7 @@ mod tests {
             .unwrap();
 
         let t1 = db
-            .create_task(&CreateTask {
+            .create_task_sync(&CreateTask {
                 project_id: project.id.clone(),
                 title: "Task 1".into(),
                 description: String::new(),
@@ -97,7 +108,7 @@ mod tests {
             })
             .unwrap();
         let t2 = db
-            .create_task(&CreateTask {
+            .create_task_sync(&CreateTask {
                 project_id: project.id,
                 title: "Task 2".into(),
                 description: String::new(),
@@ -109,7 +120,7 @@ mod tests {
             .unwrap();
 
         let link = db
-            .create_task_link(&CreateTaskLink {
+            .create_task_link_sync(&CreateTaskLink {
                 source_task_id: t1.id.clone(),
                 target_task_id: t2.id.clone(),
                 link_type: LinkType::Blocks,
@@ -117,14 +128,14 @@ mod tests {
             .unwrap();
         assert_eq!(link.link_type, LinkType::Blocks);
 
-        let links = db.list_task_links(&t1.id).unwrap();
+        let links = db.list_task_links_sync(&t1.id).unwrap();
         assert_eq!(links.len(), 1);
 
-        let links = db.list_task_links(&t2.id).unwrap();
+        let links = db.list_task_links_sync(&t2.id).unwrap();
         assert_eq!(links.len(), 1);
 
-        db.delete_task_link(&link.id).unwrap();
-        let links = db.list_task_links(&t1.id).unwrap();
+        db.delete_task_link_sync(&link.id).unwrap();
+        let links = db.list_task_links_sync(&t1.id).unwrap();
         assert!(links.is_empty());
     }
 }

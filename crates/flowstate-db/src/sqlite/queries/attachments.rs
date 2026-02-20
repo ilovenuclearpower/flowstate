@@ -3,7 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::attachment::Attachment;
 
-use crate::{Db, DbError};
+use crate::DbError;
+use super::super::{SqliteDatabase, SqliteResultExt};
 
 fn row_to_attachment(row: &Row) -> rusqlite::Result<Attachment> {
     Ok(Attachment {
@@ -16,8 +17,8 @@ fn row_to_attachment(row: &Row) -> rusqlite::Result<Attachment> {
     })
 }
 
-impl Db {
-    pub fn create_attachment(
+impl SqliteDatabase {
+    pub fn create_attachment_sync(
         &self,
         task_id: &str,
         filename: &str,
@@ -31,29 +32,34 @@ impl Db {
                 "INSERT INTO attachments (id, task_id, filename, store_key, size_bytes, created_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![id, task_id, filename, store_key, size_bytes, now],
-            )?;
+            )
+            .to_db()?;
             conn.query_row(
                 "SELECT * FROM attachments WHERE id = ?1",
                 params![id],
                 row_to_attachment,
             )
-            .map_err(DbError::from)
+            .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
-    pub fn list_attachments(&self, task_id: &str) -> Result<Vec<Attachment>, DbError> {
+    pub fn list_attachments_sync(&self, task_id: &str) -> Result<Vec<Attachment>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT * FROM attachments WHERE task_id = ?1 ORDER BY created_at DESC",
-            )?;
+            let mut stmt = conn
+                .prepare(
+                    "SELECT * FROM attachments WHERE task_id = ?1 ORDER BY created_at DESC",
+                )
+                .to_db()?;
             let attachments = stmt
-                .query_map(params![task_id], row_to_attachment)?
-                .collect::<Result<Vec<_>, _>>()?;
+                .query_map(params![task_id], row_to_attachment)
+                .to_db()?
+                .collect::<Result<Vec<_>, _>>()
+                .to_db()?;
             Ok(attachments)
         })
     }
 
-    pub fn get_attachment(&self, id: &str) -> Result<Attachment, DbError> {
+    pub fn get_attachment_sync(&self, id: &str) -> Result<Attachment, DbError> {
         self.with_conn(|conn| {
             conn.query_row(
                 "SELECT * FROM attachments WHERE id = ?1",
@@ -64,12 +70,12 @@ impl Db {
                 rusqlite::Error::QueryReturnedNoRows => {
                     DbError::NotFound(format!("attachment {id}"))
                 }
-                other => DbError::Sqlite(other),
+                other => DbError::Internal(other.to_string()),
             })
         })
     }
 
-    pub fn delete_attachment(&self, id: &str) -> Result<Attachment, DbError> {
+    pub fn delete_attachment_sync(&self, id: &str) -> Result<Attachment, DbError> {
         self.with_conn(|conn| {
             let attachment = conn
                 .query_row(
@@ -81,9 +87,10 @@ impl Db {
                     rusqlite::Error::QueryReturnedNoRows => {
                         DbError::NotFound(format!("attachment {id}"))
                     }
-                    other => DbError::Sqlite(other),
+                    other => DbError::Internal(other.to_string()),
                 })?;
-            conn.execute("DELETE FROM attachments WHERE id = ?1", params![id])?;
+            conn.execute("DELETE FROM attachments WHERE id = ?1", params![id])
+                .to_db()?;
             Ok(attachment)
         })
     }

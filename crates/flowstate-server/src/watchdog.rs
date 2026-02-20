@@ -1,7 +1,8 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use flowstate_db::Db;
+use flowstate_db::Database;
 use tracing::{error, warn};
 
 /// Background task that detects and transitions stuck runs.
@@ -16,21 +17,21 @@ use tracing::{error, warn};
 /// The server timeout should always be LONGER than the runner timeout,
 /// since the runner handles its own timeout first. The server watchdog
 /// is defense-in-depth for when the runner crashes.
-pub async fn run_watchdog(db: Db, scan_interval_secs: u64) {
+pub async fn run_watchdog(db: Arc<dyn Database>, scan_interval_secs: u64) {
     let mut ticker = tokio::time::interval(Duration::from_secs(scan_interval_secs));
     loop {
         ticker.tick().await;
-        if let Err(e) = check_stale_runs(&db) {
+        if let Err(e) = check_stale_runs(&*db).await {
             error!("watchdog error: {e}");
         }
     }
 }
 
-fn check_stale_runs(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
+async fn check_stale_runs(db: &dyn Database) -> Result<(), Box<dyn std::error::Error>> {
     // Hard timeout for runs stuck in Running: 90 minutes
     let running_timeout = chrono::Duration::minutes(90);
     let running_threshold = Utc::now() - running_timeout;
-    let stale_running = db.find_stale_running_runs(running_threshold)?;
+    let stale_running = db.find_stale_running_runs(running_threshold).await?;
 
     for run in stale_running {
         warn!(
@@ -43,13 +44,13 @@ fn check_stale_runs(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
                 "server watchdog: no runner activity for >{}min",
                 running_timeout.num_minutes()
             ),
-        )?;
+        ).await?;
     }
 
     // Hard timeout for runs stuck in Salvaging: 30 minutes
     let salvage_timeout = chrono::Duration::minutes(30);
     let salvage_threshold = Utc::now() - salvage_timeout;
-    let stale_salvaging = db.find_stale_salvaging_runs(salvage_threshold)?;
+    let stale_salvaging = db.find_stale_salvaging_runs(salvage_threshold).await?;
 
     for run in stale_salvaging {
         warn!(
@@ -59,7 +60,7 @@ fn check_stale_runs(db: &Db) -> Result<(), Box<dyn std::error::Error>> {
         db.timeout_claude_run(
             &run.id,
             "server watchdog: salvage agent timed out",
-        )?;
+        ).await?;
     }
 
     Ok(())
