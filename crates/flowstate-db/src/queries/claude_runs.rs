@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rusqlite::{params, Row};
 
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
@@ -19,6 +19,7 @@ fn row_to_claude_run(row: &Row) -> rusqlite::Result<ClaudeRun> {
         pr_number: row.get("pr_number")?,
         branch_name: row.get("branch_name")?,
         progress_message: row.get("progress_message")?,
+        runner_id: row.get("runner_id").unwrap_or(None),
         started_at: row.get("started_at")?,
         finished_at: row.get("finished_at")?,
     })
@@ -82,7 +83,10 @@ impl Db {
             let now = Utc::now();
             let finished = if matches!(
                 status,
-                ClaudeRunStatus::Completed | ClaudeRunStatus::Failed | ClaudeRunStatus::Cancelled
+                ClaudeRunStatus::Completed
+                    | ClaudeRunStatus::Failed
+                    | ClaudeRunStatus::Cancelled
+                    | ClaudeRunStatus::TimedOut
             ) {
                 Some(now)
             } else {
@@ -169,6 +173,84 @@ impl Db {
             .map_err(DbError::from)
         })
     }
+
+    /// Find all runs stuck in Running status beyond the given threshold.
+    /// Used by the server-side watchdog.
+    pub fn find_stale_running_runs(
+        &self,
+        older_than: DateTime<Utc>,
+    ) -> Result<Vec<ClaudeRun>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT * FROM claude_runs WHERE status = 'running' AND started_at < ?1",
+            )?;
+            let runs = stmt
+                .query_map(params![older_than], row_to_claude_run)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(runs)
+        })
+    }
+
+    /// Find all runs stuck in Salvaging status beyond the given threshold.
+    /// Used by the server-side watchdog.
+    pub fn find_stale_salvaging_runs(
+        &self,
+        older_than: DateTime<Utc>,
+    ) -> Result<Vec<ClaudeRun>, DbError> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT * FROM claude_runs WHERE status = 'salvaging' AND started_at < ?1",
+            )?;
+            let runs = stmt
+                .query_map(params![older_than], row_to_claude_run)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(runs)
+        })
+    }
+
+    /// Atomically transition a run from Running or Salvaging to TimedOut.
+    /// Returns Ok(None) if the run was not in those statuses (race-safe).
+    pub fn timeout_claude_run(
+        &self,
+        id: &str,
+        error_message: &str,
+    ) -> Result<Option<ClaudeRun>, DbError> {
+        self.with_conn(|conn| {
+            let now = Utc::now();
+            let affected = conn.execute(
+                "UPDATE claude_runs SET status = 'timed_out', error_message = ?1, finished_at = ?2
+                 WHERE id = ?3 AND status IN ('running', 'salvaging')",
+                params![error_message, now, id],
+            )?;
+
+            if affected == 0 {
+                return Ok(None);
+            }
+
+            conn.query_row(
+                "SELECT * FROM claude_runs WHERE id = ?1",
+                params![id],
+                row_to_claude_run,
+            )
+            .map(Some)
+            .map_err(DbError::from)
+        })
+    }
+
+    /// Set runner_id on a claude run (at claim time).
+    pub fn set_claude_run_runner(
+        &self,
+        id: &str,
+        runner_id: &str,
+    ) -> Result<(), DbError> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE claude_runs SET runner_id = ?1 WHERE id = ?2",
+                params![runner_id, id],
+            )?;
+            Ok(())
+        })
+    }
 }
 
 #[cfg(test)]
@@ -217,6 +299,7 @@ mod tests {
         assert!(run.pr_url.is_none());
         assert!(run.pr_number.is_none());
         assert!(run.branch_name.is_none());
+        assert!(run.runner_id.is_none());
 
         let fetched = db.get_claude_run(&run.id).unwrap();
         assert_eq!(fetched.id, run.id);
@@ -291,5 +374,113 @@ mod tests {
         );
         assert_eq!(updated.pr_number, Some(42));
         assert_eq!(updated.branch_name.as_deref(), Some("flowstate/my-feature"));
+    }
+
+    #[test]
+    fn test_new_status_variants() {
+        let (db, task_id) = setup();
+
+        // Test TimedOut status
+        let run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task_id.clone(),
+                action: ClaudeAction::Build,
+            })
+            .unwrap();
+        let updated = db
+            .update_claude_run_status(&run.id, ClaudeRunStatus::TimedOut, Some("timed out"), None)
+            .unwrap();
+        assert_eq!(updated.status, ClaudeRunStatus::TimedOut);
+        assert!(updated.finished_at.is_some());
+        assert_eq!(updated.error_message.as_deref(), Some("timed out"));
+
+        // Test Salvaging status (non-terminal, no finished_at)
+        let run2 = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task_id.clone(),
+                action: ClaudeAction::Build,
+            })
+            .unwrap();
+        let _ = db.claim_next_claude_run().unwrap(); // claim run2 to set it Running
+        let updated2 = db
+            .update_claude_run_status(&run2.id, ClaudeRunStatus::Salvaging, None, None)
+            .unwrap();
+        assert_eq!(updated2.status, ClaudeRunStatus::Salvaging);
+        assert!(updated2.finished_at.is_none());
+    }
+
+    #[test]
+    fn test_find_stale_running_runs() {
+        let (db, task_id) = setup();
+
+        // Create and claim a run (sets it to Running)
+        let run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task_id.clone(),
+                action: ClaudeAction::Build,
+            })
+            .unwrap();
+        let _claimed = db.claim_next_claude_run().unwrap().unwrap();
+
+        // With a threshold in the future, the run should be returned
+        let future = chrono::Utc::now() + chrono::Duration::hours(1);
+        let stale = db.find_stale_running_runs(future).unwrap();
+        assert_eq!(stale.len(), 1);
+        assert_eq!(stale[0].id, run.id);
+
+        // With a threshold in the past, no runs should be returned
+        let past = chrono::Utc::now() - chrono::Duration::hours(1);
+        let stale = db.find_stale_running_runs(past).unwrap();
+        assert!(stale.is_empty());
+
+        // Completed runs should not be returned
+        let _ = db.update_claude_run_status(&run.id, ClaudeRunStatus::Completed, None, Some(0));
+        let stale = db.find_stale_running_runs(future).unwrap();
+        assert!(stale.is_empty());
+    }
+
+    #[test]
+    fn test_timeout_claude_run() {
+        let (db, task_id) = setup();
+
+        let run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task_id.clone(),
+                action: ClaudeAction::Build,
+            })
+            .unwrap();
+
+        // Claim to set Running
+        let _claimed = db.claim_next_claude_run().unwrap().unwrap();
+
+        // Timeout should transition Running → TimedOut
+        let result = db.timeout_claude_run(&run.id, "watchdog timeout").unwrap();
+        assert!(result.is_some());
+        let timed_out = result.unwrap();
+        assert_eq!(timed_out.status, ClaudeRunStatus::TimedOut);
+        assert_eq!(timed_out.error_message.as_deref(), Some("watchdog timeout"));
+        assert!(timed_out.finished_at.is_some());
+
+        // Calling again on a TimedOut run should return None (already terminal)
+        let result2 = db.timeout_claude_run(&run.id, "second timeout").unwrap();
+        assert!(result2.is_none());
+    }
+
+    #[test]
+    fn test_set_claude_run_runner() {
+        let (db, task_id) = setup();
+
+        let run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id,
+                action: ClaudeAction::Build,
+            })
+            .unwrap();
+        assert!(run.runner_id.is_none());
+
+        db.set_claude_run_runner(&run.id, "runner-1").unwrap();
+
+        let fetched = db.get_claude_run(&run.id).unwrap();
+        assert_eq!(fetched.runner_id.as_deref(), Some("runner-1"));
     }
 }

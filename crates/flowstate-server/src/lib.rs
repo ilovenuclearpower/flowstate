@@ -1,7 +1,7 @@
 pub mod auth;
-pub mod claude;
 pub mod crypto;
 mod routes;
+pub mod watchdog;
 
 use std::sync::Arc;
 
@@ -33,7 +33,14 @@ pub async fn serve(listener: TcpListener, db: Db, auth: Option<Arc<AuthConfig>>)
     let store = flowstate_store::create_store(&store_config)
         .map_err(|e| anyhow::anyhow!("failed to create object store: {e}"))?;
     let service = LocalService::new(db.clone());
-    let app = routes::build_router(service, db, auth, encryption_key, store);
+    let app = routes::build_router(service, db.clone(), auth, encryption_key, store);
+
+    // Launch the watchdog background task (scans every 60 seconds)
+    let watchdog_db = db;
+    tokio::spawn(async move {
+        watchdog::run_watchdog(watchdog_db, 60).await;
+    });
+
     axum::serve(listener, app).await?;
     Ok(())
 }
