@@ -42,8 +42,30 @@ async fn system_status(State(state): State<AppState>) -> Json<Value> {
 
     drop(runners_lock);
 
+    // Find runs that may be stuck (running for more than 15 minutes)
+    let stuck_threshold = now - chrono::Duration::minutes(15);
+    let stuck_runs: Vec<Value> = state
+        .db
+        .find_stale_running_runs(stuck_threshold)
+        .unwrap_or_default()
+        .iter()
+        .map(|run| {
+            let running_for = (now - run.started_at).num_seconds();
+            json!({
+                "id": run.id,
+                "task_id": run.task_id,
+                "action": run.action.as_str(),
+                "status": run.status.as_str(),
+                "started_at": run.started_at.to_rfc3339(),
+                "running_for_seconds": running_for,
+                "runner_id": run.runner_id,
+            })
+        })
+        .collect();
+
     Json(json!({
         "server": "ok",
         "runners": runners,
+        "stuck_runs": stuck_runs,
     }))
 }

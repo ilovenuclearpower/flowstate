@@ -1,25 +1,43 @@
-Implementation is complete. Here's a summary of everything that was done:
+All 7 phases are complete. Here's a summary of what was implemented:
 
-## Summary
+## Implementation Complete: Salvage Logic for Hung Runs
 
-### New Crate: `flowstate-store`
-- **`src/lib.rs`** — `ObjectStore` trait with `put`, `get`, `get_opt`, `delete`, `list`, `exists` methods; `StoreError` enum; key helpers (`task_spec_key`, `task_plan_key`, `task_attachment_key`, `claude_run_prompt_key`, `claude_run_output_key`); `StoreConfig` with env var loading and `is_s3()` detection; `create_store` factory
-- **`src/local.rs`** — `LocalStore` using `tokio::fs`, backwards-compatible with existing file layout, 9 unit tests
-- **`src/s3.rs`** — `S3Store` using `rust-s3` 0.37 with path-style addressing, content-type detection, 10 tests (3 unit + 7 integration gated on S3 env vars)
+### Phase 1: Data Model & Migration
+- Added `TimedOut` and `Salvaging` status variants to `ClaudeRunStatus`
+- Added `runner_id: Option<String>` to `ClaudeRun`
+- v9 migration with expanded CHECK constraints and `runner_id` column
+- New DB methods: `find_stale_running_runs`, `find_stale_salvaging_runs`, `timeout_claude_run`, `set_claude_run_runner`
+- 4 new tests (all passing)
 
-### Modified Files
-| File | Change |
-|---|---|
-| `Cargo.toml` (root) | Added `flowstate-store` to members, `bytes = "1"` to workspace deps |
-| `flowstate-core/src/attachment.rs` | Renamed `disk_path` → `store_key` |
-| `flowstate-db/src/migrations.rs` | Added v7 migration: renames column, converts absolute paths to relative keys |
-| `flowstate-db/src/queries/attachments.rs` | Updated all `disk_path` references to `store_key` |
-| `flowstate-server/Cargo.toml` | Added `flowstate-store`, `bytes`, `tracing` deps |
-| `flowstate-server/src/lib.rs` | Creates store from env config, passes to router, logs backend type |
-| `flowstate-server/src/routes/mod.rs` | Added `store: Arc<dyn ObjectStore>` to `InnerAppState` and `build_router` |
-| `flowstate-server/src/routes/tasks.rs` | Replaced all `std::fs` calls with store operations |
-| `flowstate-server/src/routes/claude_runs.rs` | Replaced `std::fs::read_to_string` in `get_claude_run_output` with store call |
+### Phase 2: Process Group Management
+- `process.rs` with `ManagedChild` (setsid + SIGTERM→SIGKILL escalation)
+- `spawn_claude_managed()` and `run_claude_with_timeout()` replace raw `.output()` calls
+- Fixed the root cause: pipe FD inheritance by orphaned child processes
 
-### Validation
-- `cargo clippy --workspace -- -D warnings` — **0 warnings**
-- `cargo test --workspace` — **40/40 tests pass** (22 new store tests + 18 existing)
+### Phase 3: Runner Timeout & Heartbeat
+- Configurable timeouts: `light_timeout` (15m), `build_timeout` (60m), `kill_grace_period` (10s)
+- `tokio::time::timeout` wraps `dispatch()` in main poll loop
+- Heartbeat task sends progress updates every 30s while dispatch runs
+
+### Phase 4: Salvage Module
+- `salvage.rs` with `attempt_salvage()` — assesses workspace, validates, cuts PR
+- `SalvageOutcome` enum: `PrCut`, `NothingToSalvage`, `ValidationFailed`, `SalvageError`
+- Invoked automatically after Build timeout in `main.rs`
+
+### Phase 5: Server-Side Watchdog & Status
+- `watchdog.rs` — background task scanning every 60s for stale runs
+- Hard timeouts: 90min running, 30min salvaging (defense-in-depth)
+- `/api/status` endpoint now reports stuck runs
+- Runner ID recorded at claim time
+
+### Phase 6: Remove Legacy Executor
+- Removed `pub mod claude;` from server `lib.rs`
+- Removed `flowstate-prompts` dependency from server `Cargo.toml`
+- Note: `claude.rs` file is orphaned but needs manual deletion (file deletion was blocked by permissions)
+
+### Phase 7: Validation
+- `cargo build --workspace` — clean
+- `cargo test --workspace` — 44 tests, all passing
+- `cargo clippy --workspace` — zero warnings
+
+**One manual step remaining**: Delete the orphaned file `crates/flowstate-server/src/claude.rs` (it's dead code, not compiled).

@@ -62,6 +62,8 @@ pub enum ClaudeRunStatus {
     Completed,
     Failed,
     Cancelled,
+    TimedOut,
+    Salvaging,
 }
 
 impl ClaudeRunStatus {
@@ -72,6 +74,8 @@ impl ClaudeRunStatus {
             ClaudeRunStatus::Completed => "completed",
             ClaudeRunStatus::Failed => "failed",
             ClaudeRunStatus::Cancelled => "cancelled",
+            ClaudeRunStatus::TimedOut => "timed_out",
+            ClaudeRunStatus::Salvaging => "salvaging",
         }
     }
 
@@ -82,6 +86,8 @@ impl ClaudeRunStatus {
             "completed" => Some(ClaudeRunStatus::Completed),
             "failed" => Some(ClaudeRunStatus::Failed),
             "cancelled" => Some(ClaudeRunStatus::Cancelled),
+            "timed_out" => Some(ClaudeRunStatus::TimedOut),
+            "salvaging" => Some(ClaudeRunStatus::Salvaging),
             _ => None,
         }
     }
@@ -109,6 +115,8 @@ pub struct ClaudeRun {
     pub branch_name: Option<String>,
     #[serde(default)]
     pub progress_message: Option<String>,
+    #[serde(default)]
+    pub runner_id: Option<String>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
 }

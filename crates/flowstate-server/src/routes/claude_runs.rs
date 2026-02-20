@@ -174,7 +174,7 @@ async fn claim_claude_run(
     state.runners.lock().unwrap().insert(
         runner_id.clone(),
         RunnerInfo {
-            runner_id,
+            runner_id: runner_id.clone(),
             last_seen: Utc::now(),
         },
     );
@@ -184,7 +184,11 @@ async fn claim_claude_run(
     })?;
 
     match result {
-        Some(run) => Ok((StatusCode::OK, Json(json!(run)))),
+        Some(run) => {
+            // Record which runner claimed this run
+            let _ = state.db.set_claude_run_runner(&run.id, &runner_id);
+            Ok((StatusCode::OK, Json(json!(run))))
+        }
         None => Ok((StatusCode::NO_CONTENT, Json(json!(null)))),
     }
 }

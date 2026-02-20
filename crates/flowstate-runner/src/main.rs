@@ -1,15 +1,17 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use axum::{routing::get, Json, Router};
 use clap::Parser;
+use flowstate_core::claude_run::ClaudeAction;
 use flowstate_runner::config::RunnerConfig;
-use flowstate_runner::{executor, preflight};
+use flowstate_runner::{executor, preflight, salvage};
 use flowstate_service::{HttpService, TaskService};
 use serde_json::json;
 use tokio::net::TcpListener;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,6 +25,10 @@ async fn main() -> Result<()> {
     let config = RunnerConfig::parse();
     info!("flowstate-runner starting");
     info!("server: {}", config.server_url);
+    info!(
+        "timeouts: light={}s, build={}s, kill_grace={}s",
+        config.light_timeout, config.build_timeout, config.kill_grace_period
+    );
 
     // Generate runner ID from HOSTNAME env var or UUID
     let runner_id = std::env::var("HOSTNAME")
@@ -87,20 +93,80 @@ async fn main() -> Result<()> {
                     }
                 };
 
-                if let Err(e) = executor::dispatch(
-                    &service,
-                    &run,
-                    &task,
-                    &project,
-                    &config.workspace_root,
+                let timeout = config.timeout_for_action(run.action);
+
+                // Spawn heartbeat task that sends periodic progress while dispatch runs
+                let heartbeat_service = service.clone();
+                let heartbeat_run_id = run.id.clone();
+                let heartbeat = tokio::spawn(async move {
+                    heartbeat_loop(&heartbeat_service, &heartbeat_run_id).await;
+                });
+
+                let result = tokio::time::timeout(
+                    timeout,
+                    executor::dispatch(&service, &run, &task, &project, &config),
                 )
-                .await
-                {
-                    error!("run {} failed: {e}", run.id);
-                    let msg = format!("{e}");
-                    let _ = service
-                        .update_claude_run_status(&run.id, "failed", Some(&msg), None)
-                        .await;
+                .await;
+
+                // Stop heartbeat
+                heartbeat.abort();
+
+                match result {
+                    Ok(Ok(())) => {
+                        // Success — already reported by dispatch
+                    }
+                    Ok(Err(e)) => {
+                        // dispatch returned an error (not a timeout)
+                        error!("run {} failed: {e}", run.id);
+                        let msg = format!("{e}");
+                        let _ = service
+                            .update_claude_run_status(&run.id, "failed", Some(&msg), None)
+                            .await;
+                    }
+                    Err(_elapsed) => {
+                        // TIMEOUT — dispatch didn't complete in time
+                        warn!("run {} timed out after {:?}", run.id, timeout);
+                        let _ = service
+                            .update_claude_run_status(
+                                &run.id,
+                                "timed_out",
+                                Some(&format!("timed out after {}s", timeout.as_secs())),
+                                None,
+                            )
+                            .await;
+
+                        // Attempt salvage for Build actions
+                        if run.action == ClaudeAction::Build {
+                            let ws_dir = executor::resolve_workspace_dir(
+                                &config.workspace_root,
+                                &run.id,
+                            );
+                            let outcome = salvage::attempt_salvage(
+                                &service, &run, &task, &project, &ws_dir, &config,
+                            )
+                            .await;
+
+                            match &outcome {
+                                salvage::SalvageOutcome::PrCut { pr_url, pr_number } => {
+                                    info!(
+                                        "salvage succeeded: PR #{pr_number} at {pr_url}"
+                                    );
+                                }
+                                salvage::SalvageOutcome::NothingToSalvage => {
+                                    info!("salvage: nothing to salvage");
+                                }
+                                salvage::SalvageOutcome::ValidationFailed { error } => {
+                                    warn!("salvage: validation failed: {error}");
+                                }
+                                salvage::SalvageOutcome::SalvageError { error } => {
+                                    error!("salvage error: {error}");
+                                }
+                            }
+
+                            // Clean up workspace after salvage
+                            executor::cleanup_workspace(&ws_dir);
+                        }
+                    }
                 }
             }
             Ok(None) => {
@@ -111,7 +177,15 @@ async fn main() -> Result<()> {
             }
         }
 
-        tokio::time::sleep(std::time::Duration::from_secs(config.poll_interval)).await;
+        tokio::time::sleep(Duration::from_secs(config.poll_interval)).await;
+    }
+}
+
+async fn heartbeat_loop(service: &HttpService, run_id: &str) {
+    let mut interval = tokio::time::interval(Duration::from_secs(30));
+    loop {
+        interval.tick().await;
+        let _ = service.update_claude_run_progress(run_id, "heartbeat").await;
     }
 }
 

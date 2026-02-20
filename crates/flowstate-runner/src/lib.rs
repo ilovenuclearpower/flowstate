@@ -3,5 +3,7 @@ pub mod executor;
 pub mod pipeline;
 pub mod plan_parser;
 pub mod preflight;
+pub mod process;
 pub mod repo_provider;
+pub mod salvage;
 pub mod workspace;

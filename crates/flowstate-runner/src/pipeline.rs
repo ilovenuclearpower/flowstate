@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{bail, Result};
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun};
@@ -21,6 +22,8 @@ pub async fn execute(
     task: &Task,
     project: &Project,
     ws_dir: &Path,
+    timeout: Duration,
+    kill_grace: Duration,
 ) -> Result<()> {
     // 1. Validate prerequisites
     if task.spec_status != flowstate_core::task::ApprovalStatus::Approved {
@@ -100,7 +103,7 @@ pub async fn execute(
     // 10. Run claude in workspace
     progress(service, &run.id, "Running Claude CLI...").await;
     info!("running claude for build in {}", ws_dir.display());
-    let output = run_claude(&prompt, ws_dir).await?;
+    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if !output.success {
         let msg = if output.stderr.is_empty() {

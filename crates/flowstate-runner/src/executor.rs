@@ -1,16 +1,17 @@
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun};
 use flowstate_core::project::Project;
 use flowstate_core::task::Task;
 use flowstate_prompts::{ChildTaskInfo, PromptContext};
 use flowstate_service::{HttpService, TaskService};
-use tokio::process::Command;
 use tracing::{info, warn};
 
+use crate::config::RunnerConfig;
 use crate::pipeline;
+use crate::process;
 use crate::workspace;
 
 /// Dispatch a claimed run to the appropriate handler.
@@ -21,26 +22,29 @@ pub async fn dispatch(
     run: &ClaudeRun,
     task: &Task,
     project: &Project,
-    workspace_root: &Option<PathBuf>,
+    config: &RunnerConfig,
 ) -> Result<()> {
-    let ws_dir = resolve_workspace_dir(workspace_root, &run.id);
+    let ws_dir = resolve_workspace_dir(&config.workspace_root, &run.id);
     info!("workspace for run {}: {}", run.id, ws_dir.display());
+
+    let timeout = config.timeout_for_action(run.action);
+    let kill_grace = Duration::from_secs(config.kill_grace_period);
 
     let result = match run.action {
         ClaudeAction::Research | ClaudeAction::ResearchDistill => {
-            execute_research(service, run, task, project, &ws_dir).await
+            execute_research(service, run, task, project, &ws_dir, timeout, kill_grace).await
         }
         ClaudeAction::Design | ClaudeAction::DesignDistill => {
-            execute_design(service, run, task, project, &ws_dir).await
+            execute_design(service, run, task, project, &ws_dir, timeout, kill_grace).await
         }
         ClaudeAction::Plan | ClaudeAction::PlanDistill => {
-            execute_plan(service, run, task, project, &ws_dir).await
+            execute_plan(service, run, task, project, &ws_dir, timeout, kill_grace).await
         }
         ClaudeAction::Build => {
-            pipeline::execute(service, run, task, project, &ws_dir).await
+            pipeline::execute(service, run, task, project, &ws_dir, timeout, kill_grace).await
         }
         ClaudeAction::Verify | ClaudeAction::VerifyDistill => {
-            execute_verify(service, run, task, project, &ws_dir).await
+            execute_verify(service, run, task, project, &ws_dir, timeout, kill_grace).await
         }
     };
 
@@ -73,7 +77,7 @@ pub fn resolve_workspace_dir(workspace_root: &Option<PathBuf>, run_id: &str) -> 
     }
 }
 
-fn cleanup_workspace(dir: &Path) {
+pub fn cleanup_workspace(dir: &Path) {
     if dir.exists() {
         info!("cleaning up workspace: {}", dir.display());
         if let Err(e) = std::fs::remove_dir_all(dir) {
@@ -88,6 +92,8 @@ async fn execute_research(
     task: &Task,
     project: &Project,
     ws_dir: &Path,
+    timeout: Duration,
+    kill_grace: Duration,
 ) -> Result<()> {
     // Clone repo so Claude can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
@@ -101,7 +107,7 @@ async fn execute_research(
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, ws_dir).await?;
+    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -139,6 +145,8 @@ async fn execute_design(
     task: &Task,
     project: &Project,
     ws_dir: &Path,
+    timeout: Duration,
+    kill_grace: Duration,
 ) -> Result<()> {
     // Clone repo so Claude can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
@@ -152,7 +160,7 @@ async fn execute_design(
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, ws_dir).await?;
+    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -190,6 +198,8 @@ async fn execute_plan(
     task: &Task,
     project: &Project,
     ws_dir: &Path,
+    timeout: Duration,
+    kill_grace: Duration,
 ) -> Result<()> {
     // Clone repo so Claude can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
@@ -203,7 +213,7 @@ async fn execute_plan(
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, ws_dir).await?;
+    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -241,6 +251,8 @@ async fn execute_verify(
     task: &Task,
     project: &Project,
     ws_dir: &Path,
+    timeout: Duration,
+    kill_grace: Duration,
 ) -> Result<()> {
     // Clone repo so Claude can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
@@ -271,7 +283,7 @@ async fn execute_verify(
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, ws_dir).await?;
+    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -384,34 +396,13 @@ pub struct ClaudeOutput {
     pub exit_code: i32,
 }
 
-pub async fn run_claude(prompt: &str, work_dir: &std::path::Path) -> Result<ClaudeOutput> {
-    let result = Command::new("claude")
-        .arg("-p")
-        .arg(prompt)
-        .arg("--output-format")
-        .arg("text")
-        .current_dir(work_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .await
-        .context("spawn claude")?;
-
-    let stdout = String::from_utf8_lossy(&result.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&result.stderr).to_string();
-    let exit_code = result.status.code().unwrap_or(-1);
-
-    // Save output
-    let run_dir = work_dir.join(".flowstate-output");
-    let _ = std::fs::create_dir_all(&run_dir);
-    let _ = std::fs::write(run_dir.join("output.txt"), &stdout);
-
-    Ok(ClaudeOutput {
-        success: result.status.success(),
-        stdout,
-        stderr,
-        exit_code,
-    })
+pub async fn run_claude(
+    prompt: &str,
+    work_dir: &Path,
+    timeout: Duration,
+    kill_grace: Duration,
+) -> Result<ClaudeOutput> {
+    process::run_claude_with_timeout(prompt, work_dir, timeout, kill_grace).await
 }
 
 fn save_prompt(run_id: &str, prompt: &str) -> Result<()> {

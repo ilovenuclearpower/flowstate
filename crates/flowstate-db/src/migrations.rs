@@ -492,5 +492,52 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         )?;
     }
 
+    if current_version < 9 {
+        // v9: Salvage logic support — add TimedOut/Salvaging status variants and runner_id column
+
+        // Recreate claude_runs table with expanded status CHECK and runner_id column
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS claude_runs_new (
+                id               TEXT PRIMARY KEY,
+                task_id          TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+                action           TEXT NOT NULL CHECK(action IN (
+                    'research', 'design', 'plan', 'build', 'verify',
+                    'research_distill', 'design_distill', 'plan_distill', 'verify_distill'
+                )),
+                status           TEXT NOT NULL DEFAULT 'queued'
+                                     CHECK(status IN (
+                                         'queued', 'running', 'completed', 'failed',
+                                         'cancelled', 'timed_out', 'salvaging'
+                                     )),
+                error_message    TEXT,
+                exit_code        INTEGER,
+                pr_url           TEXT,
+                pr_number        INTEGER,
+                branch_name      TEXT,
+                progress_message TEXT,
+                runner_id        TEXT,
+                started_at       TEXT NOT NULL,
+                finished_at      TEXT
+            );
+
+            INSERT OR IGNORE INTO claude_runs_new
+                SELECT id, task_id, action, status, error_message, exit_code,
+                       pr_url, pr_number, branch_name, progress_message,
+                       NULL as runner_id,
+                       started_at, finished_at
+                FROM claude_runs;
+
+            DROP TABLE claude_runs;
+            ALTER TABLE claude_runs_new RENAME TO claude_runs;
+            CREATE INDEX IF NOT EXISTS idx_claude_runs_task ON claude_runs(task_id);
+            CREATE INDEX IF NOT EXISTS idx_claude_runs_status ON claude_runs(status);",
+        )?;
+
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (9, datetime('now'))",
+            [],
+        )?;
+    }
+
     Ok(())
 }
