@@ -6,7 +6,24 @@ use tracing::info;
 
 use super::{ProviderError, PullRequest, RepoProvider};
 
-pub struct GitHubProvider;
+pub struct GitHubProvider {
+    /// Optional PAT used to authenticate `gh` CLI calls via GH_TOKEN env var.
+    /// When set, this overrides any local `gh auth` session on the host.
+    token: Option<String>,
+}
+
+impl GitHubProvider {
+    pub fn new(token: Option<String>) -> Self {
+        Self { token }
+    }
+
+    /// Apply GH_TOKEN to a `gh` Command if a token is available.
+    fn apply_token(&self, cmd: &mut Command) {
+        if let Some(ref token) = self.token {
+            cmd.env("GH_TOKEN", token);
+        }
+    }
+}
 
 #[async_trait]
 impl RepoProvider for GitHubProvider {
@@ -19,9 +36,11 @@ impl RepoProvider for GitHubProvider {
     }
 
     async fn check_auth(&self, repo_url: &str) -> Result<(), ProviderError> {
-        // Check gh auth status
-        let auth = Command::new("gh")
-            .args(["auth", "status"])
+        // Check gh auth status (GH_TOKEN overrides local session if set)
+        let mut auth_cmd = Command::new("gh");
+        auth_cmd.args(["auth", "status"]);
+        self.apply_token(&mut auth_cmd);
+        let auth = auth_cmd
             .output()
             .await
             .map_err(|e| ProviderError::AuthFailed(format!("gh auth status: {e}")))?;
@@ -34,8 +53,10 @@ impl RepoProvider for GitHubProvider {
         }
 
         // Check repo access
-        let view = Command::new("gh")
-            .args(["repo", "view", repo_url, "--json", "nameWithOwner"])
+        let mut view_cmd = Command::new("gh");
+        view_cmd.args(["repo", "view", repo_url, "--json", "nameWithOwner"]);
+        self.apply_token(&mut view_cmd);
+        let view = view_cmd
             .output()
             .await
             .map_err(|e| ProviderError::AuthFailed(format!("gh repo view: {e}")))?;
@@ -47,11 +68,16 @@ impl RepoProvider for GitHubProvider {
             )));
         }
 
-        info!("github: authenticated and repo accessible");
+        info!(
+            "github: authenticated and repo accessible (token={})",
+            if self.token.is_some() { "PAT" } else { "session" }
+        );
         Ok(())
     }
 
     async fn push_branch(&self, work_dir: &Path, branch: &str) -> Result<(), ProviderError> {
+        // git push uses the token already injected into the remote URL
+        // by workspace::ensure_repo / inject_token
         let output = Command::new("git")
             .args(["push", "-u", "origin", branch])
             .current_dir(work_dir)
@@ -78,15 +104,18 @@ impl RepoProvider for GitHubProvider {
         body: &str,
         base: &str,
     ) -> Result<PullRequest, ProviderError> {
-        let output = Command::new("gh")
-            .args([
-                "pr", "create",
-                "--title", title,
-                "--body", body,
-                "--head", branch,
-                "--base", base,
-            ])
-            .current_dir(work_dir)
+        let mut cmd = Command::new("gh");
+        cmd.args([
+            "pr", "create",
+            "--title", title,
+            "--body", body,
+            "--head", branch,
+            "--base", base,
+        ]);
+        cmd.current_dir(work_dir);
+        self.apply_token(&mut cmd);
+
+        let output = cmd
             .output()
             .await
             .map_err(|e| ProviderError::PrFailed(format!("gh pr create: {e}")))?;

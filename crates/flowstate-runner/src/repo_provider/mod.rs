@@ -51,8 +51,13 @@ pub trait RepoProvider: Send + Sync {
 }
 
 /// Return the appropriate provider for a given repo URL.
-pub fn provider_for_url(repo_url: &str) -> Result<Box<dyn RepoProvider>, ProviderError> {
-    let gh = github::GitHubProvider;
+/// The optional `token` is a PAT used to authenticate with the provider's CLI
+/// (e.g. set as `GH_TOKEN` for the GitHub CLI).
+pub fn provider_for_url(
+    repo_url: &str,
+    token: Option<String>,
+) -> Result<Box<dyn RepoProvider>, ProviderError> {
+    let gh = github::GitHubProvider::new(token);
     if gh.supports_url(repo_url) {
         return Ok(Box::new(gh));
     }
