@@ -1,41 +1,22 @@
-All phases are complete. Here's a summary of what was implemented:
+All four phases are complete. Here's a summary of the changes made across 3 files:
 
-## Summary of Changes
+### `crates/flowstate-core/src/task.rs`
+- Added `Status::ordinal()` method — returns a numeric ordering (0-7) for workflow phases, used for forward-only comparison
+- Added `status_after_approval(field: &str) -> Option<Status>` — maps approval field names to the next board status (research→Design, spec→Plan, plan→Build, verify→Done)
+- Added 3 unit tests covering the mappings, ordering, and forward-only logic
 
-### Files Modified
-1. **`crates/flowstate-runner/src/config.rs`** — Added 3 new CLI flags with validation:
-   - `--max-concurrent` (env: `FLOWSTATE_MAX_CONCURRENT`, default: 5) — total parallel runs
-   - `--max-builds` (env: `FLOWSTATE_MAX_BUILDS`, default: 1) — concurrent build limit
-   - `--shutdown-timeout` (env: `FLOWSTATE_SHUTDOWN_TIMEOUT`, default: 120s) — graceful shutdown grace period
-   - Added `validate()` method ensuring `max_builds <= max_concurrent` and both >= 1
-   - Added `is_build_action()` helper
+### `crates/flowstate-server/src/routes/tasks.rs`
+- Added `use flowstate_core::task` module import
+- Added `get_task` call at the start of `update_task` to fetch current task state
+- Added auto-advance logic after existing hash computation: when an approval field is set to `Approved`, the task's board status is automatically advanced to the next phase, with three guards:
+  - `input.status.is_none()` — respects explicit status overrides
+  - `current_task.status != Status::Cancelled` — never auto-advances cancelled tasks
+  - `next.ordinal() > current_task.status.ordinal()` — forward-only, never moves backward
 
-2. **`crates/flowstate-runner/src/main.rs`** — Complete rewrite of the poll loop:
-   - **Concurrent execution** via `tokio::task::JoinSet` — spawns runs as independent async tasks
-   - **Two-semaphore model** — `total_semaphore` (max_concurrent permits) + `build_semaphore` (max_builds permits) ensures builds are serialized while light actions run in parallel
-   - **Claim-then-requeue** — when a Build is claimed but no build capacity, re-queues via status update and breaks the claim loop
-   - **Graceful shutdown** — SIGINT/SIGTERM sets an `AtomicBool` flag, stops claiming, drains JoinSet with configurable timeout, then force-aborts
-   - **Enhanced health endpoint** — returns capacity info (max/active/available) and per-run metadata (run_id, task_id, action, elapsed_seconds) via Axum state
-   - **Structured logging** — each spawned task wrapped in `tracing::info_span!` with run_id, task_id, action fields
-   - **Salvage under build lock** — timed-out builds run salvage within the same task holding the build semaphore permit
+### `crates/flowstate-tui/src/app.rs`
+- Enhanced `handle_approval_pick` approve branch to show "research approved — moved to Design" (etc.) when auto-advance occurs, by comparing pre-update and post-update task status
 
-3. **`crates/flowstate-runner/src/lib.rs`** — Added `pub mod run_tracker;`
-
-### Files Created
-4. **`crates/flowstate-runner/src/run_tracker.rs`** — Shared state types:
-   - `RunTracker` — HashMap-backed tracker with insert/remove/snapshot methods
-   - `ActiveRun` — in-progress run metadata (run_id, task_id, action, started_at)
-   - `ActiveRunSnapshot` — serializable snapshot for health endpoint
-   - `RunResult` / `RunOutcome` — return types from spawned tasks
-
-5. **`docs/CONFIGURATION.md`** — Complete configuration reference documenting all 12 runner variables with examples for sequential, moderate, and high-throughput deployments
-
-### Files NOT Modified (confirmed safe)
-- `executor.rs`, `pipeline.rs`, `salvage.rs`, `process.rs`, `workspace.rs`, `preflight.rs`, `Cargo.toml` — all already concurrent-safe per the spec analysis
-
-### Validation Results
+### Validation
 - `cargo build --workspace` — clean
-- `cargo clippy --workspace -- -D warnings` — zero warnings
-- `cargo test --workspace` — all 57 tests pass
-- CLI `--help` shows correct new flags with defaults
-- Config validation correctly rejects invalid combinations
+- `cargo test --workspace` — 69 tests pass (including 3 new)
+- `cargo clippy --workspace -- -D warnings` — no warnings

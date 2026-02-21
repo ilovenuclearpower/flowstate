@@ -1302,7 +1302,12 @@ impl App {
                 match self.service.update_task(&task.id, &update) {
                     Ok(updated) => {
                         self.refresh();
-                        self.status_message = Some(format!("{field} approved"));
+                        let msg = if updated.status != task.status {
+                            format!("{field} approved — moved to {}", updated.status.display_name())
+                        } else {
+                            format!("{field} approved")
+                        };
+                        self.status_message = Some(msg);
                         self.mode = Mode::TaskDetail { task: updated };
                     }
                     Err(e) => {

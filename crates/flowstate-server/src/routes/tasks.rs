@@ -7,7 +7,7 @@ use axum::{
     Json, Router,
 };
 use bytes::Bytes;
-use flowstate_core::task::{ApprovalStatus, CreateTask, Priority, Status, TaskFilter, UpdateTask};
+use flowstate_core::task::{self, ApprovalStatus, CreateTask, Priority, Status, TaskFilter, UpdateTask};
 use flowstate_service::TaskService;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -81,6 +81,9 @@ async fn update_task(
     Path(id): Path<String>,
     Json(mut input): Json<UpdateTask>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Fetch current task for status comparison and hash logic
+    let current_task = state.service.get_task(&id).await.map_err(to_error)?;
+
     // On spec approval, compute and store the spec content hash
     if input.spec_status == Some(ApprovalStatus::Approved) {
         let key = flowstate_store::task_spec_key(&id);
@@ -97,6 +100,28 @@ async fn update_task(
             input.research_approved_hash = Some(sha256_hex(&content));
         }
     }
+
+    // Auto-advance board status on approval (forward-only, skip Cancelled)
+    if input.status.is_none() && current_task.status != Status::Cancelled {
+        let target = if input.research_status == Some(ApprovalStatus::Approved) {
+            task::status_after_approval("research")
+        } else if input.spec_status == Some(ApprovalStatus::Approved) {
+            task::status_after_approval("spec")
+        } else if input.plan_status == Some(ApprovalStatus::Approved) {
+            task::status_after_approval("plan")
+        } else if input.verify_status == Some(ApprovalStatus::Approved) {
+            task::status_after_approval("verify")
+        } else {
+            None
+        };
+
+        if let Some(next) = target {
+            if next.ordinal() > current_task.status.ordinal() {
+                input.status = Some(next);
+            }
+        }
+    }
+
     state.service.update_task(&id, &input).await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
