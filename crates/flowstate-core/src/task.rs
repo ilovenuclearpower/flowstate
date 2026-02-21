@@ -71,6 +71,21 @@ impl Status {
         }
     }
 
+    /// Returns a numeric ordering index for workflow phases.
+    /// Used to enforce forward-only auto-advance.
+    pub fn ordinal(&self) -> u8 {
+        match self {
+            Status::Todo => 0,
+            Status::Research => 1,
+            Status::Design => 2,
+            Status::Plan => 3,
+            Status::Build => 4,
+            Status::Verify => 5,
+            Status::Done => 6,
+            Status::Cancelled => 7,
+        }
+    }
+
     pub fn parse_str(s: &str) -> Option<Self> {
         match s {
             "todo" => Some(Status::Todo),
@@ -298,5 +313,50 @@ pub fn prev_subtask_status(s: Status) -> Option<Status> {
         Status::Verify => Some(Status::Build),
         Status::Done => Some(Status::Verify),
         _ => None,
+    }
+}
+
+/// Returns the board status a task should advance to when the given
+/// approval field is approved.
+pub fn status_after_approval(field: &str) -> Option<Status> {
+    match field {
+        "research" => Some(Status::Design),
+        "spec" => Some(Status::Plan),
+        "plan" => Some(Status::Build),
+        "verify" => Some(Status::Done),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_status_after_approval() {
+        assert_eq!(status_after_approval("research"), Some(Status::Design));
+        assert_eq!(status_after_approval("spec"), Some(Status::Plan));
+        assert_eq!(status_after_approval("plan"), Some(Status::Build));
+        assert_eq!(status_after_approval("verify"), Some(Status::Done));
+        assert_eq!(status_after_approval("unknown"), None);
+    }
+
+    #[test]
+    fn test_status_ordinal_ordering() {
+        assert!(Status::Todo.ordinal() < Status::Research.ordinal());
+        assert!(Status::Research.ordinal() < Status::Design.ordinal());
+        assert!(Status::Design.ordinal() < Status::Plan.ordinal());
+        assert!(Status::Plan.ordinal() < Status::Build.ordinal());
+        assert!(Status::Build.ordinal() < Status::Verify.ordinal());
+        assert!(Status::Verify.ordinal() < Status::Done.ordinal());
+    }
+
+    #[test]
+    fn test_forward_only_logic() {
+        // Simulates: task is in Build, research approved → target is Design
+        // Design.ordinal() < Build.ordinal() → no advance
+        let current = Status::Build;
+        let target = status_after_approval("research").unwrap();
+        assert!(target.ordinal() <= current.ordinal());
     }
 }
