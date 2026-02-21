@@ -6,7 +6,7 @@ pub mod plan;
 pub mod research;
 pub mod verify;
 
-pub use context::{ChildTaskInfo, PromptContext};
+pub use context::{ChildTaskInfo, ParentContext, PromptContext};
 use flowstate_core::claude_run::ClaudeAction;
 
 /// Assemble the full prompt for a given action and context.

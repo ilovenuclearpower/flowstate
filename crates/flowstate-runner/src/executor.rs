@@ -386,6 +386,7 @@ async fn build_prompt_context(
         verification_content,
         distill_feedback,
         child_tasks,
+        parent_context: None,
     }
 }
 

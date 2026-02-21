@@ -8,6 +8,15 @@ pub struct ChildTaskInfo {
     pub status: String,
 }
 
+/// Context from a parent task, injected into subtask prompts.
+#[derive(Debug, Clone)]
+pub struct ParentContext {
+    pub title: String,
+    pub description: String,
+    pub spec_content: Option<String>,
+    pub plan_content: Option<String>,
+}
+
 /// All the context needed to assemble a prompt for any action.
 #[derive(Debug, Clone)]
 pub struct PromptContext {
@@ -21,6 +30,7 @@ pub struct PromptContext {
     pub verification_content: Option<String>,
     pub distill_feedback: Option<String>,
     pub child_tasks: Vec<ChildTaskInfo>,
+    pub parent_context: Option<ParentContext>,
 }
 
 impl PromptContext {
@@ -29,6 +39,21 @@ impl PromptContext {
         prompt.push_str(&format!("# Project: {}\n\n", self.project_name));
         if !self.repo_url.is_empty() {
             prompt.push_str(&format!("Repository: {}\n\n", self.repo_url));
+        }
+
+        if let Some(ref parent) = self.parent_context {
+            prompt.push_str(&format!("# Parent Task: {}\n\n", parent.title));
+            prompt.push_str(&format!("{}\n\n", parent.description));
+            if let Some(ref spec) = parent.spec_content {
+                prompt.push_str("## Parent Specification\n\n");
+                prompt.push_str(spec);
+                prompt.push_str("\n\n");
+            }
+            if let Some(ref plan) = parent.plan_content {
+                prompt.push_str("## Parent Plan\n\n");
+                prompt.push_str(plan);
+                prompt.push_str("\n\n");
+            }
         }
 
         prompt.push_str(&format!("# Task: {}\n\n", self.task_title));

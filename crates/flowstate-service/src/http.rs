@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
+use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
@@ -479,6 +480,31 @@ impl TaskService for HttpService {
     async fn list_child_tasks(&self, parent_id: &str) -> Result<Vec<Task>, ServiceError> {
         self.get_json(&format!("/api/tasks/{parent_id}/children"))
             .await
+    }
+
+    async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, ServiceError> {
+        self.post_json("/api/sprints", input).await
+    }
+
+    async fn get_sprint(&self, id: &str) -> Result<Sprint, ServiceError> {
+        self.get_json(&format!("/api/sprints/{id}")).await
+    }
+
+    async fn list_sprints(&self, project_id: &str) -> Result<Vec<Sprint>, ServiceError> {
+        self.get_json(&format!("/api/sprints?project_id={project_id}"))
+            .await
+    }
+
+    async fn update_sprint(
+        &self,
+        id: &str,
+        update: &UpdateSprint,
+    ) -> Result<Sprint, ServiceError> {
+        self.put_json(&format!("/api/sprints/{id}"), update).await
+    }
+
+    async fn delete_sprint(&self, id: &str) -> Result<(), ServiceError> {
+        self.delete_req(&format!("/api/sprints/{id}")).await
     }
 
     async fn create_task_link(&self, input: &CreateTaskLink) -> Result<TaskLink, ServiceError> {

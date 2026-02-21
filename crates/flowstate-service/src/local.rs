@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
+use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
@@ -89,6 +90,30 @@ impl TaskService for LocalService {
 
     async fn list_child_tasks(&self, parent_id: &str) -> Result<Vec<Task>, ServiceError> {
         Ok(self.db.list_child_tasks(parent_id).await?)
+    }
+
+    async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, ServiceError> {
+        Ok(self.db.create_sprint(input).await?)
+    }
+
+    async fn get_sprint(&self, id: &str) -> Result<Sprint, ServiceError> {
+        Ok(self.db.get_sprint(id).await?)
+    }
+
+    async fn list_sprints(&self, project_id: &str) -> Result<Vec<Sprint>, ServiceError> {
+        Ok(self.db.list_sprints(project_id).await?)
+    }
+
+    async fn update_sprint(
+        &self,
+        id: &str,
+        update: &UpdateSprint,
+    ) -> Result<Sprint, ServiceError> {
+        Ok(self.db.update_sprint(id, update).await?)
+    }
+
+    async fn delete_sprint(&self, id: &str) -> Result<(), ServiceError> {
+        Ok(self.db.delete_sprint(id).await?)
     }
 
     async fn create_task_link(&self, input: &CreateTaskLink) -> Result<TaskLink, ServiceError> {

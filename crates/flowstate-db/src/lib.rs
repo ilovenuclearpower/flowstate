@@ -15,6 +15,7 @@ use flowstate_core::api_key::ApiKey;
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
+use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
@@ -84,6 +85,13 @@ pub trait Database: Send + Sync {
         error_message: &str,
     ) -> Result<Option<ClaudeRun>, DbError>;
     async fn set_claude_run_runner(&self, id: &str, runner_id: &str) -> Result<(), DbError>;
+
+    // -- Sprints (5 methods) --
+    async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, DbError>;
+    async fn get_sprint(&self, id: &str) -> Result<Sprint, DbError>;
+    async fn list_sprints(&self, project_id: &str) -> Result<Vec<Sprint>, DbError>;
+    async fn update_sprint(&self, id: &str, update: &UpdateSprint) -> Result<Sprint, DbError>;
+    async fn delete_sprint(&self, id: &str) -> Result<(), DbError>;
 
     // -- Task Links (3 methods) --
     async fn create_task_link(&self, input: &CreateTaskLink) -> Result<TaskLink, DbError>;

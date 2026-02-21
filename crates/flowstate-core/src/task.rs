@@ -38,6 +38,13 @@ impl Status {
         Status::Done,
     ];
 
+    pub const SUBTASK_BOARD_COLUMNS: &[Status] = &[
+        Status::Todo,
+        Status::Build,
+        Status::Verify,
+        Status::Done,
+    ];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             Status::Todo => "todo",
@@ -265,4 +272,31 @@ pub struct TaskFilter {
     pub sprint_id: Option<String>,
     pub parent_id: Option<Option<String>>,
     pub limit: Option<i64>,
+}
+
+impl Task {
+    /// Returns true if this task is a subtask (has a parent).
+    pub fn is_subtask(&self) -> bool {
+        self.parent_id.is_some()
+    }
+}
+
+/// Next status for a subtask (skips Research/Design/Plan).
+pub fn next_subtask_status(s: Status) -> Option<Status> {
+    match s {
+        Status::Todo => Some(Status::Build),
+        Status::Build => Some(Status::Verify),
+        Status::Verify => Some(Status::Done),
+        _ => None,
+    }
+}
+
+/// Previous status for a subtask (skips Research/Design/Plan).
+pub fn prev_subtask_status(s: Status) -> Option<Status> {
+    match s {
+        Status::Build => Some(Status::Todo),
+        Status::Verify => Some(Status::Build),
+        Status::Done => Some(Status::Verify),
+        _ => None,
+    }
 }

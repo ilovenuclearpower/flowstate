@@ -1,6 +1,7 @@
 pub mod claude_runs;
 pub mod health;
 pub mod projects;
+pub mod sprints;
 pub mod task_links;
 pub mod task_prs;
 pub mod tasks;
@@ -54,6 +55,7 @@ pub fn build_router(
     let protected = Router::new()
         .merge(projects::routes())
         .merge(tasks::routes())
+        .merge(sprints::routes())
         .merge(task_links::routes())
         .merge(task_prs::routes())
         .merge(claude_runs::routes())

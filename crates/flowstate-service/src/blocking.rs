@@ -1,6 +1,7 @@
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
+use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
@@ -96,6 +97,30 @@ impl BlockingHttpService {
 
     pub fn list_child_tasks(&self, parent_id: &str) -> Result<Vec<Task>, ServiceError> {
         self.rt.block_on(self.inner.list_child_tasks(parent_id))
+    }
+
+    pub fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, ServiceError> {
+        self.rt.block_on(self.inner.create_sprint(input))
+    }
+
+    pub fn get_sprint(&self, id: &str) -> Result<Sprint, ServiceError> {
+        self.rt.block_on(self.inner.get_sprint(id))
+    }
+
+    pub fn list_sprints(&self, project_id: &str) -> Result<Vec<Sprint>, ServiceError> {
+        self.rt.block_on(self.inner.list_sprints(project_id))
+    }
+
+    pub fn update_sprint(
+        &self,
+        id: &str,
+        update: &UpdateSprint,
+    ) -> Result<Sprint, ServiceError> {
+        self.rt.block_on(self.inner.update_sprint(id, update))
+    }
+
+    pub fn delete_sprint(&self, id: &str) -> Result<(), ServiceError> {
+        self.rt.block_on(self.inner.delete_sprint(id))
     }
 
     pub fn create_task_link(&self, input: &CreateTaskLink) -> Result<TaskLink, ServiceError> {

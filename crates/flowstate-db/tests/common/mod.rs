@@ -5,6 +5,7 @@
 
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, UpdateProject};
+use flowstate_core::sprint::{CreateSprint, UpdateSprint, SprintStatus};
 use flowstate_core::task::{CreateTask, Priority, Status, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, LinkType};
 use flowstate_core::task_pr::CreateTaskPr;
@@ -790,4 +791,156 @@ pub async fn test_api_keys(db: &dyn Database) {
 
     // delete non-existent should error
     assert!(db.delete_api_key(&key.id).await.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Sprint tests
+// ---------------------------------------------------------------------------
+
+/// Test sprint CRUD: create, get, list, update, delete.
+pub async fn test_sprint_crud(db: &dyn Database) {
+    let project = db.create_project(&make_project("sprint-crud")).await.unwrap();
+
+    // Create
+    let sprint = db
+        .create_sprint(&CreateSprint {
+            project_id: project.id.clone(),
+            name: "Sprint 1".into(),
+            goal: "Ship MVP".into(),
+            starts_at: None,
+            ends_at: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(sprint.name, "Sprint 1");
+    assert_eq!(sprint.goal, "Ship MVP");
+    assert_eq!(sprint.status, SprintStatus::Planned);
+    assert_eq!(sprint.project_id, project.id);
+
+    // Get by id
+    let fetched = db.get_sprint(&sprint.id).await.unwrap();
+    assert_eq!(fetched.id, sprint.id);
+    assert_eq!(fetched.name, "Sprint 1");
+
+    // List
+    let sprints = db.list_sprints(&project.id).await.unwrap();
+    assert_eq!(sprints.len(), 1);
+
+    // Create another
+    db.create_sprint(&CreateSprint {
+        project_id: project.id.clone(),
+        name: "Sprint 2".into(),
+        goal: String::new(),
+        starts_at: None,
+        ends_at: None,
+    })
+    .await
+    .unwrap();
+    let sprints = db.list_sprints(&project.id).await.unwrap();
+    assert_eq!(sprints.len(), 2);
+
+    // Update
+    let updated = db
+        .update_sprint(
+            &sprint.id,
+            &UpdateSprint {
+                name: Some("Sprint 1 (renamed)".into()),
+                status: Some(SprintStatus::Active),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.name, "Sprint 1 (renamed)");
+    assert_eq!(updated.status, SprintStatus::Active);
+    assert_eq!(updated.goal, "Ship MVP"); // unchanged
+
+    // Delete
+    db.delete_sprint(&sprint.id).await.unwrap();
+    let sprints = db.list_sprints(&project.id).await.unwrap();
+    assert_eq!(sprints.len(), 1);
+
+    // Get non-existent should error
+    assert!(db.get_sprint(&sprint.id).await.is_err());
+}
+
+// ---------------------------------------------------------------------------
+// Subtask workflow tests
+// ---------------------------------------------------------------------------
+
+/// Test subtask creation with parent context and sprint assignment via tasks.
+pub async fn test_subtask_workflow(db: &dyn Database) {
+    let project = db.create_project(&make_project("subtask-wf")).await.unwrap();
+
+    // Create a sprint and a parent task assigned to it
+    let sprint = db
+        .create_sprint(&CreateSprint {
+            project_id: project.id.clone(),
+            name: "Sprint A".into(),
+            goal: String::new(),
+            starts_at: None,
+            ends_at: None,
+        })
+        .await
+        .unwrap();
+
+    let parent = db
+        .create_task(&CreateTask {
+            project_id: project.id.clone(),
+            title: "Parent Feature".into(),
+            description: "Big feature".into(),
+            status: Status::Build,
+            priority: Priority::High,
+            parent_id: None,
+            reviewer: String::new(),
+        })
+        .await
+        .unwrap();
+
+    // Assign parent to sprint
+    let parent = db
+        .update_task(
+            &parent.id,
+            &UpdateTask {
+                sprint_id: Some(Some(sprint.id.clone())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(parent.sprint_id.as_deref(), Some(sprint.id.as_str()));
+
+    // Create subtask inheriting project_id from parent
+    let subtask = db
+        .create_task(&CreateTask {
+            project_id: project.id.clone(),
+            title: "Subtask 1".into(),
+            description: String::new(),
+            status: Status::Todo,
+            priority: Priority::High,
+            parent_id: Some(parent.id.clone()),
+            reviewer: String::new(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(subtask.parent_id.as_deref(), Some(parent.id.as_str()));
+    assert!(subtask.is_subtask());
+    assert!(!parent.is_subtask());
+
+    // List children of parent
+    let children = db.list_child_tasks(&parent.id).await.unwrap();
+    assert_eq!(children.len(), 1);
+    assert_eq!(children[0].id, subtask.id);
+
+    // Filter tasks by sprint_id should return parent only (subtask not assigned to sprint)
+    let sprint_tasks = db
+        .list_tasks(&TaskFilter {
+            project_id: Some(project.id.clone()),
+            sprint_id: Some(sprint.id.clone()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(sprint_tasks.len(), 1);
+    assert_eq!(sprint_tasks[0].id, parent.id);
 }
