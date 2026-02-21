@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun};
 use flowstate_core::project::Project;
 use flowstate_core::task::Task;
-use flowstate_prompts::{ChildTaskInfo, PromptContext};
+use flowstate_prompts::{ChildTaskInfo, ParentContext, PromptContext};
 use flowstate_service::{HttpService, TaskService};
 use flowstate_verify::Runner as VerifyRunner;
 use tracing::{error, info};
@@ -26,11 +26,27 @@ pub async fn execute(
     kill_grace: Duration,
 ) -> Result<()> {
     // 1. Validate prerequisites
-    if task.spec_status != flowstate_core::task::ApprovalStatus::Approved {
-        bail!("spec must be approved before building");
-    }
-    if task.plan_status != flowstate_core::task::ApprovalStatus::Approved {
-        bail!("plan must be approved before building");
+    //    Subtasks inherit approvals from their parent task.
+    let is_subtask = task.is_subtask();
+    if is_subtask {
+        let parent_id = task.parent_id.as_deref().unwrap();
+        let parent = service
+            .get_task(parent_id)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to fetch parent task: {e}"))?;
+        if parent.spec_status != flowstate_core::task::ApprovalStatus::Approved {
+            bail!("parent spec must be approved before building subtask");
+        }
+        if parent.plan_status != flowstate_core::task::ApprovalStatus::Approved {
+            bail!("parent plan must be approved before building subtask");
+        }
+    } else {
+        if task.spec_status != flowstate_core::task::ApprovalStatus::Approved {
+            bail!("spec must be approved before building");
+        }
+        if task.plan_status != flowstate_core::task::ApprovalStatus::Approved {
+            bail!("plan must be approved before building");
+        }
     }
 
     // 2-3. Resolve repo provider and check auth
@@ -82,6 +98,22 @@ pub async fn execute(
         })
         .collect();
 
+    // For subtasks, fetch parent context (spec + plan) to provide broader scope
+    let parent_context = if is_subtask {
+        let parent_id = task.parent_id.as_deref().unwrap();
+        let parent = service.get_task(parent_id).await.ok();
+        let parent_spec = service.read_task_spec(parent_id).await.ok();
+        let parent_plan = service.read_task_plan(parent_id).await.ok();
+        parent.map(|p| ParentContext {
+            title: p.title,
+            description: p.description,
+            spec_content: parent_spec,
+            plan_content: parent_plan,
+        })
+    } else {
+        None
+    };
+
     let ctx = PromptContext {
         project_name: project.name.clone(),
         repo_url: project.repo_url.clone(),
@@ -93,6 +125,7 @@ pub async fn execute(
         verification_content: None,
         distill_feedback: None,
         child_tasks,
+        parent_context,
     };
 
     let prompt = flowstate_prompts::assemble_prompt(&ctx, ClaudeAction::Build);

@@ -10,6 +10,7 @@ use flowstate_core::api_key::ApiKey;
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
+use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
@@ -173,6 +174,23 @@ impl Database for PostgresDatabase {
         runner_id: &str,
     ) -> Result<(), DbError> {
         self.pg_set_claude_run_runner(id, runner_id).await
+    }
+
+    // -- Sprints --
+    async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, DbError> {
+        self.pg_create_sprint(input).await
+    }
+    async fn get_sprint(&self, id: &str) -> Result<Sprint, DbError> {
+        self.pg_get_sprint(id).await
+    }
+    async fn list_sprints(&self, project_id: &str) -> Result<Vec<Sprint>, DbError> {
+        self.pg_list_sprints(project_id).await
+    }
+    async fn update_sprint(&self, id: &str, update: &UpdateSprint) -> Result<Sprint, DbError> {
+        self.pg_update_sprint(id, update).await
+    }
+    async fn delete_sprint(&self, id: &str) -> Result<(), DbError> {
+        self.pg_delete_sprint(id).await
     }
 
     // -- Task Links --

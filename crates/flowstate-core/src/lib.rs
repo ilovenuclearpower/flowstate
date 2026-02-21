@@ -13,5 +13,5 @@ pub mod verification;
 
 pub use error::FlowstateError;
 pub use project::Project;
-pub use sprint::Sprint;
+pub use sprint::{CreateSprint, Sprint, SprintStatus, UpdateSprint};
 pub use task::{ApprovalStatus, Priority, Status, Task};

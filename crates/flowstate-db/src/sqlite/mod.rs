@@ -12,6 +12,7 @@ use flowstate_core::api_key::ApiKey;
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
+use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, TaskLink};
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
@@ -354,6 +355,44 @@ impl Database for SqliteDatabase {
         })
         .await
         .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+
+    // -- Sprints --
+    async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, DbError> {
+        let db = self.clone();
+        let input = input.clone();
+        tokio::task::spawn_blocking(move || db.create_sprint_sync(&input))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn get_sprint(&self, id: &str) -> Result<Sprint, DbError> {
+        let db = self.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || db.get_sprint_sync(&id))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn list_sprints(&self, project_id: &str) -> Result<Vec<Sprint>, DbError> {
+        let db = self.clone();
+        let project_id = project_id.to_string();
+        tokio::task::spawn_blocking(move || db.list_sprints_sync(&project_id))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn update_sprint(&self, id: &str, update: &UpdateSprint) -> Result<Sprint, DbError> {
+        let db = self.clone();
+        let id = id.to_string();
+        let update = update.clone();
+        tokio::task::spawn_blocking(move || db.update_sprint_sync(&id, &update))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn delete_sprint(&self, id: &str) -> Result<(), DbError> {
+        let db = self.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || db.delete_sprint_sync(&id))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
     }
 
     // -- Task Links --

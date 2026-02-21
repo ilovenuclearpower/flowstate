@@ -204,6 +204,7 @@ async fn build_prompt(db: &dyn Database, task: &Task, project: &Project, action:
         verification_content: None,
         distill_feedback: None,
         child_tasks,
+        parent_context: None,
     };
 
     flowstate_prompts::assemble_prompt(&ctx, action)

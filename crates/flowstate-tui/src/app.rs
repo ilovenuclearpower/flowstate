@@ -3,8 +3,10 @@ use std::path::PathBuf;
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use flowstate_core::project::{CreateProject, UpdateProject};
+use flowstate_core::sprint::{CreateSprint, Sprint};
 use flowstate_core::task::{
-    ApprovalStatus, CreateTask, Priority, Status, Task, TaskFilter, UpdateTask,
+    next_subtask_status, prev_subtask_status, ApprovalStatus, CreateTask, Priority, Status, Task,
+    TaskFilter, UpdateTask,
 };
 use flowstate_core::Project;
 use flowstate_service::BlockingHttpService;
@@ -87,6 +89,15 @@ pub enum Mode {
     Health {
         checks: Vec<HealthCheck>,
     },
+    /// Sprint list/picker
+    SprintList {
+        sprints: Vec<Sprint>,
+        list_state: ListState,
+    },
+    /// Creating a new sprint
+    NewSprint { input: String },
+    /// Creating a subtask
+    NewSubtask { parent: Task, input: String },
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +128,8 @@ pub struct App {
     /// Set by handle_key when the user wants to open $EDITOR.
     /// The event loop checks this and handles the editor subprocess.
     pub editor_request: Option<EditorRequest>,
+    /// Active sprint filter (if set, board shows only tasks in this sprint)
+    active_sprint: Option<Sprint>,
 }
 
 /// Request to open a file in $EDITOR, with context for what to do after.
@@ -140,7 +153,7 @@ impl App {
             })?,
         };
 
-        let board = Self::load_board(&service, &project.id)?;
+        let board = Self::load_board(&service, &project.id, None)?;
 
         Ok(Self {
             service,
@@ -149,15 +162,21 @@ impl App {
             mode: Mode::Normal,
             status_message: None,
             editor_request: None,
+            active_sprint: None,
         })
     }
 
-    fn load_board(service: &BlockingHttpService, project_id: &str) -> Result<TaskBoard> {
+    fn load_board(
+        service: &BlockingHttpService,
+        project_id: &str,
+        sprint_id: Option<String>,
+    ) -> Result<TaskBoard> {
         let mut columns: Vec<(Status, Vec<Task>)> = Vec::new();
         for &status in Status::BOARD_COLUMNS {
             let tasks = service.list_tasks(&TaskFilter {
                 project_id: Some(project_id.to_string()),
                 status: Some(status),
+                sprint_id: sprint_id.clone(),
                 ..Default::default()
             })?;
             columns.push((status, tasks));
@@ -166,7 +185,8 @@ impl App {
     }
 
     fn refresh(&mut self) {
-        if let Ok(board) = Self::load_board(&self.service, &self.project.id) {
+        let sprint_id = self.active_sprint.as_ref().map(|s| s.id.clone());
+        if let Ok(board) = Self::load_board(&self.service, &self.project.id, sprint_id) {
             self.board = board;
         }
     }
@@ -187,6 +207,8 @@ impl App {
                 | Mode::EditRepoUrl { .. }
                 | Mode::EditRepoToken { .. }
                 | Mode::FeedbackInput { .. }
+                | Mode::NewSprint { .. }
+                | Mode::NewSubtask { .. }
         )
     }
 
@@ -332,6 +354,14 @@ impl App {
             Mode::EditRepoToken { project_id, input } => {
                 self.handle_edit_repo_token(key, project_id.clone(), input.clone())
             }
+            Mode::SprintList {
+                sprints,
+                list_state,
+            } => self.handle_sprint_list(key, sprints.clone(), list_state.clone()),
+            Mode::NewSprint { input } => self.handle_new_sprint(key, input.clone()),
+            Mode::NewSubtask { parent, input } => {
+                self.handle_new_subtask(key, parent.clone(), input.clone())
+            }
         }
     }
 
@@ -351,7 +381,12 @@ impl App {
             }
             KeyCode::Char('m') => {
                 if let Some(task) = self.board.selected_task() {
-                    if let Some(next) = next_status(task.status) {
+                    let next = if task.is_subtask() {
+                        next_subtask_status(task.status)
+                    } else {
+                        next_status(task.status)
+                    };
+                    if let Some(next) = next {
                         let id = task.id.clone();
                         match self.service.update_task(
                             &id,
@@ -368,7 +403,12 @@ impl App {
             }
             KeyCode::Char('M') => {
                 if let Some(task) = self.board.selected_task() {
-                    if let Some(prev) = prev_status(task.status) {
+                    let prev = if task.is_subtask() {
+                        prev_subtask_status(task.status)
+                    } else {
+                        prev_status(task.status)
+                    };
+                    if let Some(prev) = prev {
                         let id = task.id.clone();
                         match self.service.update_task(
                             &id,
@@ -420,6 +460,31 @@ impl App {
             KeyCode::Char('H') => {
                 let checks = self.run_health_checks();
                 self.mode = Mode::Health { checks };
+            }
+            // Sprint list
+            KeyCode::Char('x') => {
+                if let Ok(sprints) = self.service.list_sprints(&self.project.id) {
+                    let mut list_state = ListState::default();
+                    if !sprints.is_empty() {
+                        // Select current active sprint if any
+                        let idx = self
+                            .active_sprint
+                            .as_ref()
+                            .and_then(|active| sprints.iter().position(|s| s.id == active.id))
+                            .unwrap_or(0);
+                        list_state.select(Some(idx));
+                    }
+                    self.mode = Mode::SprintList {
+                        sprints,
+                        list_state,
+                    };
+                }
+            }
+            // Clear active sprint filter
+            KeyCode::Char('X') => {
+                self.active_sprint = None;
+                self.refresh();
+                self.status_message = Some("Sprint filter cleared".into());
             }
             _ => self.board.handle_key(key),
         }
@@ -477,6 +542,12 @@ impl App {
                     input: task.description.clone(),
                 };
             }
+            KeyCode::Char('n') => {
+                self.mode = Mode::NewSubtask {
+                    parent: task,
+                    input: String::new(),
+                };
+            }
             KeyCode::Char('p') => {
                 self.mode = Mode::PriorityPick {
                     task_id: task.id.clone(),
@@ -484,7 +555,12 @@ impl App {
                 };
             }
             KeyCode::Char('m') => {
-                if let Some(next) = next_status(task.status) {
+                let next = if task.is_subtask() {
+                    next_subtask_status(task.status)
+                } else {
+                    next_status(task.status)
+                };
+                if let Some(next) = next {
                     match self.service.update_task(
                         &task.id,
                         &UpdateTask {
@@ -939,6 +1015,24 @@ impl App {
     }
 
     fn handle_claude_action_pick(&mut self, key: KeyEvent, task: Task) {
+        // Subtasks only support build and verify actions
+        if task.is_subtask() {
+            match key.code {
+                KeyCode::Char('b') | KeyCode::Char('v') => {
+                    // Fall through to main match below
+                }
+                KeyCode::Esc => {
+                    self.mode = Mode::TaskDetail { task };
+                    return;
+                }
+                _ => {
+                    self.status_message =
+                        Some("Subtasks only support Build and Verify".into());
+                    self.mode = Mode::TaskDetail { task };
+                    return;
+                }
+            }
+        }
         match key.code {
             KeyCode::Char('r') => {
                 match self.service.trigger_claude_run(&task.id, "research") {
@@ -1469,6 +1563,151 @@ impl App {
         checks
     }
 
+    fn handle_sprint_list(
+        &mut self,
+        key: KeyEvent,
+        sprints: Vec<Sprint>,
+        mut list_state: ListState,
+    ) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.mode = Mode::Normal,
+            KeyCode::Char('j') | KeyCode::Down => {
+                let i = list_state.selected().unwrap_or(0);
+                if i + 1 < sprints.len() {
+                    list_state.select(Some(i + 1));
+                }
+                self.mode = Mode::SprintList {
+                    sprints,
+                    list_state,
+                };
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                let i = list_state.selected().unwrap_or(0);
+                if i > 0 {
+                    list_state.select(Some(i - 1));
+                }
+                self.mode = Mode::SprintList {
+                    sprints,
+                    list_state,
+                };
+            }
+            KeyCode::Enter => {
+                if let Some(idx) = list_state.selected() {
+                    if let Some(sprint) = sprints.get(idx) {
+                        let name = sprint.name.clone();
+                        self.active_sprint = Some(sprint.clone());
+                        self.refresh();
+                        self.status_message = Some(format!("Sprint: {name}"));
+                        self.mode = Mode::Normal;
+                    }
+                }
+            }
+            KeyCode::Char('n') => {
+                self.mode = Mode::NewSprint {
+                    input: String::new(),
+                };
+            }
+            KeyCode::Char('d') => {
+                if let Some(idx) = list_state.selected() {
+                    if let Some(sprint) = sprints.get(idx) {
+                        let name = sprint.name.clone();
+                        let id = sprint.id.clone();
+                        // If deleting the active sprint, clear the filter
+                        if self.active_sprint.as_ref().map(|s| &s.id) == Some(&id) {
+                            self.active_sprint = None;
+                        }
+                        match self.service.delete_sprint(&id) {
+                            Ok(()) => {
+                                self.refresh();
+                                self.status_message = Some(format!("Deleted sprint: {name}"));
+                            }
+                            Err(e) => {
+                                self.status_message = Some(format!("Error: {e}"));
+                            }
+                        }
+                        self.mode = Mode::Normal;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_new_sprint(&mut self, key: KeyEvent, mut input: String) {
+        match key.code {
+            KeyCode::Enter => {
+                let name = input.trim().to_string();
+                if !name.is_empty() {
+                    match self.service.create_sprint(&CreateSprint {
+                        project_id: self.project.id.clone(),
+                        name: name.clone(),
+                        goal: String::new(),
+                        starts_at: None,
+                        ends_at: None,
+                    }) {
+                        Ok(_) => {
+                            self.status_message = Some(format!("Sprint created: {name}"));
+                        }
+                        Err(e) => self.status_message = Some(format!("Error: {e}")),
+                    }
+                }
+                self.mode = Mode::Normal;
+            }
+            KeyCode::Esc => self.mode = Mode::Normal,
+            KeyCode::Backspace => {
+                input.pop();
+                self.mode = Mode::NewSprint { input };
+            }
+            KeyCode::Char(c) => {
+                input.push(c);
+                self.mode = Mode::NewSprint { input };
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_new_subtask(&mut self, key: KeyEvent, parent: Task, mut input: String) {
+        match key.code {
+            KeyCode::Enter => {
+                let title = input.trim().to_string();
+                if !title.is_empty() {
+                    match self.service.create_task(&CreateTask {
+                        project_id: parent.project_id.clone(),
+                        title,
+                        description: String::new(),
+                        status: Status::Todo,
+                        priority: parent.priority,
+                        parent_id: Some(parent.id.clone()),
+                        reviewer: String::new(),
+                    }) {
+                        Ok(_) => {
+                            self.refresh();
+                            self.status_message = Some("Subtask created".into());
+                        }
+                        Err(e) => self.status_message = Some(format!("Error: {e}")),
+                    }
+                }
+                // Return to task detail with refreshed data
+                match self.service.get_task(&parent.id) {
+                    Ok(t) => self.mode = Mode::TaskDetail { task: t },
+                    Err(_) => self.mode = Mode::TaskDetail { task: parent },
+                }
+            }
+            KeyCode::Esc => {
+                self.mode = Mode::TaskDetail { task: parent };
+            }
+            KeyCode::Backspace => {
+                input.pop();
+                self.mode = Mode::NewSubtask { parent, input };
+            }
+            KeyCode::Char(c) => {
+                input.push(c);
+                self.mode = Mode::NewSubtask { parent, input };
+            }
+            _ => {}
+        }
+    }
+
     fn handle_edit_repo_url(&mut self, key: KeyEvent, project_id: String, mut input: String) {
         match key.code {
             KeyCode::Enter => {
@@ -1619,17 +1858,35 @@ impl App {
                 let masked: String = "*".repeat(input.len());
                 self.render_input_bar(frame, "Repo Token (PAT): ", &masked, area)
             }
+            Mode::SprintList {
+                sprints,
+                list_state,
+            } => self.render_sprint_list(frame, sprints, list_state, area),
+            Mode::NewSprint { input } => {
+                self.render_input_bar(frame, "New sprint: ", input, area)
+            }
+            Mode::NewSubtask { input, .. } => {
+                self.render_input_bar(frame, "New subtask: ", input, area)
+            }
         }
     }
 
     fn render_title_bar(&self, frame: &mut Frame, area: Rect) {
         let slug_display = format!(" ({})", self.project.slug);
-        let title = Line::from(vec![
+        let mut spans = vec![
             Span::styled(" flowstate ", Style::default().bold().fg(Color::Cyan)),
             Span::raw("| "),
             Span::styled(&self.project.name, Style::default().fg(Color::Yellow)),
             Span::styled(slug_display, Style::default().fg(Color::DarkGray)),
-        ]);
+        ];
+        if let Some(ref sprint) = self.active_sprint {
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(
+                format!("Sprint: {}", sprint.name),
+                Style::default().fg(Color::Magenta),
+            ));
+        }
+        let title = Line::from(spans);
         frame.render_widget(title, area);
     }
 
@@ -1654,12 +1911,15 @@ impl App {
                 ("d", "del"),
                 ("p", "priority"),
                 ("P", "projects"),
+                ("x", "sprints"),
+                ("X", "clear sprint"),
                 ("H", "health"),
             ],
             Mode::NewTask { .. } => vec![("Enter", "create"), ("Esc", "cancel")],
             Mode::TaskDetail { .. } => vec![
                 ("t", "title"),
                 ("e", "desc"),
+                ("n", "subtask"),
                 ("p", "priority"),
                 ("m", "move"),
                 ("d", "del"),
@@ -1718,6 +1978,15 @@ impl App {
                 vec![("Enter", "save"), ("Esc", "cancel")]
             }
             Mode::Health { .. } => vec![("r", "refresh"), ("Esc", "back")],
+            Mode::SprintList { .. } => vec![
+                ("j/k", "nav"),
+                ("Enter", "select"),
+                ("n", "new"),
+                ("d", "del"),
+                ("Esc", "back"),
+            ],
+            Mode::NewSprint { .. } => vec![("Enter", "create"), ("Esc", "cancel")],
+            Mode::NewSubtask { .. } => vec![("Enter", "create"), ("Esc", "cancel")],
         };
 
         let spans: Vec<Span> = hints
@@ -1820,6 +2089,16 @@ impl App {
             ]));
         }
 
+        // Show parent info if this is a subtask
+        if let Some(ref parent_id) = task.parent_id {
+            if let Ok(parent) = self.service.get_task(parent_id) {
+                lines.push(Line::from(vec![
+                    Span::styled("Parent: ", Style::default().bold()),
+                    Span::styled(parent.title.clone(), Style::default().fg(Color::Cyan)),
+                ]));
+            }
+        }
+
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("Description:", Style::default().bold())));
         lines.push(Line::from(if task.description.is_empty() {
@@ -1827,6 +2106,27 @@ impl App {
         } else {
             &task.description
         }));
+
+        // Show children (subtasks) if any
+        if let Ok(children) = self.service.list_child_tasks(&task.id) {
+            if !children.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    format!("Subtasks ({}):", children.len()),
+                    Style::default().bold(),
+                )));
+                for child in &children {
+                    lines.push(Line::from(vec![
+                        Span::styled("  - ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("[{}] ", child.status.display_name()),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                        Span::raw(child.title.clone()),
+                    ]));
+                }
+            }
+        }
 
         let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
         frame.render_widget(paragraph, inner);
@@ -1937,6 +2237,55 @@ impl App {
                         Style::default().fg(Color::Blue),
                     ));
                 }
+                ListItem::new(Line::from(spans))
+            })
+            .collect();
+
+        let list = List::new(items)
+            .block(block)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Magenta)
+                    .bold(),
+            )
+            .highlight_symbol("> ");
+
+        let mut state = list_state.clone();
+        frame.render_stateful_widget(list, popup, &mut state);
+    }
+
+    fn render_sprint_list(
+        &self,
+        frame: &mut Frame,
+        sprints: &[Sprint],
+        list_state: &ListState,
+        area: Rect,
+    ) {
+        let popup = centered_rect(50, 50, area);
+        frame.render_widget(Clear, popup);
+
+        let block = Block::default()
+            .title(" Sprints ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Magenta));
+
+        let items: Vec<ListItem> = sprints
+            .iter()
+            .map(|s| {
+                let marker = if self.active_sprint.as_ref().map(|a| &a.id) == Some(&s.id) {
+                    "* "
+                } else {
+                    "  "
+                };
+                let spans = vec![
+                    Span::styled(marker, Style::default().fg(Color::Cyan)),
+                    Span::styled(&s.name, Style::default().bold()),
+                    Span::styled(
+                        format!(" ({})", s.status),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ];
                 ListItem::new(Line::from(spans))
             })
             .collect();
