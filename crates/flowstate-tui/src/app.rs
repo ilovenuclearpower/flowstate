@@ -185,9 +185,13 @@ impl App {
     }
 
     fn refresh(&mut self) {
+        let selected_id = self.board.selected_task().map(|t| t.id.clone());
         let sprint_id = self.active_sprint.as_ref().map(|s| s.id.clone());
         if let Ok(board) = Self::load_board(&self.service, &self.project.id, sprint_id) {
             self.board = board;
+            if let Some(id) = selected_id {
+                self.board.select_task_by_id(&id);
+            }
         }
     }
 

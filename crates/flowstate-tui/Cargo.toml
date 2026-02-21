@@ -16,3 +16,6 @@ ratatui = { workspace = true }
 crossterm = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+chrono = { workspace = true }

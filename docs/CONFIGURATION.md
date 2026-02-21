@@ -111,6 +111,23 @@ export FLOWSTATE_SHUTDOWN_TIMEOUT=180
 flowstate-runner
 ```
 
+## TUI Configuration
+
+The `flowstate` TUI binary accepts the following options:
+
+| Flag | Env Var | Default | Description |
+|------|---------|---------|-------------|
+| `--server` | *(none)* | `http://127.0.0.1:3710` | URL of the Flowstate server. If omitted, the TUI auto-spawns a local `flowstate-server` process. |
+| `--api-key` | `FLOWSTATE_API_KEY` | *(none)* | API key for authenticating with the server. Shared with the runner. |
+
+When no `--server` flag is provided, the TUI:
+1. Looks for a `flowstate-server` binary next to its own executable, then falls back to `PATH`.
+2. Spawns the server on `127.0.0.1:3710`.
+3. Waits up to 10 seconds for the server to become ready.
+4. Terminates the server on exit.
+
+See [docs/tui.md](tui.md) for the full keymap reference and mode documentation.
+
 ## Resource Planning
 
 When running with concurrency > 1, consider:
