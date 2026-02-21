@@ -187,8 +187,9 @@ pub async fn attempt_salvage(
         };
     }
 
-    // Resolve provider and push
-    let provider = match repo_provider::provider_for_url(&project.repo_url) {
+    // Resolve provider and push (with PAT for gh CLI auth)
+    let token = service.get_repo_token(&project.id).await.ok();
+    let provider = match repo_provider::provider_for_url(&project.repo_url, token) {
         Ok(p) => p,
         Err(e) => {
             error!("salvage: unsupported repo provider: {e}");
