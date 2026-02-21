@@ -27,5 +27,12 @@ pub async fn run(pool: &PgPool) -> Result<(), DbError> {
             .map_err(|e| DbError::Internal(e.to_string()))?;
     }
 
+    if current < 2 {
+        sqlx::query(include_str!("sql/V2__add_required_capability.sql"))
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?;
+    }
+
     Ok(())
 }

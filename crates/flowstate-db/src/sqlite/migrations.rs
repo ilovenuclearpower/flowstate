@@ -578,5 +578,24 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         .to_db()?;
     }
 
+    if current_version < 10 {
+        // v10: Add required_capability column to claude_runs for capability-based routing.
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if !has_column("claude_runs", "required_capability") {
+            conn.execute_batch(
+                "ALTER TABLE claude_runs ADD COLUMN required_capability TEXT;",
+            )
+            .to_db()?;
+        }
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (10, datetime('now'))",
+            [],
+        )
+        .to_db()?;
+    }
+
     Ok(())
 }

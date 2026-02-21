@@ -119,10 +119,14 @@ pub struct ClaudeRun {
     pub runner_id: Option<String>,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub required_capability: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateClaudeRun {
     pub task_id: String,
     pub action: ClaudeAction,
+    #[serde(default)]
+    pub required_capability: Option<String>,
 }

@@ -13,9 +13,10 @@ pub fn append_instructions(prompt: &mut String) {
          - Ordered steps within the phase\n\
          - Dependencies on prior phases (if any)\n\
          - Deliverables (concrete outputs: files written, tests passing, etc.)\n\n\
-         ### 3. Agent/Model Assignments\n\
+         ### 3. Agent/Capability Tier Assignments\n\
          For each phase, recommend:\n\
-         - Which Claude model to use (e.g. opus for architecture, sonnet for implementation, haiku for boilerplate)\n\
+         - Which capability tier to use: Heavy (for architecture, complex implementation), \
+         Standard (for design, planning, verification), or Light (for research, boilerplate, distillation)\n\
          - A brief agent personality description (e.g. \"Senior backend engineer focused on API correctness\")\n\
          - Whether multiple agents can work in parallel on sub-tasks within this phase\n\n\
          ### 4. Validation Steps\n\

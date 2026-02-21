@@ -9,9 +9,9 @@ use flowstate_prompts::{ChildTaskInfo, PromptContext};
 use flowstate_service::{HttpService, TaskService};
 use tracing::{info, warn};
 
+use crate::backend::AgentBackend;
 use crate::config::RunnerConfig;
 use crate::pipeline;
-use crate::process;
 use crate::workspace;
 
 /// Dispatch a claimed run to the appropriate handler.
@@ -23,6 +23,7 @@ pub async fn dispatch(
     task: &Task,
     project: &Project,
     config: &RunnerConfig,
+    backend: &dyn AgentBackend,
 ) -> Result<()> {
     let ws_dir = resolve_workspace_dir(&config.workspace_root, &run.id);
     info!("workspace for run {}: {}", run.id, ws_dir.display());
@@ -32,19 +33,23 @@ pub async fn dispatch(
 
     let result = match run.action {
         ClaudeAction::Research | ClaudeAction::ResearchDistill => {
-            execute_research(service, run, task, project, &ws_dir, timeout, kill_grace).await
+            execute_research(service, run, task, project, &ws_dir, timeout, kill_grace, backend)
+                .await
         }
         ClaudeAction::Design | ClaudeAction::DesignDistill => {
-            execute_design(service, run, task, project, &ws_dir, timeout, kill_grace).await
+            execute_design(service, run, task, project, &ws_dir, timeout, kill_grace, backend)
+                .await
         }
         ClaudeAction::Plan | ClaudeAction::PlanDistill => {
-            execute_plan(service, run, task, project, &ws_dir, timeout, kill_grace).await
+            execute_plan(service, run, task, project, &ws_dir, timeout, kill_grace, backend).await
         }
         ClaudeAction::Build => {
-            pipeline::execute(service, run, task, project, &ws_dir, timeout, kill_grace).await
+            pipeline::execute(service, run, task, project, &ws_dir, timeout, kill_grace, backend)
+                .await
         }
         ClaudeAction::Verify | ClaudeAction::VerifyDistill => {
-            execute_verify(service, run, task, project, &ws_dir, timeout, kill_grace).await
+            execute_verify(service, run, task, project, &ws_dir, timeout, kill_grace, backend)
+                .await
         }
     };
 
@@ -86,6 +91,7 @@ pub fn cleanup_workspace(dir: &Path) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_research(
     service: &HttpService,
     run: &ClaudeRun,
@@ -94,8 +100,9 @@ async fn execute_research(
     ws_dir: &Path,
     timeout: Duration,
     kill_grace: Duration,
+    backend: &dyn AgentBackend,
 ) -> Result<()> {
-    // Clone repo so Claude can explore the codebase
+    // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
     workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
@@ -106,8 +113,8 @@ async fn execute_research(
 
     save_prompt(&run.id, &prompt)?;
 
-    progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
+    progress(service, &run.id, &format!("Running {}...", backend.name())).await;
+    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -139,6 +146,7 @@ async fn execute_research(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_design(
     service: &HttpService,
     run: &ClaudeRun,
@@ -147,8 +155,9 @@ async fn execute_design(
     ws_dir: &Path,
     timeout: Duration,
     kill_grace: Duration,
+    backend: &dyn AgentBackend,
 ) -> Result<()> {
-    // Clone repo so Claude can explore the codebase
+    // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
     workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
@@ -159,8 +168,8 @@ async fn execute_design(
 
     save_prompt(&run.id, &prompt)?;
 
-    progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
+    progress(service, &run.id, &format!("Running {}...", backend.name())).await;
+    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -192,6 +201,7 @@ async fn execute_design(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_plan(
     service: &HttpService,
     run: &ClaudeRun,
@@ -200,8 +210,9 @@ async fn execute_plan(
     ws_dir: &Path,
     timeout: Duration,
     kill_grace: Duration,
+    backend: &dyn AgentBackend,
 ) -> Result<()> {
-    // Clone repo so Claude can explore the codebase
+    // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
     workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
@@ -212,8 +223,8 @@ async fn execute_plan(
 
     save_prompt(&run.id, &prompt)?;
 
-    progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
+    progress(service, &run.id, &format!("Running {}...", backend.name())).await;
+    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -245,6 +256,7 @@ async fn execute_plan(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn execute_verify(
     service: &HttpService,
     run: &ClaudeRun,
@@ -253,16 +265,21 @@ async fn execute_verify(
     ws_dir: &Path,
     timeout: Duration,
     kill_grace: Duration,
+    backend: &dyn AgentBackend,
 ) -> Result<()> {
-    // Clone repo so Claude can explore the codebase
+    // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
     workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
 
     // Checkout the feature branch from the most recent completed build run
     let runs = service.list_claude_runs(&task.id).await.unwrap_or_default();
-    let build_branch = runs.iter()
-        .rfind(|r| r.action == ClaudeAction::Build && r.status == flowstate_core::claude_run::ClaudeRunStatus::Completed)
+    let build_branch = runs
+        .iter()
+        .rfind(|r| {
+            r.action == ClaudeAction::Build
+                && r.status == flowstate_core::claude_run::ClaudeRunStatus::Completed
+        })
         .and_then(|r| r.branch_name.clone());
     if let Some(ref branch) = build_branch {
         progress(service, &run.id, "Checking out feature branch...").await;
@@ -282,8 +299,8 @@ async fn execute_verify(
 
     save_prompt(&run.id, &prompt)?;
 
-    progress(service, &run.id, "Running Claude CLI...").await;
-    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
+    progress(service, &run.id, &format!("Running {}...", backend.name())).await;
+    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -322,26 +339,37 @@ async fn build_prompt_context(
     action: ClaudeAction,
 ) -> PromptContext {
     // Fetch research content for downstream phases
-    let research_content = if matches!(action,
-        ClaudeAction::Design | ClaudeAction::Plan | ClaudeAction::Build |
-        ClaudeAction::Verify | ClaudeAction::DesignDistill | ClaudeAction::PlanDistill |
-        ClaudeAction::VerifyDistill | ClaudeAction::ResearchDistill
+    let research_content = if matches!(
+        action,
+        ClaudeAction::Design
+            | ClaudeAction::Plan
+            | ClaudeAction::Build
+            | ClaudeAction::Verify
+            | ClaudeAction::DesignDistill
+            | ClaudeAction::PlanDistill
+            | ClaudeAction::VerifyDistill
+            | ClaudeAction::ResearchDistill
     ) {
         service.read_task_research(&task.id).await.ok()
     } else {
         None
     };
 
-    let spec_content = if matches!(action,
-        ClaudeAction::Plan | ClaudeAction::Build | ClaudeAction::Verify |
-        ClaudeAction::PlanDistill | ClaudeAction::VerifyDistill
+    let spec_content = if matches!(
+        action,
+        ClaudeAction::Plan
+            | ClaudeAction::Build
+            | ClaudeAction::Verify
+            | ClaudeAction::PlanDistill
+            | ClaudeAction::VerifyDistill
     ) {
         service.read_task_spec(&task.id).await.ok()
     } else {
         None
     };
 
-    let plan_content = if matches!(action,
+    let plan_content = if matches!(
+        action,
         ClaudeAction::Build | ClaudeAction::Verify | ClaudeAction::VerifyDistill
     ) {
         service.read_task_plan(&task.id).await.ok()
@@ -390,22 +418,6 @@ async fn build_prompt_context(
     }
 }
 
-pub struct ClaudeOutput {
-    pub success: bool,
-    pub stdout: String,
-    pub stderr: String,
-    pub exit_code: i32,
-}
-
-pub async fn run_claude(
-    prompt: &str,
-    work_dir: &Path,
-    timeout: Duration,
-    kill_grace: Duration,
-) -> Result<ClaudeOutput> {
-    process::run_claude_with_timeout(prompt, work_dir, timeout, kill_grace).await
-}
-
 fn save_prompt(run_id: &str, prompt: &str) -> Result<()> {
     let data_dir = if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
         PathBuf::from(xdg).join("flowstate")
@@ -433,7 +445,12 @@ async fn report_success(service: &HttpService, run_id: &str, exit_code: i32) -> 
     Ok(())
 }
 
-async fn report_failure(service: &HttpService, run_id: &str, error: &str, exit_code: i32) -> Result<()> {
+async fn report_failure(
+    service: &HttpService,
+    run_id: &str,
+    error: &str,
+    exit_code: i32,
+) -> Result<()> {
     let msg = if error.is_empty() {
         format!("exit code {exit_code}")
     } else {

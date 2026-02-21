@@ -129,8 +129,11 @@ impl Database for PostgresDatabase {
         self.pg_update_claude_run_status(id, status, error_message, exit_code)
             .await
     }
-    async fn claim_next_claude_run(&self) -> Result<Option<ClaudeRun>, DbError> {
-        self.pg_claim_next_claude_run().await
+    async fn claim_next_claude_run(
+        &self,
+        capabilities: &[&str],
+    ) -> Result<Option<ClaudeRun>, DbError> {
+        self.pg_claim_next_claude_run(capabilities).await
     }
     async fn update_claude_run_progress(
         &self,

@@ -23,6 +23,7 @@ fn row_to_claude_run(row: &Row) -> rusqlite::Result<ClaudeRun> {
         runner_id: row.get("runner_id").unwrap_or(None),
         started_at: row.get("started_at")?,
         finished_at: row.get("finished_at")?,
+        required_capability: row.get("required_capability").unwrap_or(None),
     })
 }
 
@@ -35,9 +36,9 @@ impl SqliteDatabase {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
             conn.execute(
-                "INSERT INTO claude_runs (id, task_id, action, status, started_at)
-                 VALUES (?1, ?2, ?3, 'queued', ?4)",
-                params![id, input.task_id, input.action.as_str(), now],
+                "INSERT INTO claude_runs (id, task_id, action, status, started_at, required_capability)
+                 VALUES (?1, ?2, ?3, 'queued', ?4, ?5)",
+                params![id, input.task_id, input.action.as_str(), now, input.required_capability],
             )
             .to_db()?;
             conn.query_row(
@@ -122,28 +123,75 @@ impl SqliteDatabase {
     }
 
     /// Atomically claim the oldest queued run, setting it to Running.
-    /// Returns None if no queued runs exist.
-    pub fn claim_next_claude_run_sync(&self) -> Result<Option<ClaudeRun>, DbError> {
+    /// If `capabilities` is non-empty, only claim runs whose `required_capability`
+    /// is NULL or matches one of the given values.
+    /// Returns None if no matching queued runs exist.
+    pub fn claim_next_claude_run_sync(
+        &self,
+        capabilities: &[&str],
+    ) -> Result<Option<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
             let now = Utc::now();
-            let result = conn.query_row(
-                "UPDATE claude_runs
-                 SET status = 'running', started_at = ?1
-                 WHERE id = (
-                     SELECT id FROM claude_runs
-                     WHERE status = 'queued'
-                     ORDER BY started_at ASC
-                     LIMIT 1
-                 )
-                 RETURNING *",
-                params![now],
-                row_to_claude_run,
-            );
 
-            match result {
-                Ok(run) => Ok(Some(run)),
-                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(DbError::Internal(e.to_string())),
+            if capabilities.is_empty() {
+                // No capability filter — claim any queued run
+                let result = conn.query_row(
+                    "UPDATE claude_runs
+                     SET status = 'running', started_at = ?1
+                     WHERE id = (
+                         SELECT id FROM claude_runs
+                         WHERE status = 'queued'
+                         ORDER BY started_at ASC
+                         LIMIT 1
+                     )
+                     RETURNING *",
+                    params![now],
+                    row_to_claude_run,
+                );
+
+                match result {
+                    Ok(run) => Ok(Some(run)),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                    Err(e) => Err(DbError::Internal(e.to_string())),
+                }
+            } else {
+                // Build dynamic IN clause for capabilities
+                let placeholders: Vec<String> = capabilities
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("?{}", i + 2))
+                    .collect();
+                let in_clause = placeholders.join(", ");
+
+                let sql = format!(
+                    "UPDATE claude_runs
+                     SET status = 'running', started_at = ?1
+                     WHERE id = (
+                         SELECT id FROM claude_runs
+                         WHERE status = 'queued'
+                           AND (required_capability IS NULL OR required_capability IN ({in_clause}))
+                         ORDER BY started_at ASC
+                         LIMIT 1
+                     )
+                     RETURNING *"
+                );
+
+                let mut stmt = conn.prepare(&sql).to_db()?;
+                let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+                param_values.push(Box::new(now.to_rfc3339()));
+                for cap in capabilities {
+                    param_values.push(Box::new(cap.to_string()));
+                }
+                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                    param_values.iter().map(|b| b.as_ref()).collect();
+
+                let result = stmt.query_row(param_refs.as_slice(), row_to_claude_run);
+
+                match result {
+                    Ok(run) => Ok(Some(run)),
+                    Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+                    Err(e) => Err(DbError::Internal(e.to_string())),
+                }
             }
         })
     }
@@ -318,6 +366,7 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Design,
+                required_capability: None,
             })
             .unwrap();
         assert_eq!(run.status, ClaudeRunStatus::Queued);
@@ -345,33 +394,35 @@ mod tests {
         let (db, task_id) = setup();
 
         // No queued runs -> None
-        assert!(db.claim_next_claude_run_sync().unwrap().is_none());
+        assert!(db.claim_next_claude_run_sync(&[]).unwrap().is_none());
 
         // Create two runs
         let run1 = db
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Design,
+                required_capability: None,
             })
             .unwrap();
         let _run2 = db
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Plan,
+                required_capability: None,
             })
             .unwrap();
 
         // Claim should get the oldest (run1)
-        let claimed = db.claim_next_claude_run_sync().unwrap().unwrap();
+        let claimed = db.claim_next_claude_run_sync(&[]).unwrap().unwrap();
         assert_eq!(claimed.id, run1.id);
         assert_eq!(claimed.status, ClaudeRunStatus::Running);
 
         // Next claim gets run2
-        let claimed2 = db.claim_next_claude_run_sync().unwrap().unwrap();
+        let claimed2 = db.claim_next_claude_run_sync(&[]).unwrap().unwrap();
         assert_eq!(claimed2.action, ClaudeAction::Plan);
 
         // No more queued
-        assert!(db.claim_next_claude_run_sync().unwrap().is_none());
+        assert!(db.claim_next_claude_run_sync(&[]).unwrap().is_none());
     }
 
     #[test]
@@ -382,6 +433,7 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id,
                 action: ClaudeAction::Build,
+                required_capability: None,
             })
             .unwrap();
 
@@ -411,6 +463,7 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
+                required_capability: None,
             })
             .unwrap();
         let updated = db
@@ -430,9 +483,10 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
+                required_capability: None,
             })
             .unwrap();
-        let _ = db.claim_next_claude_run_sync().unwrap(); // claim run2 to set it Running
+        let _ = db.claim_next_claude_run_sync(&[]).unwrap(); // claim run2 to set it Running
         let updated2 = db
             .update_claude_run_status_sync(&run2.id, ClaudeRunStatus::Salvaging, None, None)
             .unwrap();
@@ -449,9 +503,10 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
+                required_capability: None,
             })
             .unwrap();
-        let _claimed = db.claim_next_claude_run_sync().unwrap().unwrap();
+        let _claimed = db.claim_next_claude_run_sync(&[]).unwrap().unwrap();
 
         // With a threshold in the future, the run should be returned
         let future = chrono::Utc::now() + chrono::Duration::hours(1);
@@ -483,11 +538,12 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
+                required_capability: None,
             })
             .unwrap();
 
         // Claim to set Running
-        let _claimed = db.claim_next_claude_run_sync().unwrap().unwrap();
+        let _claimed = db.claim_next_claude_run_sync(&[]).unwrap().unwrap();
 
         // Timeout should transition Running -> TimedOut
         let result = db
@@ -514,6 +570,7 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id,
                 action: ClaudeAction::Build,
+                required_capability: None,
             })
             .unwrap();
         assert!(run.runner_id.is_none());

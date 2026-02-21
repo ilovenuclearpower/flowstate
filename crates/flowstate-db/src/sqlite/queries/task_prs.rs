@@ -103,6 +103,7 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
+                required_capability: None,
             })
             .unwrap();
 
@@ -207,6 +208,7 @@ mod tests {
             .create_claude_run_sync(&CreateClaudeRun {
                 task_id: task_id.clone(),
                 action: ClaudeAction::Build,
+                required_capability: None,
             })
             .unwrap();
 

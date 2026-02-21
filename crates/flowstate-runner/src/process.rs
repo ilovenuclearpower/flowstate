@@ -6,10 +6,10 @@ use anyhow::{Context, Result};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use tokio::io::AsyncReadExt;
-use tokio::process::Command;
+use tokio::process::{ChildStderr, ChildStdout, Command};
 use tracing::{info, warn};
 
-use crate::executor::ClaudeOutput;
+use crate::backend::AgentOutput;
 
 /// A child process managed within its own process group.
 /// Enables killing the entire process tree (including any orphaned children
@@ -48,22 +48,11 @@ impl ManagedChild {
     }
 }
 
-/// Spawn Claude CLI in a new process group via setsid.
+/// Spawn a command in a new process group via setsid.
 /// Returns the managed child and its stdout/stderr handles.
-fn spawn_claude_managed(
-    prompt: &str,
-    work_dir: &Path,
-) -> Result<(ManagedChild, tokio::process::ChildStdout, tokio::process::ChildStderr)> {
-    let mut cmd = Command::new("claude");
-    cmd.arg("-p")
-        .arg(prompt)
-        .arg("--output-format")
-        .arg("text")
-        .arg("--dangerously-skip-permissions")
-        .current_dir(work_dir)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
+pub fn spawn_managed(
+    cmd: &mut Command,
+) -> Result<(ManagedChild, ChildStdout, ChildStderr)> {
     // Create new process group via setsid so we can kill the whole tree
     unsafe {
         cmd.pre_exec(|| {
@@ -72,7 +61,7 @@ fn spawn_claude_managed(
         });
     }
 
-    let mut child = cmd.spawn().context("spawn claude")?;
+    let mut child = cmd.spawn().context("spawn process")?;
     let pid = child
         .id()
         .ok_or_else(|| anyhow::anyhow!("no child PID"))? as i32;
@@ -83,15 +72,18 @@ fn spawn_claude_managed(
     Ok((ManagedChild { child, pgid: pid }, stdout, stderr))
 }
 
-/// Run Claude CLI with a timeout. If the timeout fires, kills the entire
-/// process group (SIGTERM → grace period → SIGKILL) and returns an error.
-pub async fn run_claude_with_timeout(
-    prompt: &str,
+/// Run a managed process with timeout.
+/// Captures stdout/stderr and returns AgentOutput.
+/// Saves output to `work_dir/.flowstate-output/output.txt`.
+pub async fn run_managed_with_timeout(
+    cmd: &mut Command,
     work_dir: &Path,
     timeout_duration: Duration,
     kill_grace: Duration,
-) -> Result<ClaudeOutput> {
-    let (mut managed, mut stdout, mut stderr) = spawn_claude_managed(prompt, work_dir)?;
+) -> Result<AgentOutput> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+    let (mut managed, mut stdout, mut stderr) = spawn_managed(cmd)?;
 
     let result = tokio::time::timeout(timeout_duration, async {
         let mut stdout_bytes = Vec::new();
@@ -120,7 +112,7 @@ pub async fn run_claude_with_timeout(
             let _ = std::fs::create_dir_all(&run_dir);
             let _ = std::fs::write(run_dir.join("output.txt"), &stdout_str);
 
-            Ok(ClaudeOutput {
+            Ok(AgentOutput {
                 success: status.success(),
                 stdout: stdout_str,
                 stderr: stderr_str,
@@ -131,12 +123,12 @@ pub async fn run_claude_with_timeout(
         Err(_elapsed) => {
             // TIMEOUT — kill the process group
             info!(
-                "claude process timed out after {:?}, killing process group",
+                "process timed out after {:?}, killing process group",
                 timeout_duration
             );
             managed.kill_group(kill_grace).await;
             Err(anyhow::anyhow!(
-                "claude process timed out after {:?}",
+                "process timed out after {:?}",
                 timeout_duration
             ))
         }

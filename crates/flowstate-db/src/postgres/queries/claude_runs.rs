@@ -20,6 +20,7 @@ struct ClaudeRunRow {
     runner_id: Option<String>,
     started_at: DateTime<Utc>,
     finished_at: Option<DateTime<Utc>>,
+    required_capability: Option<String>,
 }
 
 impl From<ClaudeRunRow> for ClaudeRun {
@@ -38,6 +39,7 @@ impl From<ClaudeRunRow> for ClaudeRun {
             runner_id: r.runner_id,
             started_at: r.started_at,
             finished_at: r.finished_at,
+            required_capability: r.required_capability,
         }
     }
 }
@@ -51,13 +53,14 @@ impl PostgresDatabase {
         let now = Utc::now();
 
         sqlx::query(
-            "INSERT INTO claude_runs (id, task_id, action, status, started_at)
-             VALUES ($1, $2, $3, 'queued', $4)",
+            "INSERT INTO claude_runs (id, task_id, action, status, started_at, required_capability)
+             VALUES ($1, $2, $3, 'queued', $4, $5)",
         )
         .bind(&id)
         .bind(&input.task_id)
         .bind(input.action.as_str())
         .bind(now)
+        .bind(&input.required_capability)
         .execute(&self.pool)
         .await
         .map_err(pg_err)?;
@@ -139,18 +142,33 @@ impl PostgresDatabase {
 
     /// Atomically claim the oldest queued run, setting it to Running.
     /// Uses FOR UPDATE SKIP LOCKED for Postgres concurrency safety.
+    /// If `capabilities` is non-empty, only claim runs whose `required_capability`
+    /// is NULL or matches one of the given values.
     pub(crate) async fn pg_claim_next_claude_run(
         &self,
+        capabilities: &[&str],
     ) -> Result<Option<ClaudeRun>, DbError> {
         let mut tx = self.pool.begin().await.map_err(pg_err)?;
         let now = Utc::now();
 
-        let maybe_row = sqlx::query_as::<_, ClaudeRunRow>(
-            "SELECT * FROM claude_runs WHERE status = 'queued' ORDER BY started_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
-        )
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(pg_err)?;
+        let maybe_row = if capabilities.is_empty() {
+            sqlx::query_as::<_, ClaudeRunRow>(
+                "SELECT * FROM claude_runs WHERE status = 'queued' ORDER BY started_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
+            )
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(pg_err)?
+        } else {
+            // Convert capabilities to a Vec<String> for sqlx binding
+            let caps: Vec<String> = capabilities.iter().map(|s| s.to_string()).collect();
+            sqlx::query_as::<_, ClaudeRunRow>(
+                "SELECT * FROM claude_runs WHERE status = 'queued' AND (required_capability IS NULL OR required_capability = ANY($1)) ORDER BY started_at ASC LIMIT 1 FOR UPDATE SKIP LOCKED",
+            )
+            .bind(&caps)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(pg_err)?
+        };
 
         let row = match maybe_row {
             Some(r) => r,
