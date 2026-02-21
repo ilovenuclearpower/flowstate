@@ -43,6 +43,21 @@ impl TaskBoard {
         col.tasks.get(idx)
     }
 
+    /// Attempt to select the task with the given ID.
+    /// Scans all columns; if found, sets `active_column` to that column
+    /// and selects the task's index within the column.
+    /// Returns `true` if the task was found and selected, `false` otherwise.
+    pub fn select_task_by_id(&mut self, task_id: &str) -> bool {
+        for (col_idx, col) in self.columns.iter_mut().enumerate() {
+            if let Some(task_idx) = col.tasks.iter().position(|t| t.id == task_id) {
+                self.active_column = col_idx;
+                col.list_state.select(Some(task_idx));
+                return true;
+            }
+        }
+        false
+    }
+
     /// Returns the status of the currently active column.
     pub fn active_status(&self) -> Status {
         self.columns
@@ -169,5 +184,123 @@ fn priority_color(priority: Priority) -> Style {
         Priority::Medium => Style::default().fg(Color::Yellow),
         Priority::Low => Style::default().fg(Color::Blue),
         Priority::None => Style::default().fg(Color::DarkGray),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use flowstate_core::task::{ApprovalStatus, Priority, Status, Task};
+
+    fn make_task(id: &str, status: Status) -> Task {
+        Task {
+            id: id.to_string(),
+            project_id: "proj".to_string(),
+            sprint_id: None,
+            parent_id: None,
+            title: format!("Task {id}"),
+            description: String::new(),
+            reviewer: String::new(),
+            research_status: ApprovalStatus::default(),
+            spec_status: ApprovalStatus::default(),
+            plan_status: ApprovalStatus::default(),
+            verify_status: ApprovalStatus::default(),
+            spec_approved_hash: String::new(),
+            research_approved_hash: String::new(),
+            research_feedback: String::new(),
+            spec_feedback: String::new(),
+            plan_feedback: String::new(),
+            verify_feedback: String::new(),
+            status,
+            priority: Priority::Medium,
+            sort_order: 0.0,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn make_board() -> TaskBoard {
+        TaskBoard::new(vec![
+            (Status::Todo, vec![make_task("t1", Status::Todo), make_task("t2", Status::Todo)]),
+            (Status::Research, vec![make_task("r1", Status::Research)]),
+            (Status::Design, vec![]),
+            (Status::Plan, vec![make_task("p1", Status::Plan), make_task("p2", Status::Plan), make_task("p3", Status::Plan)]),
+            (Status::Build, vec![]),
+            (Status::Verify, vec![]),
+            (Status::Done, vec![make_task("d1", Status::Done)]),
+        ])
+    }
+
+    #[test]
+    fn select_task_in_first_column() {
+        let mut board = make_board();
+        assert!(board.select_task_by_id("t2"));
+        assert_eq!(board.active_column, 0);
+        assert_eq!(board.selected_task().unwrap().id, "t2");
+    }
+
+    #[test]
+    fn select_task_in_middle_column() {
+        let mut board = make_board();
+        assert!(board.select_task_by_id("p2"));
+        assert_eq!(board.active_column, 3);
+        assert_eq!(board.selected_task().unwrap().id, "p2");
+    }
+
+    #[test]
+    fn select_task_in_last_column() {
+        let mut board = make_board();
+        assert!(board.select_task_by_id("d1"));
+        assert_eq!(board.active_column, 6);
+        assert_eq!(board.selected_task().unwrap().id, "d1");
+    }
+
+    #[test]
+    fn select_nonexistent_task_returns_false() {
+        let mut board = make_board();
+        // Set cursor to a known position first
+        board.select_task_by_id("p2");
+        assert_eq!(board.active_column, 3);
+
+        // Attempt to select non-existent task
+        assert!(!board.select_task_by_id("nonexistent"));
+        // Cursor should remain unchanged
+        assert_eq!(board.active_column, 3);
+        assert_eq!(board.selected_task().unwrap().id, "p2");
+    }
+
+    #[test]
+    fn select_on_empty_board() {
+        let mut board = TaskBoard::new(vec![
+            (Status::Todo, vec![]),
+            (Status::Research, vec![]),
+            (Status::Design, vec![]),
+            (Status::Plan, vec![]),
+            (Status::Build, vec![]),
+            (Status::Verify, vec![]),
+            (Status::Done, vec![]),
+        ]);
+        assert!(!board.select_task_by_id("anything"));
+    }
+
+    #[test]
+    fn select_only_task_in_column() {
+        let mut board = make_board();
+        assert!(board.select_task_by_id("r1"));
+        assert_eq!(board.active_column, 1);
+        assert_eq!(board.selected_task().unwrap().id, "r1");
+    }
+
+    #[test]
+    fn select_updates_from_one_column_to_another() {
+        let mut board = make_board();
+        assert!(board.select_task_by_id("t1"));
+        assert_eq!(board.active_column, 0);
+        assert_eq!(board.selected_task().unwrap().id, "t1");
+
+        assert!(board.select_task_by_id("d1"));
+        assert_eq!(board.active_column, 6);
+        assert_eq!(board.selected_task().unwrap().id, "d1");
     }
 }

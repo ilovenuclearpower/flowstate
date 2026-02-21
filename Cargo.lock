@@ -891,6 +891,7 @@ name = "flowstate-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "crossterm",
  "flowstate-core",
  "flowstate-db",
