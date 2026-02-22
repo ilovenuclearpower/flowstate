@@ -16,3 +16,17 @@ pub fn append_instructions(prompt: &mut String) {
          You may use tools (web search, file reading, etc.) for research.\n",
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn design_instructions_content() {
+        let mut out = String::new();
+        append_instructions(&mut out);
+        assert!(out.contains("## Instructions"));
+        assert!(out.contains("technical specification"));
+        assert!(out.contains("SPECIFICATION.md"));
+    }
+}

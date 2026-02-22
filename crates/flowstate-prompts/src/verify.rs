@@ -24,3 +24,17 @@ pub fn append_instructions(prompt: &mut String) {
          for verification.\n",
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verify_instructions_content() {
+        let mut out = String::new();
+        append_instructions(&mut out);
+        assert!(out.contains("## Instructions"));
+        assert!(out.contains("verification"));
+        assert!(out.contains("VERIFICATION.md"));
+    }
+}

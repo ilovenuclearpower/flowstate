@@ -100,12 +100,12 @@ impl PromptContext {
 mod tests {
     use super::*;
 
-    fn test_context() -> PromptContext {
+    fn minimal_ctx() -> PromptContext {
         PromptContext {
             project_name: "TestProject".into(),
-            repo_url: "https://github.com/test/repo".into(),
+            repo_url: String::new(),
             task_title: "Test Task".into(),
-            task_description: "A test task description".into(),
+            task_description: "Do the thing".into(),
             spec_content: None,
             plan_content: None,
             research_content: None,
@@ -117,71 +117,102 @@ mod tests {
     }
 
     #[test]
-    fn test_preamble_includes_project_and_task() {
-        let ctx = test_context();
-        let mut output = String::new();
-        ctx.append_preamble(&mut output);
-        assert!(output.contains("# Project: TestProject"), "should contain project name");
-        assert!(output.contains("# Task: Test Task"), "should contain task title");
+    fn preamble_minimal() {
+        let ctx = minimal_ctx();
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(out.contains("# Project:"));
+        assert!(out.contains("TestProject"));
+        assert!(out.contains("# Task:"));
+        assert!(out.contains("Test Task"));
+        assert!(out.contains("## Description"));
+        assert!(out.contains("Do the thing"));
+        assert!(!out.contains("Repository:"));
     }
 
     #[test]
-    fn test_preamble_includes_repo_url() {
-        let ctx = test_context();
-        let mut output = String::new();
-        ctx.append_preamble(&mut output);
-        assert!(output.contains("Repository: https://github.com/test/repo"));
+    fn preamble_with_repo_url() {
+        let mut ctx = minimal_ctx();
+        ctx.repo_url = "https://github.com/test/repo".into();
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(out.contains("Repository:"));
+        assert!(out.contains("https://github.com/test/repo"));
     }
 
     #[test]
-    fn test_preamble_omits_repo_url_when_empty() {
-        let mut ctx = test_context();
-        ctx.repo_url = String::new();
-        let mut output = String::new();
-        ctx.append_preamble(&mut output);
-        assert!(!output.contains("Repository:"));
+    fn preamble_with_spec_and_plan() {
+        let mut ctx = minimal_ctx();
+        ctx.spec_content = Some("The spec body".into());
+        ctx.plan_content = Some("The plan body".into());
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(out.contains("## Specification"));
+        assert!(out.contains("The spec body"));
+        assert!(out.contains("## Implementation Plan"));
+        assert!(out.contains("The plan body"));
     }
 
     #[test]
-    fn test_preamble_includes_parent_context() {
-        let mut ctx = test_context();
+    fn preamble_with_research() {
+        let mut ctx = minimal_ctx();
+        ctx.research_content = Some("Research findings".into());
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(out.contains("## Research"));
+        assert!(out.contains("Research findings"));
+    }
+
+    #[test]
+    fn preamble_with_verification() {
+        let mut ctx = minimal_ctx();
+        ctx.verification_content = Some("Verification results".into());
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(out.contains("## Verification"));
+        assert!(out.contains("Verification results"));
+    }
+
+    #[test]
+    fn preamble_with_parent_context() {
+        let mut ctx = minimal_ctx();
         ctx.parent_context = Some(ParentContext {
-            title: "Parent Feature".into(),
+            title: "Parent Task".into(),
             description: "Parent desc".into(),
-            spec_content: None,
-            plan_content: None,
+            spec_content: Some("Parent spec".into()),
+            plan_content: Some("Parent plan".into()),
         });
-        let mut output = String::new();
-        ctx.append_preamble(&mut output);
-        assert!(output.contains("# Parent Task: Parent Feature"));
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(out.contains("# Parent Task:"));
+        assert!(out.contains("Parent desc"));
+        assert!(out.contains("## Parent Specification"));
+        assert!(out.contains("Parent spec"));
+        assert!(out.contains("## Parent Plan"));
+        assert!(out.contains("Parent plan"));
     }
 
     #[test]
-    fn test_preamble_includes_child_tasks() {
-        let mut ctx = test_context();
-        ctx.child_tasks = vec![ChildTaskInfo {
-            title: "Subtask 1".into(),
-            description: "Do sub-thing".into(),
-            status: "todo".into(),
-        }];
-        let mut output = String::new();
-        ctx.append_preamble(&mut output);
-        assert!(output.contains("## Sub-tasks"));
-        assert!(output.contains("Subtask 1"));
-    }
-
-    #[test]
-    fn test_preamble_includes_content_sections() {
-        let mut ctx = test_context();
-        ctx.spec_content = Some("spec text".into());
-        ctx.plan_content = Some("plan text".into());
-        ctx.research_content = Some("research text".into());
-        ctx.verification_content = Some("verify text".into());
-        let mut output = String::new();
-        ctx.append_preamble(&mut output);
-        assert!(output.contains("## Specification"));
-        assert!(output.contains("## Implementation Plan"));
-        assert!(output.contains("## Research"));
-        assert!(output.contains("## Verification"));
+    fn preamble_with_child_tasks() {
+        let mut ctx = minimal_ctx();
+        ctx.child_tasks = vec![
+            ChildTaskInfo {
+                title: "Child A".into(),
+                description: "Do A".into(),
+                status: "Done".into(),
+            },
+            ChildTaskInfo {
+                title: "Child B".into(),
+                description: "Do B".into(),
+                status: "InProgress".into(),
+            },
+        ];
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(out.contains("## Sub-tasks"));
+        assert!(out.contains("Child A"));
+        assert!(out.contains("Child B"));
+        assert!(out.contains("[Done]"));
+        assert!(out.contains("[InProgress]"));
     }
 }

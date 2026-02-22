@@ -82,92 +82,73 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_runner_capability_parse_str_round_trip() {
-        let all = [
-            RunnerCapability::Light,
-            RunnerCapability::Standard,
-            RunnerCapability::Heavy,
-        ];
-        for c in all {
-            assert_eq!(
-                RunnerCapability::parse_str(c.as_str()),
-                Some(c),
-                "RunnerCapability::{:?} should round-trip",
-                c
-            );
-        }
-    }
-
-    #[test]
-    fn test_runner_capability_parse_str_invalid() {
+    fn runner_capability_parse_str() {
+        assert_eq!(RunnerCapability::parse_str("light"), Some(RunnerCapability::Light));
+        assert_eq!(RunnerCapability::parse_str("standard"), Some(RunnerCapability::Standard));
+        assert_eq!(RunnerCapability::parse_str("heavy"), Some(RunnerCapability::Heavy));
+        assert_eq!(RunnerCapability::parse_str("invalid"), None);
         assert_eq!(RunnerCapability::parse_str("extreme"), None);
         assert_eq!(RunnerCapability::parse_str(""), None);
     }
 
     #[test]
-    fn test_runner_capability_handled_tiers() {
+    fn runner_capability_as_str_roundtrip() {
+        let all = [
+            RunnerCapability::Light,
+            RunnerCapability::Standard,
+            RunnerCapability::Heavy,
+        ];
+        for c in &all {
+            assert_eq!(RunnerCapability::parse_str(c.as_str()), Some(*c));
+        }
+    }
+
+    #[test]
+    fn runner_capability_display() {
+        let all = [
+            RunnerCapability::Light,
+            RunnerCapability::Standard,
+            RunnerCapability::Heavy,
+        ];
+        for c in &all {
+            assert_eq!(format!("{c}"), c.as_str());
+        }
+    }
+
+    #[test]
+    fn handled_tiers_heavy() {
         assert_eq!(
-            RunnerCapability::Light.handled_tiers(),
-            vec![RunnerCapability::Light]
+            RunnerCapability::Heavy.handled_tiers(),
+            vec![RunnerCapability::Light, RunnerCapability::Standard, RunnerCapability::Heavy]
         );
+    }
+
+    #[test]
+    fn handled_tiers_standard() {
         assert_eq!(
             RunnerCapability::Standard.handled_tiers(),
             vec![RunnerCapability::Light, RunnerCapability::Standard]
         );
+    }
+
+    #[test]
+    fn handled_tiers_light() {
         assert_eq!(
-            RunnerCapability::Heavy.handled_tiers(),
-            vec![
-                RunnerCapability::Light,
-                RunnerCapability::Standard,
-                RunnerCapability::Heavy
-            ]
+            RunnerCapability::Light.handled_tiers(),
+            vec![RunnerCapability::Light]
         );
     }
 
     #[test]
-    fn test_runner_capability_default_for_action() {
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::Research),
-            RunnerCapability::Light
-        );
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::ResearchDistill),
-            RunnerCapability::Light
-        );
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::Design),
-            RunnerCapability::Standard
-        );
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::DesignDistill),
-            RunnerCapability::Light
-        );
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::Plan),
-            RunnerCapability::Standard
-        );
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::PlanDistill),
-            RunnerCapability::Light
-        );
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::Build),
-            RunnerCapability::Heavy
-        );
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::Verify),
-            RunnerCapability::Standard
-        );
-        assert_eq!(
-            RunnerCapability::default_for_action(ClaudeAction::VerifyDistill),
-            RunnerCapability::Light
-        );
-    }
-
-    #[test]
-    fn test_runner_capability_display() {
-        assert_eq!(format!("{}", RunnerCapability::Light), "light");
-        assert_eq!(format!("{}", RunnerCapability::Standard), "standard");
-        assert_eq!(format!("{}", RunnerCapability::Heavy), "heavy");
+    fn default_for_action() {
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Build), RunnerCapability::Heavy);
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Research), RunnerCapability::Light);
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::ResearchDistill), RunnerCapability::Light);
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Design), RunnerCapability::Standard);
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::DesignDistill), RunnerCapability::Light);
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Plan), RunnerCapability::Standard);
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::PlanDistill), RunnerCapability::Light);
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Verify), RunnerCapability::Standard);
+        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::VerifyDistill), RunnerCapability::Light);
     }
 }

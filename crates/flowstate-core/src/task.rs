@@ -353,37 +353,85 @@ mod tests {
 
     #[test]
     fn test_forward_only_logic() {
-        // Simulates: task is in Build, research approved → target is Design
-        // Design.ordinal() < Build.ordinal() → no advance
         let current = Status::Build;
         let target = status_after_approval("research").unwrap();
         assert!(target.ordinal() <= current.ordinal());
     }
 
     #[test]
-    fn test_status_parse_str_round_trip() {
-        for &s in Status::ALL {
-            assert_eq!(
-                Status::parse_str(s.as_str()),
-                Some(s),
-                "Status::{:?} should round-trip through parse_str/as_str",
-                s
-            );
-        }
-    }
-
-    #[test]
-    fn test_status_parse_str_legacy_aliases() {
+    fn parse_str_roundtrip_status() {
+        assert_eq!(Status::parse_str("todo"), Some(Status::Todo));
+        assert_eq!(Status::parse_str("research"), Some(Status::Research));
+        assert_eq!(Status::parse_str("design"), Some(Status::Design));
+        assert_eq!(Status::parse_str("plan"), Some(Status::Plan));
+        assert_eq!(Status::parse_str("build"), Some(Status::Build));
+        assert_eq!(Status::parse_str("verify"), Some(Status::Verify));
+        assert_eq!(Status::parse_str("done"), Some(Status::Done));
+        assert_eq!(Status::parse_str("cancelled"), Some(Status::Cancelled));
+        assert_eq!(Status::parse_str("invalid"), None);
+        assert_eq!(Status::parse_str("garbage"), None);
+        assert_eq!(Status::parse_str(""), None);
+        assert_eq!(Status::parse_str("TODO"), None);
+        // Legacy aliases
         assert_eq!(Status::parse_str("backlog"), Some(Status::Todo));
         assert_eq!(Status::parse_str("in_progress"), Some(Status::Build));
         assert_eq!(Status::parse_str("in_review"), Some(Status::Verify));
     }
 
     #[test]
-    fn test_status_parse_str_invalid() {
-        assert_eq!(Status::parse_str("garbage"), None);
-        assert_eq!(Status::parse_str(""), None);
-        assert_eq!(Status::parse_str("TODO"), None);
+    fn parse_str_roundtrip_priority() {
+        assert_eq!(Priority::parse_str("urgent"), Some(Priority::Urgent));
+        assert_eq!(Priority::parse_str("high"), Some(Priority::High));
+        assert_eq!(Priority::parse_str("medium"), Some(Priority::Medium));
+        assert_eq!(Priority::parse_str("low"), Some(Priority::Low));
+        assert_eq!(Priority::parse_str("none"), Some(Priority::None));
+        assert_eq!(Priority::parse_str("invalid"), None);
+        assert_eq!(Priority::parse_str("critical"), None);
+        assert_eq!(Priority::parse_str(""), None);
+    }
+
+    #[test]
+    fn parse_str_roundtrip_approval_status() {
+        assert_eq!(ApprovalStatus::parse_str("none"), Some(ApprovalStatus::None));
+        assert_eq!(ApprovalStatus::parse_str("pending"), Some(ApprovalStatus::Pending));
+        assert_eq!(ApprovalStatus::parse_str("approved"), Some(ApprovalStatus::Approved));
+        assert_eq!(ApprovalStatus::parse_str("rejected"), Some(ApprovalStatus::Rejected));
+        assert_eq!(ApprovalStatus::parse_str("invalid"), None);
+        assert_eq!(ApprovalStatus::parse_str("maybe"), None);
+        assert_eq!(ApprovalStatus::parse_str(""), None);
+    }
+
+    #[test]
+    fn as_str_consistency() {
+        for s in Status::ALL {
+            assert_eq!(Status::parse_str(s.as_str()), Some(*s));
+        }
+        let all_priorities = [
+            Priority::Urgent,
+            Priority::High,
+            Priority::Medium,
+            Priority::Low,
+            Priority::None,
+        ];
+        for p in &all_priorities {
+            assert_eq!(Priority::parse_str(p.as_str()), Some(*p));
+        }
+        let all_approvals = [
+            ApprovalStatus::None,
+            ApprovalStatus::Pending,
+            ApprovalStatus::Approved,
+            ApprovalStatus::Rejected,
+        ];
+        for a in &all_approvals {
+            assert_eq!(ApprovalStatus::parse_str(a.as_str()), Some(*a));
+        }
+    }
+
+    #[test]
+    fn display_and_display_name_status() {
+        for s in Status::ALL {
+            assert_eq!(format!("{s}"), s.display_name());
+        }
     }
 
     #[test]
@@ -402,7 +450,6 @@ mod tests {
     fn test_status_board_columns() {
         assert_eq!(Status::BOARD_COLUMNS.len(), 7);
         assert!(!Status::BOARD_COLUMNS.contains(&Status::Cancelled));
-        // Verify order matches ordinal
         for w in Status::BOARD_COLUMNS.windows(2) {
             assert!(w[0].ordinal() < w[1].ordinal());
         }
@@ -417,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn test_priority_parse_str_round_trip() {
+    fn display_and_display_name_priority() {
         let all = [
             Priority::Urgent,
             Priority::High,
@@ -425,24 +472,26 @@ mod tests {
             Priority::Low,
             Priority::None,
         ];
-        for p in all {
-            assert_eq!(
-                Priority::parse_str(p.as_str()),
-                Some(p),
-                "Priority::{:?} should round-trip",
-                p
-            );
+        for p in &all {
+            assert_eq!(format!("{p}"), p.display_name());
         }
     }
 
     #[test]
-    fn test_priority_parse_str_invalid() {
-        assert_eq!(Priority::parse_str("critical"), None);
-        assert_eq!(Priority::parse_str(""), None);
+    fn display_and_display_name_approval_status() {
+        let all = [
+            ApprovalStatus::None,
+            ApprovalStatus::Pending,
+            ApprovalStatus::Approved,
+            ApprovalStatus::Rejected,
+        ];
+        for a in &all {
+            assert_eq!(format!("{a}"), a.display_name());
+        }
     }
 
     #[test]
-    fn test_priority_symbol() {
+    fn priority_symbol() {
         assert_eq!(Priority::Urgent.symbol(), "!!!");
         assert_eq!(Priority::High.symbol(), "!!");
         assert_eq!(Priority::Medium.symbol(), "!");
@@ -451,53 +500,12 @@ mod tests {
     }
 
     #[test]
-    fn test_priority_display() {
-        assert_eq!(format!("{}", Priority::Urgent), "Urgent");
-        assert_eq!(format!("{}", Priority::High), "High");
-        assert_eq!(format!("{}", Priority::Medium), "Medium");
-        assert_eq!(format!("{}", Priority::Low), "Low");
-        assert_eq!(format!("{}", Priority::None), "None");
-    }
-
-    #[test]
-    fn test_approval_status_parse_str_round_trip() {
-        let all = [
-            ApprovalStatus::None,
-            ApprovalStatus::Pending,
-            ApprovalStatus::Approved,
-            ApprovalStatus::Rejected,
-        ];
-        for a in all {
-            assert_eq!(
-                ApprovalStatus::parse_str(a.as_str()),
-                Some(a),
-                "ApprovalStatus::{:?} should round-trip",
-                a
-            );
-        }
-    }
-
-    #[test]
-    fn test_approval_status_parse_str_invalid() {
-        assert_eq!(ApprovalStatus::parse_str("maybe"), None);
-        assert_eq!(ApprovalStatus::parse_str(""), None);
-    }
-
-    #[test]
-    fn test_approval_status_default() {
+    fn approval_status_default() {
         assert_eq!(ApprovalStatus::default(), ApprovalStatus::None);
     }
 
     #[test]
-    fn test_approval_status_display() {
-        assert_eq!(format!("{}", ApprovalStatus::Approved), "Approved");
-        assert_eq!(format!("{}", ApprovalStatus::Pending), "Pending");
-        assert_eq!(format!("{}", ApprovalStatus::Rejected), "Rejected");
-        assert_eq!(format!("{}", ApprovalStatus::None), "None");
-    }
-
-    #[test]
-    fn test_next_subtask_status() {
+    fn next_subtask_status_transitions() {
         assert_eq!(next_subtask_status(Status::Todo), Some(Status::Build));
         assert_eq!(next_subtask_status(Status::Build), Some(Status::Verify));
         assert_eq!(next_subtask_status(Status::Verify), Some(Status::Done));
@@ -509,10 +517,10 @@ mod tests {
     }
 
     #[test]
-    fn test_prev_subtask_status() {
-        assert_eq!(prev_subtask_status(Status::Done), Some(Status::Verify));
-        assert_eq!(prev_subtask_status(Status::Verify), Some(Status::Build));
+    fn prev_subtask_status_transitions() {
         assert_eq!(prev_subtask_status(Status::Build), Some(Status::Todo));
+        assert_eq!(prev_subtask_status(Status::Verify), Some(Status::Build));
+        assert_eq!(prev_subtask_status(Status::Done), Some(Status::Verify));
         assert_eq!(prev_subtask_status(Status::Todo), None);
         assert_eq!(prev_subtask_status(Status::Research), None);
         assert_eq!(prev_subtask_status(Status::Design), None);
@@ -521,13 +529,13 @@ mod tests {
     }
 
     #[test]
-    fn test_task_is_subtask() {
-        let mut task = Task {
+    fn task_is_subtask() {
+        let make_task = |parent_id: Option<String>| Task {
             id: "t1".into(),
             project_id: "p1".into(),
             sprint_id: None,
-            parent_id: Some("parent".into()),
-            title: "Sub".into(),
+            parent_id,
+            title: "Test".into(),
             description: String::new(),
             reviewer: String::new(),
             research_status: ApprovalStatus::None,
@@ -541,15 +549,13 @@ mod tests {
             plan_feedback: String::new(),
             verify_feedback: String::new(),
             status: Status::Todo,
-            priority: Priority::Medium,
-            sort_order: 1.0,
+            priority: Priority::None,
+            sort_order: 0.0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        assert!(task.is_subtask());
-
-        task.parent_id = None;
-        assert!(!task.is_subtask());
+        assert!(!make_task(None).is_subtask());
+        assert!(make_task(Some("parent".into())).is_subtask());
     }
 
     #[test]

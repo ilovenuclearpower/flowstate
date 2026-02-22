@@ -83,32 +83,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_sprint_status_parse_str_round_trip() {
-        let all = [
-            SprintStatus::Planned,
-            SprintStatus::Active,
-            SprintStatus::Completed,
-        ];
-        for s in all {
-            assert_eq!(
-                SprintStatus::parse_str(s.as_str()),
-                Some(s),
-                "SprintStatus::{:?} should round-trip",
-                s
-            );
-        }
-    }
-
-    #[test]
-    fn test_sprint_status_parse_str_invalid() {
+    fn sprint_status_parse_str() {
+        assert_eq!(SprintStatus::parse_str("planned"), Some(SprintStatus::Planned));
+        assert_eq!(SprintStatus::parse_str("active"), Some(SprintStatus::Active));
+        assert_eq!(SprintStatus::parse_str("completed"), Some(SprintStatus::Completed));
+        assert_eq!(SprintStatus::parse_str("invalid"), None);
         assert_eq!(SprintStatus::parse_str("cancelled"), None);
         assert_eq!(SprintStatus::parse_str(""), None);
     }
 
     #[test]
-    fn test_sprint_status_display() {
-        assert_eq!(format!("{}", SprintStatus::Planned), "Planned");
-        assert_eq!(format!("{}", SprintStatus::Active), "Active");
-        assert_eq!(format!("{}", SprintStatus::Completed), "Completed");
+    fn sprint_status_as_str_roundtrip() {
+        let all = [SprintStatus::Planned, SprintStatus::Active, SprintStatus::Completed];
+        for s in &all {
+            assert_eq!(SprintStatus::parse_str(s.as_str()), Some(*s));
+        }
+    }
+
+    #[test]
+    fn sprint_status_display_name() {
+        assert_eq!(SprintStatus::Planned.display_name(), "Planned");
+        assert_eq!(SprintStatus::Active.display_name(), "Active");
+        assert_eq!(SprintStatus::Completed.display_name(), "Completed");
+    }
+
+    #[test]
+    fn sprint_status_display() {
+        let all = [SprintStatus::Planned, SprintStatus::Active, SprintStatus::Completed];
+        for s in &all {
+            assert_eq!(format!("{s}"), s.display_name());
+        }
     }
 }

@@ -251,3 +251,67 @@ fn dirs_default_data_dir() -> PathBuf {
         PathBuf::from(".")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_dir_contains_task_id() {
+        let path = task_dir("abc-123");
+        assert!(path.to_string_lossy().contains("tasks"));
+        assert!(path.to_string_lossy().contains("abc-123"));
+    }
+
+    #[test]
+    fn task_spec_path_ends_with_specification_md() {
+        let path = task_spec_path("t1");
+        assert!(path.to_string_lossy().ends_with("specification.md"));
+        assert!(path.to_string_lossy().contains("t1"));
+    }
+
+    #[test]
+    fn task_plan_path_ends_with_plan_md() {
+        let path = task_plan_path("t1");
+        assert!(path.to_string_lossy().ends_with("plan.md"));
+    }
+
+    #[test]
+    fn task_research_path_ends_with_research_md() {
+        let path = task_research_path("t1");
+        assert!(path.to_string_lossy().ends_with("research.md"));
+    }
+
+    #[test]
+    fn task_verification_path_ends_with_verification_md() {
+        let path = task_verification_path("t1");
+        assert!(path.to_string_lossy().ends_with("verification.md"));
+    }
+
+    #[test]
+    fn task_attachments_dir_contains_attachments() {
+        let path = task_attachments_dir("t1");
+        assert!(path.to_string_lossy().contains("attachments"));
+        assert!(path.to_string_lossy().contains("t1"));
+    }
+
+    #[test]
+    fn claude_run_dir_contains_run_id() {
+        let path = claude_run_dir("run-1");
+        assert!(path.to_string_lossy().contains("claude_runs"));
+        assert!(path.to_string_lossy().contains("run-1"));
+    }
+
+    #[test]
+    fn workspace_dir_contains_project_id() {
+        let path = workspace_dir("proj-1");
+        assert!(path.to_string_lossy().contains("workspaces"));
+        assert!(path.to_string_lossy().contains("proj-1"));
+    }
+
+    #[test]
+    fn data_dir_returns_non_empty_path() {
+        let path = data_dir();
+        assert!(path.to_string_lossy().contains("flowstate"));
+    }
+}

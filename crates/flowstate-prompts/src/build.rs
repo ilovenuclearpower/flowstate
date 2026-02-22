@@ -14,3 +14,17 @@ pub fn append_instructions(prompt: &mut String) {
          - If the plan specifies validation commands, run them and confirm they pass.\n",
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_instructions_content() {
+        let mut out = String::new();
+        append_instructions(&mut out);
+        assert!(out.contains("## Instructions"));
+        assert!(out.contains("Implement the changes"));
+        assert!(out.contains("test suite"));
+    }
+}

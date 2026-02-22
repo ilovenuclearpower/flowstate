@@ -65,28 +65,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_link_type_parse_str_round_trip() {
-        let all = [LinkType::Blocks, LinkType::RelatesTo, LinkType::Duplicates];
-        for lt in all {
-            assert_eq!(
-                LinkType::parse_str(lt.as_str()),
-                Some(lt),
-                "LinkType::{:?} should round-trip",
-                lt
-            );
-        }
-    }
-
-    #[test]
-    fn test_link_type_parse_str_invalid() {
+    fn link_type_parse_str() {
+        assert_eq!(LinkType::parse_str("blocks"), Some(LinkType::Blocks));
+        assert_eq!(LinkType::parse_str("relates_to"), Some(LinkType::RelatesTo));
+        assert_eq!(LinkType::parse_str("duplicates"), Some(LinkType::Duplicates));
+        assert_eq!(LinkType::parse_str("invalid"), None);
         assert_eq!(LinkType::parse_str("depends_on"), None);
         assert_eq!(LinkType::parse_str(""), None);
     }
 
     #[test]
-    fn test_link_type_display() {
-        assert_eq!(format!("{}", LinkType::Blocks), "Blocks");
-        assert_eq!(format!("{}", LinkType::RelatesTo), "Relates To");
-        assert_eq!(format!("{}", LinkType::Duplicates), "Duplicates");
+    fn link_type_as_str_roundtrip() {
+        let all = [LinkType::Blocks, LinkType::RelatesTo, LinkType::Duplicates];
+        for l in &all {
+            assert_eq!(LinkType::parse_str(l.as_str()), Some(*l));
+        }
+    }
+
+    #[test]
+    fn link_type_display_name() {
+        assert_eq!(LinkType::Blocks.display_name(), "Blocks");
+        assert_eq!(LinkType::RelatesTo.display_name(), "Relates To");
+        assert_eq!(LinkType::Duplicates.display_name(), "Duplicates");
+    }
+
+    #[test]
+    fn link_type_display() {
+        let all = [LinkType::Blocks, LinkType::RelatesTo, LinkType::Duplicates];
+        for l in &all {
+            assert_eq!(format!("{l}"), l.display_name());
+        }
     }
 }

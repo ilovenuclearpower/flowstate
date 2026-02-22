@@ -129,51 +129,105 @@ mod tests {
     use super::*;
     use flowstate_core::verification::VerificationStep;
 
-    fn make_step(name: &str, command: &str) -> VerificationStep {
+    fn make_step(name: &str, command: &str, timeout_s: i32) -> VerificationStep {
         VerificationStep {
-            id: uuid::Uuid::new_v4().to_string(),
-            profile_id: String::new(),
+            id: format!("step-{name}"),
+            profile_id: "profile-1".into(),
             name: name.into(),
             command: command.into(),
             working_dir: None,
             sort_order: 0,
-            timeout_s: 30,
+            timeout_s,
             created_at: chrono::Utc::now(),
         }
     }
 
     #[tokio::test]
-    async fn test_runner_execute_passing_step() {
-        let tmp = tempfile::tempdir().unwrap();
+    async fn successful_step() {
+        let dir = tempfile::tempdir().unwrap();
         let runner = Runner::new();
-        let steps = vec![make_step("pass", "true")];
-        let result = runner.execute(&steps, tmp.path()).await;
+        let steps = vec![make_step("echo", "echo ok", 10)];
+        let result = runner.execute(&steps, dir.path()).await;
         assert!(matches!(result.status, RunStatus::Passed));
         assert_eq!(result.steps.len(), 1);
         assert_eq!(result.steps[0].exit_code, Some(0));
+        assert!(result.steps[0].stdout.contains("ok"));
     }
 
     #[tokio::test]
-    async fn test_runner_execute_failing_step() {
-        let tmp = tempfile::tempdir().unwrap();
+    async fn failed_step() {
+        let dir = tempfile::tempdir().unwrap();
         let runner = Runner::new();
-        let steps = vec![make_step("fail", "false")];
-        let result = runner.execute(&steps, tmp.path()).await;
+        let steps = vec![make_step("fail", "false", 10)];
+        let result = runner.execute(&steps, dir.path()).await;
         assert!(matches!(result.status, RunStatus::Failed));
-        assert_eq!(result.steps.len(), 1);
         assert_eq!(result.steps[0].exit_code, Some(1));
     }
 
     #[tokio::test]
-    async fn test_runner_execute_multiple_passing_steps() {
-        let tmp = tempfile::tempdir().unwrap();
+    async fn multiple_steps_first_pass_second_fail() {
+        let dir = tempfile::tempdir().unwrap();
         let runner = Runner::new();
         let steps = vec![
-            make_step("step1", "true"),
-            make_step("step2", "true"),
+            make_step("pass", "echo pass", 10),
+            make_step("fail", "false", 10),
         ];
-        let result = runner.execute(&steps, tmp.path()).await;
+        let result = runner.execute(&steps, dir.path()).await;
+        assert!(matches!(result.status, RunStatus::Failed));
+        assert_eq!(result.steps.len(), 2);
+        assert_eq!(result.steps[0].exit_code, Some(0));
+        assert_eq!(result.steps[1].exit_code, Some(1));
+    }
+
+    #[tokio::test]
+    async fn all_steps_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = Runner::new();
+        let steps = vec![
+            make_step("first", "echo ok", 10),
+            make_step("second", "echo ok", 10),
+        ];
+        let result = runner.execute(&steps, dir.path()).await;
         assert!(matches!(result.status, RunStatus::Passed));
         assert_eq!(result.steps.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn timeout_step() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = Runner::new();
+        let steps = vec![make_step("slow", "sleep 10", 1)];
+        let result = runner.execute(&steps, dir.path()).await;
+        assert!(matches!(result.status, RunStatus::Failed));
+        assert_eq!(result.steps[0].exit_code, None);
+        assert!(result.steps[0].stderr.contains("Timeout"));
+    }
+
+    #[tokio::test]
+    async fn stdout_stderr_capture() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = Runner::new();
+        let steps = vec![make_step("both", "echo out && echo err >&2", 10)];
+        let result = runner.execute(&steps, dir.path()).await;
+        assert!(result.steps[0].stdout.contains("out"));
+        assert!(result.steps[0].stderr.contains("err"));
+    }
+
+    #[tokio::test]
+    async fn stops_on_first_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let runner = Runner::new();
+        let steps = vec![
+            make_step("first", "echo 1", 10),
+            make_step("fail", "false", 10),
+            make_step("third", "echo 3", 10),
+        ];
+        let result = runner.execute(&steps, dir.path()).await;
+        assert_eq!(result.steps.len(), 2);
+    }
+
+    #[test]
+    fn runner_default() {
+        let _runner = Runner::default();
     }
 }

@@ -108,6 +108,35 @@ pub(crate) fn map_sqlite_err(e: rusqlite::Error) -> DbError {
     DbError::Internal(e.to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn open_in_memory_returns_working_db() {
+        let db = SqliteDatabase::open_in_memory().unwrap();
+        // Verify we can access the connection
+        db.with_conn(|conn| {
+            let count: i64 = conn
+                .query_row("SELECT count(*) FROM sqlite_master", [], |row| row.get(0))
+                .map_err(|e| DbError::Internal(e.to_string()))?;
+            assert!(count > 0); // migrations created tables
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn open_path_creates_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        assert!(!db_path.exists());
+
+        let _db = SqliteDatabase::open_path(&db_path).unwrap();
+        assert!(db_path.exists());
+    }
+}
+
 #[async_trait]
 impl Database for SqliteDatabase {
     // -- Projects --

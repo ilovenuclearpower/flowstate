@@ -145,3 +145,17 @@ async fn api_keys() {
     let db = make_db().await;
     common::test_api_keys(&*db).await;
 }
+
+#[tokio::test]
+#[ignore]
+async fn sprint_crud() {
+    let db = make_db().await;
+    common::test_sprint_crud(&*db).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn subtask_workflow() {
+    let db = make_db().await;
+    common::test_subtask_workflow(&*db).await;
+}
