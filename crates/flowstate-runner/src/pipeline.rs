@@ -10,12 +10,13 @@ use flowstate_service::{HttpService, TaskService};
 use flowstate_verify::Runner as VerifyRunner;
 use tracing::{error, info};
 
-use crate::executor::run_claude;
+use crate::backend::AgentBackend;
 use crate::plan_parser;
 use crate::repo_provider::{self, ProviderError};
 use crate::workspace;
 
 /// Execute the full build pipeline for an approved task.
+#[allow(clippy::too_many_arguments)]
 pub async fn execute(
     service: &HttpService,
     run: &ClaudeRun,
@@ -24,6 +25,7 @@ pub async fn execute(
     ws_dir: &Path,
     timeout: Duration,
     kill_grace: Duration,
+    backend: &dyn AgentBackend,
 ) -> Result<()> {
     // 1. Validate prerequisites
     //    Subtasks inherit approvals from their parent task.
@@ -132,14 +134,14 @@ pub async fn execute(
     // 9. Save prompt
     save_run_prompt(&run.id, &prompt)?;
 
-    // 10. Run claude in workspace
-    progress(service, &run.id, "Running Claude CLI...").await;
-    info!("running claude for build in {}", ws_dir.display());
-    let output = run_claude(&prompt, ws_dir, timeout, kill_grace).await?;
+    // 10. Run agent in workspace
+    progress(service, &run.id, &format!("Running {}...", backend.name())).await;
+    info!("running {} for build in {}", backend.name(), ws_dir.display());
+    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if !output.success {
         let msg = if output.stderr.is_empty() {
-            format!("claude exited with code {}", output.exit_code)
+            format!("agent exited with code {}", output.exit_code)
         } else {
             output.stderr.clone()
         };

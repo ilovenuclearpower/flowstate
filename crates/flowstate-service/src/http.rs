@@ -233,6 +233,35 @@ impl HttpService {
         self.put_text(&format!("/api/tasks/{task_id}/verification"), content).await
     }
 
+    /// Register this runner with the server, advertising its capabilities.
+    pub async fn register_runner(
+        &self,
+        runner_id: &str,
+        backend_name: &str,
+        capability: &str,
+    ) -> Result<(), ServiceError> {
+        let body = serde_json::json!({
+            "runner_id": runner_id,
+            "backend_name": backend_name,
+            "capability": capability,
+        });
+        let builder = self
+            .client
+            .post(format!("{}/api/runners/register", self.base_url));
+        let resp = self
+            .with_auth(builder)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| ServiceError::Internal(e.to_string()))?;
+
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(parse_error(resp).await)
+        }
+    }
+
     /// Claim the next queued claude run, atomically setting it to Running.
     /// Returns None if no queued runs exist (server returns 204).
     pub async fn claim_claude_run(&self) -> Result<Option<ClaudeRun>, ServiceError> {

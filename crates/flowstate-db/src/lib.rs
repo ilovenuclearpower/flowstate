@@ -62,7 +62,10 @@ pub trait Database: Send + Sync {
         error_message: Option<&str>,
         exit_code: Option<i32>,
     ) -> Result<ClaudeRun, DbError>;
-    async fn claim_next_claude_run(&self) -> Result<Option<ClaudeRun>, DbError>;
+    async fn claim_next_claude_run(
+        &self,
+        capabilities: &[&str],
+    ) -> Result<Option<ClaudeRun>, DbError>;
     async fn update_claude_run_progress(&self, id: &str, message: &str) -> Result<(), DbError>;
     async fn update_claude_run_pr(
         &self,

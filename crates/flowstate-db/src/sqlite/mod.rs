@@ -266,11 +266,18 @@ impl Database for SqliteDatabase {
         .await
         .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn claim_next_claude_run(&self) -> Result<Option<ClaudeRun>, DbError> {
+    async fn claim_next_claude_run(
+        &self,
+        capabilities: &[&str],
+    ) -> Result<Option<ClaudeRun>, DbError> {
         let db = self.clone();
-        tokio::task::spawn_blocking(move || db.claim_next_claude_run_sync())
-            .await
-            .map_err(|e| DbError::Internal(e.to_string()))?
+        let caps: Vec<String> = capabilities.iter().map(|s| s.to_string()).collect();
+        tokio::task::spawn_blocking(move || {
+            let cap_refs: Vec<&str> = caps.iter().map(|s| s.as_str()).collect();
+            db.claim_next_claude_run_sync(&cap_refs)
+        })
+        .await
+        .map_err(|e| DbError::Internal(e.to_string()))?
     }
     async fn update_claude_run_progress(
         &self,

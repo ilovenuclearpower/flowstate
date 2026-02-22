@@ -21,6 +21,10 @@ use crate::auth::{auth_middleware, AuthConfig};
 pub struct RunnerInfo {
     pub runner_id: String,
     pub last_seen: DateTime<Utc>,
+    pub backend_name: Option<String>,
+    pub capability: Option<String>,
+    /// The set of capability tiers this runner can handle (e.g., ["light", "standard", "heavy"]).
+    pub capabilities: Vec<String>,
 }
 
 pub struct InnerAppState {

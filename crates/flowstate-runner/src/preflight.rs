@@ -3,11 +3,12 @@ use flowstate_service::{HttpService, TaskService};
 use std::process::Command;
 use tracing::info;
 
+use crate::backend::AgentBackend;
+
 /// Run all preflight checks before entering the poll loop.
-pub async fn run_all(service: &HttpService) -> Result<()> {
+pub async fn run_all(service: &HttpService, backend: &dyn AgentBackend) -> Result<()> {
     check_git()?;
-    check_claude_cli()?;
-    check_claude_auth()?;
+    backend.preflight_check().await?;
     check_gh_cli()?;
     check_gh_auth()?;
     check_server_health(service).await?;
@@ -26,35 +27,6 @@ fn check_git() -> Result<()> {
     }
     let version = String::from_utf8_lossy(&output.stdout);
     info!("git: {}", version.trim());
-    Ok(())
-}
-
-fn check_claude_cli() -> Result<()> {
-    let output = Command::new("claude")
-        .arg("--version")
-        .output()
-        .context("Claude CLI is not installed. Install it: https://docs.anthropic.com/en/docs/claude-cli")?;
-    if !output.status.success() {
-        bail!("claude --version failed");
-    }
-    let version = String::from_utf8_lossy(&output.stdout);
-    info!("claude: {}", version.trim());
-    Ok(())
-}
-
-fn check_claude_auth() -> Result<()> {
-    let output = Command::new("claude")
-        .args(["-p", "Respond with: ok", "--output-format", "text"])
-        .output()
-        .context("failed to run claude auth check")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "Claude CLI not authenticated. Run: claude login\nDetails: {}",
-            stderr.trim()
-        );
-    }
-    info!("claude: authenticated");
     Ok(())
 }
 

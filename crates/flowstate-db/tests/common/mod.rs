@@ -388,6 +388,7 @@ pub async fn test_claude_run_lifecycle(db: &dyn Database) {
         .create_claude_run(&CreateClaudeRun {
             task_id: task.id.clone(),
             action: ClaudeAction::Build,
+            required_capability: None,
         })
         .await
         .unwrap();
@@ -407,7 +408,7 @@ pub async fn test_claude_run_lifecycle(db: &dyn Database) {
     assert_eq!(runs.len(), 1);
 
     // Claim the run (Queued -> Running)
-    let claimed = db.claim_next_claude_run().await.unwrap().unwrap();
+    let claimed = db.claim_next_claude_run(&[]).await.unwrap().unwrap();
     assert_eq!(claimed.id, run.id);
     assert_eq!(claimed.status, ClaudeRunStatus::Running);
 
@@ -460,6 +461,7 @@ pub async fn test_claude_run_lifecycle(db: &dyn Database) {
         .create_claude_run(&CreateClaudeRun {
             task_id: task.id.clone(),
             action: ClaudeAction::Plan,
+            required_capability: None,
         })
         .await
         .unwrap();
@@ -480,7 +482,7 @@ pub async fn test_claude_run_lifecycle(db: &dyn Database) {
 
 /// Test that claim_next_claude_run returns None when no queued runs exist.
 pub async fn test_claim_empty(db: &dyn Database) {
-    let result = db.claim_next_claude_run().await.unwrap();
+    let result = db.claim_next_claude_run(&[]).await.unwrap();
     assert!(result.is_none());
 }
 
@@ -500,10 +502,11 @@ pub async fn test_stale_runs(db: &dyn Database) {
         .create_claude_run(&CreateClaudeRun {
             task_id: task.id.clone(),
             action: ClaudeAction::Build,
+            required_capability: None,
         })
         .await
         .unwrap();
-    let _claimed = db.claim_next_claude_run().await.unwrap().unwrap();
+    let _claimed = db.claim_next_claude_run(&[]).await.unwrap().unwrap();
 
     // With a threshold in the future, the run should be considered stale
     let future = chrono::Utc::now() + chrono::Duration::hours(1);
@@ -543,10 +546,11 @@ pub async fn test_stale_runs(db: &dyn Database) {
         .create_claude_run(&CreateClaudeRun {
             task_id: task.id.clone(),
             action: ClaudeAction::Build,
+            required_capability: None,
         })
         .await
         .unwrap();
-    let _claimed2 = db.claim_next_claude_run().await.unwrap().unwrap();
+    let _claimed2 = db.claim_next_claude_run(&[]).await.unwrap().unwrap();
     // Transition to Salvaging
     db.update_claude_run_status(&run2.id, ClaudeRunStatus::Salvaging, None, None)
         .await
@@ -633,6 +637,7 @@ pub async fn test_task_prs(db: &dyn Database) {
         .create_claude_run(&CreateClaudeRun {
             task_id: task.id.clone(),
             action: ClaudeAction::Build,
+            required_capability: None,
         })
         .await
         .unwrap();

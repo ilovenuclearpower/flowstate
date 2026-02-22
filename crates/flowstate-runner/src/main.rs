@@ -10,6 +10,7 @@ use clap::Parser;
 use flowstate_core::claude_run::ClaudeRun;
 use flowstate_core::project::Project;
 use flowstate_core::task::Task;
+use flowstate_runner::backend::AgentBackend;
 use flowstate_runner::config::RunnerConfig;
 use flowstate_runner::run_tracker::{ActiveRun, ActiveRunSnapshot, RunOutcome, RunResult, RunTracker};
 use flowstate_runner::{executor, preflight, salvage};
@@ -32,7 +33,16 @@ async fn main() -> Result<()> {
     let config = RunnerConfig::parse();
     config.validate()?;
 
+    // Build agent backend from configuration
+    let backend = config.build_backend()?;
+    let capability = config.capability()?;
+
     info!("flowstate-runner starting");
+    info!("backend: {}", backend.name());
+    if let Some(model) = backend.model_hint() {
+        info!("model: {model}");
+    }
+    info!("capability: {capability}");
     info!("server: {}", config.server_url);
     info!(
         "timeouts: light={}s, build={}s, kill_grace={}s",
@@ -57,8 +67,19 @@ async fn main() -> Result<()> {
     let service = Arc::new(svc);
 
     // Run preflight checks
-    preflight::run_all(&service).await?;
+    preflight::run_all(&service, backend.as_ref()).await?;
 
+    // Register with the server
+    if let Err(e) = service
+        .register_runner(&runner_id, backend.name(), capability.as_str())
+        .await
+    {
+        warn!("runner registration failed (non-fatal): {e}");
+    } else {
+        info!("registered with server");
+    }
+
+    let backend: Arc<dyn AgentBackend> = Arc::from(backend);
     let config = Arc::new(config);
 
     // Concurrency primitives
@@ -80,6 +101,9 @@ async fn main() -> Result<()> {
         tracker: tracker.clone(),
         config: config.clone(),
         runner_id: runner_id.clone(),
+        backend_name: backend.name().to_string(),
+        model_hint: backend.model_hint().map(|s| s.to_string()),
+        capability: capability.as_str().to_string(),
     };
     let health_port = config.health_port;
     tokio::spawn(async move {
@@ -173,7 +197,8 @@ async fn main() -> Result<()> {
                     let ts = total_semaphore.clone();
                     let bs = build_semaphore.clone();
                     let trk = tracker.clone();
-                    join_set.spawn(execute_run(svc, run, task, project, cfg, ts, bs, trk));
+                    let be = backend.clone();
+                    join_set.spawn(execute_run(svc, run, task, project, cfg, ts, bs, trk, be));
                 }
                 Ok(None) => break, // no work available
                 Err(e) => {
@@ -235,6 +260,7 @@ async fn execute_run(
     total_semaphore: Arc<Semaphore>,
     build_semaphore: Arc<Semaphore>,
     tracker: Arc<RwLock<RunTracker>>,
+    backend: Arc<dyn AgentBackend>,
 ) -> RunResult {
     let run_id = run.id.clone();
     let task_id = run.task_id.clone();
@@ -277,7 +303,7 @@ async fn execute_run(
         // Execute with timeout
         let result = tokio::time::timeout(
             timeout,
-            executor::dispatch(&service, &run, &task, &project, &config),
+            executor::dispatch(&service, &run, &task, &project, &config, backend.as_ref()),
         )
         .await;
 
@@ -408,6 +434,9 @@ struct HealthState {
     tracker: Arc<RwLock<RunTracker>>,
     config: Arc<RunnerConfig>,
     runner_id: String,
+    backend_name: String,
+    model_hint: Option<String>,
+    capability: String,
 }
 
 #[derive(Serialize)]
@@ -415,6 +444,10 @@ struct HealthResponse {
     status: &'static str,
     role: &'static str,
     runner_id: String,
+    backend: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    capability: String,
     capacity: CapacityInfo,
     active_runs: Vec<ActiveRunSnapshot>,
 }
@@ -439,6 +472,9 @@ async fn health_handler(State(state): State<HealthState>) -> Json<HealthResponse
         status: "ok",
         role: "runner",
         runner_id: state.runner_id.clone(),
+        backend: state.backend_name.clone(),
+        model: state.model_hint.clone(),
+        capability: state.capability.clone(),
         capacity: CapacityInfo {
             max_concurrent: state.config.max_concurrent,
             max_builds: state.config.max_builds,

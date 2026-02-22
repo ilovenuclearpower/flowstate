@@ -1,22 +1,26 @@
-All four phases are complete. Here's a summary of the changes made across 3 files:
+All 10 phases are complete. Here's a summary of what was implemented:
 
-### `crates/flowstate-core/src/task.rs`
-- Added `Status::ordinal()` method — returns a numeric ordering (0-7) for workflow phases, used for forward-only comparison
-- Added `status_after_approval(field: &str) -> Option<Status>` — maps approval field names to the next board status (research→Design, spec→Plan, plan→Build, verify→Done)
-- Added 3 unit tests covering the mappings, ordering, and forward-only logic
+### Agnostic Runner Interface - Implementation Complete
 
-### `crates/flowstate-server/src/routes/tasks.rs`
-- Added `use flowstate_core::task` module import
-- Added `get_task` call at the start of `update_task` to fetch current task state
-- Added auto-advance logic after existing hash computation: when an approval field is set to `Approved`, the task's board status is automatically advanced to the next phase, with three guards:
-  - `input.status.is_none()` — respects explicit status overrides
-  - `current_task.status != Status::Cancelled` — never auto-advances cancelled tasks
-  - `next.ordinal() > current_task.status.ordinal()` — forward-only, never moves backward
+**Core abstractions:**
+- `RunnerCapability` enum (Light/Standard/Heavy) with tier hierarchy and action-to-capability mapping
+- `AgentBackend` trait abstracting agent invocation (preflight, run, name, model)
+- `ClaudeCliBackend` implementation (extracts existing Claude CLI logic)
+- `OpenCodeBackend` stub for future backends
 
-### `crates/flowstate-tui/src/app.rs`
-- Enhanced `handle_approval_pick` approve branch to show "research approved — moved to Design" (etc.) when auto-advance occurs, by comparing pre-update and post-update task status
+**Runner changes:**
+- `RunnerConfig` extended with `--backend` and `--capability` CLI flags
+- Backend threaded through entire dispatch chain: main → execute_run → executor → pipeline
+- Preflight checks use `backend.preflight_check()` instead of hardcoded Claude CLI checks
+- Runner registers with server on startup (capabilities, backend name)
+- Health endpoint reports backend, model, and capability info
 
-### Validation
-- `cargo build --workspace` — clean
-- `cargo test --workspace` — 69 tests pass (including 3 new)
-- `cargo clippy --workspace -- -D warnings` — no warnings
+**Server changes:**
+- `POST /api/runners/register` endpoint for runner registration
+- Capability-aware claim filtering — runners only receive work matching their tier
+- Triggered runs automatically set `required_capability` based on action type
+
+**Database:**
+- SQLite v10 migration adding `required_capability` column
+- PostgreSQL V2 migration for same
+- Claim query filters by runner capabilities (backwards-compatible: empty = claim anything)

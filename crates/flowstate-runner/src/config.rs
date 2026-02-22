@@ -4,6 +4,11 @@ use std::time::Duration;
 use anyhow::{bail, Result};
 use clap::Parser;
 use flowstate_core::claude_run::ClaudeAction;
+use flowstate_core::runner::RunnerCapability;
+
+use crate::backend::claude_cli::ClaudeCliBackend;
+use crate::backend::opencode::OpenCodeBackend;
+use crate::backend::AgentBackend;
 
 #[derive(Debug, Parser)]
 #[command(name = "flowstate-runner", about = "Flowstate build runner")]
@@ -57,6 +62,44 @@ pub struct RunnerConfig {
     /// Seconds to wait for in-progress runs during graceful shutdown before force-killing.
     #[arg(long, env = "FLOWSTATE_SHUTDOWN_TIMEOUT", default_value = "120")]
     pub shutdown_timeout: u64,
+
+    /// Which agentic backend to use: "claude-cli" (default) or "opencode"
+    #[arg(long, env = "FLOWSTATE_AGENT_BACKEND", default_value = "claude-cli")]
+    pub agent_backend: String,
+
+    /// Capability tier this runner advertises: "light", "standard", or "heavy" (default).
+    /// A runner at tier X can handle work at tier X and all lower tiers.
+    #[arg(long, env = "FLOWSTATE_RUNNER_CAPABILITY", default_value = "heavy")]
+    pub runner_capability: String,
+
+    /// For claude-cli backend: override ANTHROPIC_BASE_URL
+    /// (enables using vLLM, Ollama, OpenRouter with Anthropic-compatible API)
+    #[arg(long, env = "FLOWSTATE_ANTHROPIC_BASE_URL")]
+    pub anthropic_base_url: Option<String>,
+
+    /// For claude-cli backend: override ANTHROPIC_AUTH_TOKEN
+    #[arg(long, env = "FLOWSTATE_ANTHROPIC_AUTH_TOKEN")]
+    pub anthropic_auth_token: Option<String>,
+
+    /// For claude-cli backend: optional model name hint (informational)
+    #[arg(long, env = "FLOWSTATE_ANTHROPIC_MODEL")]
+    pub anthropic_model: Option<String>,
+
+    /// For opencode backend: provider name (e.g., "openrouter", "ollama")
+    #[arg(long, env = "FLOWSTATE_OPENCODE_PROVIDER")]
+    pub opencode_provider: Option<String>,
+
+    /// For opencode backend: model identifier
+    #[arg(long, env = "FLOWSTATE_OPENCODE_MODEL")]
+    pub opencode_model: Option<String>,
+
+    /// For opencode backend: API key
+    #[arg(long, env = "FLOWSTATE_OPENCODE_API_KEY")]
+    pub opencode_api_key: Option<String>,
+
+    /// For opencode backend: base URL override
+    #[arg(long, env = "FLOWSTATE_OPENCODE_BASE_URL")]
+    pub opencode_base_url: Option<String>,
 }
 
 impl RunnerConfig {
@@ -90,5 +133,41 @@ impl RunnerConfig {
     /// Returns true if the given action is a Build action (requires the build lock).
     pub fn is_build_action(action: ClaudeAction) -> bool {
         matches!(action, ClaudeAction::Build)
+    }
+
+    /// Build the appropriate AgentBackend from configuration.
+    pub fn build_backend(&self) -> Result<Box<dyn AgentBackend>> {
+        match self.agent_backend.as_str() {
+            "claude-cli" => Ok(Box::new(ClaudeCliBackend {
+                anthropic_base_url: self.anthropic_base_url.clone(),
+                anthropic_auth_token: self.anthropic_auth_token.clone(),
+                model: self.anthropic_model.clone(),
+            })),
+            "opencode" => Ok(Box::new(OpenCodeBackend {
+                provider: self
+                    .opencode_provider
+                    .clone()
+                    .unwrap_or_else(|| "ollama".to_string()),
+                model: self
+                    .opencode_model
+                    .clone()
+                    .unwrap_or_else(|| "default".to_string()),
+                api_key: self.opencode_api_key.clone(),
+                api_base_url: self.opencode_base_url.clone(),
+            })),
+            other => bail!(
+                "unknown agent backend: {other}. Supported: claude-cli, opencode"
+            ),
+        }
+    }
+
+    /// Parse the configured capability tier.
+    pub fn capability(&self) -> Result<RunnerCapability> {
+        RunnerCapability::parse_str(&self.runner_capability).ok_or_else(|| {
+            anyhow::anyhow!(
+                "invalid runner capability: {}. Expected: light, standard, heavy",
+                self.runner_capability
+            )
+        })
     }
 }

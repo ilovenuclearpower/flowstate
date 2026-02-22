@@ -5,6 +5,7 @@ pub mod commit;
 pub mod error;
 pub mod label;
 pub mod project;
+pub mod runner;
 pub mod sprint;
 pub mod task;
 pub mod task_link;

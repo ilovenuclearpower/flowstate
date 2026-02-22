@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
+use flowstate_core::runner::RunnerCapability;
 use flowstate_service::TaskService;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -26,6 +27,7 @@ pub fn routes() -> Router<AppState> {
             put(update_claude_run_progress),
         )
         .route("/api/claude-runs/{id}/output", get(get_claude_run_output))
+        .route("/api/runners/register", post(register_runner))
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,9 +145,13 @@ async fn trigger_claude_run(
         )));
     }
 
+    let required_capability = Some(
+        RunnerCapability::default_for_action(action).as_str().to_string(),
+    );
     let create = CreateClaudeRun {
         task_id: task_id.clone(),
         action,
+        required_capability,
     };
     let run = state
         .service
@@ -161,6 +167,7 @@ async fn trigger_claude_run(
 /// Claim the oldest queued run, atomically setting it to Running.
 /// Returns 204 if no queued runs exist.
 /// Also records the runner heartbeat via X-Runner-Id header.
+/// If the runner is registered, uses its capability tiers for filtering.
 async fn claim_claude_run(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -171,17 +178,39 @@ async fn claim_claude_run(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("unknown")
         .to_string();
-    state.runners.lock().unwrap().insert(
-        runner_id.clone(),
-        RunnerInfo {
-            runner_id: runner_id.clone(),
-            last_seen: Utc::now(),
-        },
-    );
 
-    let result = state.db.claim_next_claude_run().await.map_err(|e| {
-        to_error(flowstate_service::ServiceError::Internal(e.to_string()))
-    })?;
+    // Look up registered capabilities for this runner
+    let capabilities: Vec<String> = {
+        let runners = state.runners.lock().unwrap();
+        runners
+            .get(&runner_id)
+            .map(|info| info.capabilities.clone())
+            .unwrap_or_default()
+    };
+
+    // Update last_seen (preserve existing registration info)
+    {
+        let mut runners = state.runners.lock().unwrap();
+        runners
+            .entry(runner_id.clone())
+            .and_modify(|info| info.last_seen = Utc::now())
+            .or_insert_with(|| RunnerInfo {
+                runner_id: runner_id.clone(),
+                last_seen: Utc::now(),
+                backend_name: None,
+                capability: None,
+                capabilities: vec![],
+            });
+    }
+
+    let cap_refs: Vec<&str> = capabilities.iter().map(|s| s.as_str()).collect();
+    let result = state
+        .db
+        .claim_next_claude_run(&cap_refs)
+        .await
+        .map_err(|e| {
+            to_error(flowstate_service::ServiceError::Internal(e.to_string()))
+        })?;
 
     match result {
         Some(run) => {
@@ -191,6 +220,53 @@ async fn claim_claude_run(
         }
         None => Ok((StatusCode::NO_CONTENT, Json(json!(null)))),
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct RegisterRunnerInput {
+    runner_id: String,
+    #[serde(default)]
+    backend_name: Option<String>,
+    #[serde(default)]
+    capability: Option<String>,
+}
+
+/// Register a runner with the server, recording its capabilities.
+async fn register_runner(
+    State(state): State<AppState>,
+    Json(input): Json<RegisterRunnerInput>,
+) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+    // Parse capability and compute handled tiers
+    let capabilities: Vec<String> = input
+        .capability
+        .as_deref()
+        .and_then(RunnerCapability::parse_str)
+        .map(|cap| {
+            cap.handled_tiers()
+                .into_iter()
+                .map(|t| t.as_str().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let info = RunnerInfo {
+        runner_id: input.runner_id.clone(),
+        last_seen: Utc::now(),
+        backend_name: input.backend_name.clone(),
+        capability: input.capability.clone(),
+        capabilities,
+    };
+
+    state
+        .runners
+        .lock()
+        .unwrap()
+        .insert(input.runner_id.clone(), info);
+
+    Ok(Json(json!({
+        "status": "registered",
+        "runner_id": input.runner_id,
+    })))
 }
 
 #[derive(Debug, Deserialize)]
