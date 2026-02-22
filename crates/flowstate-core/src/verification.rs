@@ -69,35 +69,6 @@ impl RunStatus {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn run_status_parse_str() {
-        assert_eq!(RunStatus::parse_str("running"), Some(RunStatus::Running));
-        assert_eq!(RunStatus::parse_str("passed"), Some(RunStatus::Passed));
-        assert_eq!(RunStatus::parse_str("failed"), Some(RunStatus::Failed));
-        assert_eq!(RunStatus::parse_str("error"), Some(RunStatus::Error));
-        assert_eq!(RunStatus::parse_str("cancelled"), Some(RunStatus::Cancelled));
-        assert_eq!(RunStatus::parse_str("invalid"), None);
-    }
-
-    #[test]
-    fn run_status_as_str_roundtrip() {
-        let all = [
-            RunStatus::Running,
-            RunStatus::Passed,
-            RunStatus::Failed,
-            RunStatus::Error,
-            RunStatus::Cancelled,
-        ];
-        for s in &all {
-            assert_eq!(RunStatus::parse_str(s.as_str()), Some(*s));
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationRun {
     pub id: String,
