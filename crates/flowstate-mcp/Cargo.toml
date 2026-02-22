@@ -9,6 +9,7 @@ name = "flowstate-mcp"
 path = "src/main.rs"
 
 [dependencies]
+cargo-llvm-cov = { workspace = true }
 flowstate-core = { path = "../flowstate-core" }
 flowstate-db = { path = "../flowstate-db", default-features = false }
 flowstate-verify = { path = "../flowstate-verify" }

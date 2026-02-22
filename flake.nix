@@ -17,7 +17,7 @@
         pkgs = nixpkgs.legacyPackages.${system};
 
         rustToolchain = fenix.packages.${system}.stable.withComponents [
-          "cargo" "clippy" "rustc" "rustfmt" "rust-src" "rust-analyzer"
+          "cargo" "clippy" "rustc" "rustfmt" "rust-src" "rust-analyzer" "llvm-tools"
         ];
 
         craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
@@ -65,6 +65,7 @@
 
         garageScripts = import ./nix/garage.nix { inherit pkgs; };
         postgresScripts = import ./nix/postgres.nix { inherit pkgs; };
+        coverageScripts = import ./nix/coverage.nix { inherit pkgs rustToolchain; };
 
       in {
         packages = {
@@ -87,14 +88,21 @@
           fmt = craneLib.cargoFmt { inherit src; };
         };
 
+        apps.coverage = {
+          type = "app";
+          program = "${coverageScripts.flowstateCoverage}/bin/flowstate-coverage";
+        };
+
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
           packages = [
             pkgs.sqlite
             pkgs.git
             pkgs.openssl
+            pkgs.cargo-llvm-cov
           ] ++ garageScripts.all
-            ++ postgresScripts.all;
+            ++ postgresScripts.all
+            ++ coverageScripts.all;
           RUST_MIN_STACK = "16777216";
           shellHook = ''
             echo "flowstate dev shell"
@@ -129,6 +137,9 @@
             echo "  garage-test-stop   - Stop ephemeral Garage and wipe data"
             echo "  garage-test-status - Check ephemeral Garage status"
             echo "  garage-test-info   - Show test S3 credentials"
+            echo ""
+            echo "Coverage:"
+            echo "  flowstate-coverage - Run full coverage suite (starts Postgres + Garage)"
             echo ""
             echo "Postgres commands:"
             echo "  pg-dev-start       - Start persistent Postgres (port 5710)"
