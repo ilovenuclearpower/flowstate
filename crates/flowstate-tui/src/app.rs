@@ -201,6 +201,12 @@ impl App {
         self.mode = Mode::Normal;
     }
 
+    /// Get a reference to the current mode.
+    #[allow(dead_code)]
+    pub fn mode(&self) -> &Mode {
+        &self.mode
+    }
+
     pub fn is_input_mode(&self) -> bool {
         matches!(
             self.mode,

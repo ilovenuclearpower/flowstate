@@ -156,6 +156,15 @@ impl TaskService for LocalService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flowstate_core::project::CreateProject;
+    use flowstate_core::sprint::CreateSprint;
+    use flowstate_core::task::{CreateTask, Priority, Status, TaskFilter, UpdateTask};
+    use flowstate_db::SqliteDatabase;
+
+    async fn make_service() -> LocalService {
+        let db = Arc::new(SqliteDatabase::open_in_memory().unwrap());
+        LocalService::new(db as Arc<dyn Database>)
+    }
 
     #[test]
     fn test_db_error_not_found_maps_to_service_not_found() {
@@ -169,5 +178,173 @@ mod tests {
         let db_err = flowstate_db::DbError::Internal("connection lost".into());
         let svc_err: ServiceError = db_err.into();
         assert!(matches!(svc_err, ServiceError::Internal(_)));
+    }
+
+    #[tokio::test]
+    async fn local_service_project_crud() {
+        let svc = make_service().await;
+
+        // Create
+        let input = CreateProject {
+            name: "My Project".into(),
+            slug: "my-project".into(),
+            description: "A test project".into(),
+            repo_url: String::new(),
+        };
+        let created = svc.create_project(&input).await.unwrap();
+        assert_eq!(created.name, "My Project");
+        assert_eq!(created.slug, "my-project");
+
+        // Get
+        let fetched = svc.get_project(&created.id).await.unwrap();
+        assert_eq!(fetched.id, created.id);
+        assert_eq!(fetched.name, "My Project");
+
+        // Get by slug
+        let by_slug = svc.get_project_by_slug("my-project").await.unwrap();
+        assert_eq!(by_slug.id, created.id);
+
+        // List (should have 1)
+        let projects = svc.list_projects().await.unwrap();
+        assert_eq!(projects.len(), 1);
+
+        // Update
+        let update = flowstate_core::project::UpdateProject {
+            name: Some("Renamed".into()),
+            ..Default::default()
+        };
+        let updated = svc.update_project(&created.id, &update).await.unwrap();
+        assert_eq!(updated.name, "Renamed");
+
+        // Delete
+        svc.delete_project(&created.id).await.unwrap();
+
+        // List (should have 0)
+        let projects = svc.list_projects().await.unwrap();
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn local_service_task_crud() {
+        let svc = make_service().await;
+
+        // Create a project first
+        let project = svc
+            .create_project(&CreateProject {
+                name: "P1".into(),
+                slug: "p1".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
+
+        // Create task
+        let task = svc
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "Task 1".into(),
+                description: "Do something".into(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(task.title, "Task 1");
+        assert_eq!(task.status, Status::Todo);
+
+        // Get
+        let fetched = svc.get_task(&task.id).await.unwrap();
+        assert_eq!(fetched.id, task.id);
+
+        // List
+        let filter = TaskFilter {
+            project_id: Some(project.id.clone()),
+            ..Default::default()
+        };
+        let tasks = svc.list_tasks(&filter).await.unwrap();
+        assert_eq!(tasks.len(), 1);
+
+        // Update
+        let updated = svc
+            .update_task(
+                &task.id,
+                &UpdateTask {
+                    status: Some(Status::Build),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.status, Status::Build);
+
+        // Delete
+        svc.delete_task(&task.id).await.unwrap();
+        let tasks = svc.list_tasks(&filter).await.unwrap();
+        assert_eq!(tasks.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn local_service_sprint_crud() {
+        let svc = make_service().await;
+
+        // Create a project first
+        let project = svc
+            .create_project(&CreateProject {
+                name: "P2".into(),
+                slug: "p2".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
+
+        // Create sprint
+        let sprint = svc
+            .create_sprint(&CreateSprint {
+                project_id: project.id.clone(),
+                name: "Sprint 1".into(),
+                goal: "Ship it".into(),
+                starts_at: None,
+                ends_at: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(sprint.name, "Sprint 1");
+
+        // Get
+        let fetched = svc.get_sprint(&sprint.id).await.unwrap();
+        assert_eq!(fetched.id, sprint.id);
+
+        // List
+        let sprints = svc.list_sprints(&project.id).await.unwrap();
+        assert_eq!(sprints.len(), 1);
+
+        // Update
+        let updated = svc
+            .update_sprint(
+                &sprint.id,
+                &flowstate_core::sprint::UpdateSprint {
+                    name: Some("Sprint 1 - Renamed".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.name, "Sprint 1 - Renamed");
+
+        // Delete
+        svc.delete_sprint(&sprint.id).await.unwrap();
+        let sprints = svc.list_sprints(&project.id).await.unwrap();
+        assert_eq!(sprints.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn local_service_not_found_error() {
+        let svc = make_service().await;
+        let err = svc.get_project("nonexistent").await.unwrap_err();
+        assert!(matches!(err, ServiceError::NotFound(_)));
     }
 }

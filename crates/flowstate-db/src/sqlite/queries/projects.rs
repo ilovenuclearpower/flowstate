@@ -112,7 +112,17 @@ impl SqliteDatabase {
             }
 
             if sets.is_empty() {
-                return self.get_project_sync(id);
+                return conn.query_row(
+                    "SELECT * FROM projects WHERE id = ?1",
+                    params![id],
+                    row_to_project,
+                )
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        DbError::NotFound(format!("project {id}"))
+                    }
+                    other => DbError::Internal(other.to_string()),
+                });
             }
 
             sets.push("updated_at = ?");

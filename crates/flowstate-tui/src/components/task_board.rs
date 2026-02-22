@@ -303,4 +303,134 @@ mod tests {
         assert_eq!(board.active_column, 6);
         assert_eq!(board.selected_task().unwrap().id, "d1");
     }
+
+    // --- Navigation tests ---
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, crossterm::event::KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn navigate_right_clamps_at_last_column() {
+        let mut board = make_board();
+        // Move to last column (index 6)
+        board.active_column = 6;
+        board.handle_key(key(KeyCode::Char('l')));
+        assert_eq!(board.active_column, 6);
+    }
+
+    #[test]
+    fn navigate_left_clamps_at_first_column() {
+        let mut board = make_board();
+        assert_eq!(board.active_column, 0);
+        board.handle_key(key(KeyCode::Char('h')));
+        assert_eq!(board.active_column, 0);
+    }
+
+    #[test]
+    fn navigate_down_past_end() {
+        let mut board = make_board();
+        // Column 0 has 2 tasks (t1, t2), cursor starts at 0
+        assert_eq!(board.selected_task().unwrap().id, "t1");
+
+        board.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(board.selected_task().unwrap().id, "t2");
+
+        // Third press should stay at last task
+        board.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(board.selected_task().unwrap().id, "t2");
+    }
+
+    #[test]
+    fn navigate_up_past_start() {
+        let mut board = make_board();
+        // Cursor starts at first task
+        assert_eq!(board.selected_task().unwrap().id, "t1");
+
+        board.handle_key(key(KeyCode::Char('k')));
+        assert_eq!(board.selected_task().unwrap().id, "t1");
+    }
+
+    #[test]
+    fn empty_board_navigation() {
+        let mut board = TaskBoard::new(vec![
+            (Status::Todo, vec![]),
+            (Status::Research, vec![]),
+            (Status::Design, vec![]),
+        ]);
+        // None of these should panic
+        board.handle_key(key(KeyCode::Char('h')));
+        board.handle_key(key(KeyCode::Char('l')));
+        board.handle_key(key(KeyCode::Char('j')));
+        board.handle_key(key(KeyCode::Char('k')));
+        board.handle_key(key(KeyCode::Char('g')));
+        board.handle_key(key(KeyCode::Char('G')));
+        assert!(board.selected_task().is_none());
+    }
+
+    #[test]
+    fn navigate_right_selected_task_updates() {
+        let mut board = make_board();
+        // Column 0 has t1,t2; column 1 has r1
+        assert_eq!(board.selected_task().unwrap().id, "t1");
+
+        board.handle_key(key(KeyCode::Char('l')));
+        assert_eq!(board.active_column, 1);
+        assert_eq!(board.selected_task().unwrap().id, "r1");
+    }
+
+    #[test]
+    fn navigate_g_jumps_to_top() {
+        let mut board = make_board();
+        // Move to column 3 which has 3 tasks (p1, p2, p3)
+        board.select_task_by_id("p3");
+        assert_eq!(board.selected_task().unwrap().id, "p3");
+
+        board.handle_key(key(KeyCode::Char('g')));
+        assert_eq!(board.selected_task().unwrap().id, "p1");
+    }
+
+    #[test]
+    fn navigate_big_g_jumps_to_bottom() {
+        let mut board = make_board();
+        // Move to column 3, cursor starts at p1 after select_task_by_id
+        board.select_task_by_id("p1");
+        assert_eq!(board.selected_task().unwrap().id, "p1");
+
+        board.handle_key(key(KeyCode::Char('G')));
+        assert_eq!(board.selected_task().unwrap().id, "p3");
+    }
+
+    #[test]
+    fn arrow_keys_match_hjkl() {
+        let mut board = make_board();
+        // Right arrow moves column like 'l'
+        board.handle_key(key(KeyCode::Right));
+        assert_eq!(board.active_column, 1);
+
+        // Left arrow moves back like 'h'
+        board.handle_key(key(KeyCode::Left));
+        assert_eq!(board.active_column, 0);
+
+        // Down arrow moves cursor like 'j'
+        board.handle_key(key(KeyCode::Down));
+        assert_eq!(board.selected_task().unwrap().id, "t2");
+
+        // Up arrow moves cursor like 'k'
+        board.handle_key(key(KeyCode::Up));
+        assert_eq!(board.selected_task().unwrap().id, "t1");
+    }
+
+    #[test]
+    fn navigate_into_empty_column_selected_is_none() {
+        let mut board = make_board();
+        // Column 1 = Research (has r1), Column 2 = Design (empty)
+        board.handle_key(key(KeyCode::Char('l'))); // -> column 1
+        assert_eq!(board.active_column, 1);
+        assert_eq!(board.selected_task().unwrap().id, "r1");
+
+        board.handle_key(key(KeyCode::Char('l'))); // -> column 2 (empty)
+        assert_eq!(board.active_column, 2);
+        assert!(board.selected_task().is_none());
+    }
 }

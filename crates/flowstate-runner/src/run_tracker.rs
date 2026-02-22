@@ -150,4 +150,12 @@ mod tests {
         tracker.insert(make_run("r4", "t4", ClaudeAction::Build));
         assert_eq!(tracker.active_build_count(), 1);
     }
+
+    #[test]
+    fn test_run_tracker_default() {
+        let tracker = RunTracker::default();
+        assert_eq!(tracker.active_count(), 0);
+        assert_eq!(tracker.active_build_count(), 0);
+        assert!(tracker.snapshot().is_empty());
+    }
 }

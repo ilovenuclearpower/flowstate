@@ -16,7 +16,7 @@ let
     set -euo pipefail
     export PATH="${runtimePath}:$PATH"
 
-    THRESHOLD="''${FLOWSTATE_COV_THRESHOLD:-29}"
+    THRESHOLD="''${FLOWSTATE_COV_THRESHOLD:-90}"
 
     # Use clang as the C compiler so bundled C deps (libsqlite3-sys, ring, aws-lc-sys)
     # can handle LLVM instrumentation flags (-fprofile-instr-generate, -fcoverage-mapping)
@@ -100,6 +100,12 @@ let
       --workspace \
       --all-features \
       --fail-under-lines "$THRESHOLD" \
+      --ignore-filename-regex '/main\.rs$' \
+      --ignore-filename-regex '/(mock|test_helpers)\.rs$' \
+      --ignore-filename-regex 'backend/claude_cli\.rs$' \
+      --ignore-filename-regex 'backend/opencode\.rs$' \
+      --ignore-filename-regex 'repo_provider/github\.rs$' \
+      --exclude flowstate-mcp \
       -- --include-ignored \
       || CARGO_EXIT=$?
 

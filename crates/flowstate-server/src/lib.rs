@@ -1,7 +1,13 @@
 pub mod auth;
 pub mod crypto;
+#[cfg(any(test, feature = "test-helpers"))]
+pub mod routes;
+#[cfg(not(any(test, feature = "test-helpers")))]
 mod routes;
 pub mod watchdog;
+
+#[cfg(any(test, feature = "test-helpers"))]
+pub mod test_helpers;
 
 use std::sync::Arc;
 

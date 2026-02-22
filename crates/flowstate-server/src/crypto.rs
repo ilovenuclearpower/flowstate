@@ -92,6 +92,10 @@ fn key_file_path() -> PathBuf {
 mod tests {
     use super::*;
     use aes_gcm::KeyInit;
+    use std::sync::Mutex;
+
+    /// Mutex to serialize tests that modify environment variables.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     fn test_key() -> Key<Aes256Gcm> {
         Aes256Gcm::generate_key(OsRng)
@@ -149,5 +153,65 @@ mod tests {
         let encrypted = encrypt(&key, "").unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
         assert_eq!(decrypted, "");
+    }
+
+    #[test]
+    fn test_load_or_generate_key_creates_file() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("flowstate-test-config");
+        std::env::set_var("XDG_CONFIG_HOME", config_dir.to_str().unwrap());
+
+        let key1 = load_or_generate_key();
+        let key2 = load_or_generate_key();
+        // Same key loaded both times
+        assert_eq!(key1, key2);
+
+        // Verify the file exists
+        let key_path = config_dir.join("flowstate").join("server.key");
+        assert!(key_path.exists());
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+
+    #[test]
+    fn test_key_file_path_xdg() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg-test");
+        let path = key_file_path();
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("/tmp/xdg-test/flowstate/server.key")
+        );
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+
+    #[test]
+    fn test_key_file_path_home() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        // Remove XDG_CONFIG_HOME so it falls through to HOME
+        std::env::remove_var("XDG_CONFIG_HOME");
+        if std::env::var_os("HOME").is_some() {
+            let path = key_file_path();
+            assert!(path.to_string_lossy().contains(".config/flowstate/server.key"));
+        }
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_long_text() {
+        let key = test_key();
+        let long_text = "x".repeat(10000);
+        let encrypted = encrypt(&key, &long_text).unwrap();
+        let decrypted = decrypt(&key, &encrypted).unwrap();
+        assert_eq!(decrypted, long_text);
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_unicode() {
+        let key = test_key();
+        let unicode_text = "Hello 🌍 世界 مرحبا";
+        let encrypted = encrypt(&key, unicode_text).unwrap();
+        let decrypted = decrypt(&key, &encrypted).unwrap();
+        assert_eq!(decrypted, unicode_text);
     }
 }

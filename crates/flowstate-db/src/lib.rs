@@ -314,4 +314,32 @@ mod tests {
         let path = data_dir();
         assert!(path.to_string_lossy().contains("flowstate"));
     }
+
+    #[test]
+    fn db_config_from_env_defaults() {
+        // Clear any env vars that might interfere
+        std::env::remove_var("FLOWSTATE_DB_BACKEND");
+        std::env::remove_var("FLOWSTATE_DATABASE_URL");
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("FLOWSTATE_SQLITE_PATH");
+
+        let config = DbConfig::from_env();
+        assert_eq!(config.backend, "sqlite");
+        assert!(config.database_url.is_none());
+        assert!(config.sqlite_path.is_none());
+    }
+
+    #[tokio::test]
+    async fn open_database_unknown_backend() {
+        let config = DbConfig {
+            backend: "nosql".into(),
+            database_url: None,
+            sqlite_path: None,
+        };
+        let result = open_database(&config).await;
+        match result {
+            Err(e) => assert!(e.to_string().contains("unknown")),
+            Ok(_) => panic!("expected error for unknown backend"),
+        }
+    }
 }

@@ -14,3 +14,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
+
+[dev-dependencies]
+flowstate-db = { path = "../flowstate-db", features = ["sqlite"] }
+tokio = { workspace = true, features = ["full", "test-util"] }

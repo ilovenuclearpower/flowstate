@@ -265,22 +265,43 @@ mod tests {
         assert!(store.is_ok(), "should fall back to default local dir");
     }
 
+    // These subtests mutate global env vars and must run sequentially
+    // in a single test to avoid races with parallel test execution.
     #[test]
-    fn store_config_from_env_with_aws_fallback() {
-        // Clear any flowstate-prefixed vars to avoid interference
-        std::env::remove_var("FLOWSTATE_S3_ENDPOINT");
-        std::env::remove_var("FLOWSTATE_S3_REGION");
-        std::env::remove_var("FLOWSTATE_S3_BUCKET");
-        std::env::remove_var("FLOWSTATE_S3_ACCESS_KEY_ID");
-        std::env::remove_var("FLOWSTATE_S3_SECRET_ACCESS_KEY");
+    fn store_config_from_env_scenarios() {
+        use std::sync::Mutex;
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
 
-        // Set AWS_* fallbacks
+        let clear_all = || {
+            for var in [
+                "FLOWSTATE_S3_ENDPOINT", "AWS_ENDPOINT_URL",
+                "FLOWSTATE_S3_REGION", "AWS_REGION",
+                "FLOWSTATE_S3_BUCKET", "GARAGE_BUCKET",
+                "FLOWSTATE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID",
+                "FLOWSTATE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY",
+            ] {
+                std::env::remove_var(var);
+            }
+        };
+
+        // Scenario 1: no vars set → all None
+        clear_all();
+        let config = StoreConfig::from_env();
+        assert!(config.endpoint_url.is_none());
+        assert!(config.region.is_none());
+        assert!(config.bucket.is_none());
+        assert!(config.access_key_id.is_none());
+        assert!(config.secret_access_key.is_none());
+        assert!(!config.is_s3());
+
+        // Scenario 2: AWS_* fallbacks
+        clear_all();
         std::env::set_var("AWS_ENDPOINT_URL", "http://aws-endpoint:443");
         std::env::set_var("AWS_REGION", "us-west-2");
         std::env::set_var("AWS_ACCESS_KEY_ID", "aws-key");
         std::env::set_var("AWS_SECRET_ACCESS_KEY", "aws-secret");
         std::env::set_var("GARAGE_BUCKET", "my-bucket");
-
         let config = StoreConfig::from_env();
         assert_eq!(config.endpoint_url.as_deref(), Some("http://aws-endpoint:443"));
         assert_eq!(config.region.as_deref(), Some("us-west-2"));
@@ -289,23 +310,14 @@ mod tests {
         assert_eq!(config.secret_access_key.as_deref(), Some("aws-secret"));
         assert!(config.is_s3());
 
-        // Cleanup
-        std::env::remove_var("AWS_ENDPOINT_URL");
-        std::env::remove_var("AWS_REGION");
-        std::env::remove_var("AWS_ACCESS_KEY_ID");
-        std::env::remove_var("AWS_SECRET_ACCESS_KEY");
-        std::env::remove_var("GARAGE_BUCKET");
-    }
-
-    #[test]
-    fn store_config_from_env_flowstate_vars_take_precedence() {
+        // Scenario 3: FLOWSTATE_S3_* take precedence over AWS_*
+        clear_all();
         std::env::set_var("FLOWSTATE_S3_ENDPOINT", "http://flowstate:3900");
         std::env::set_var("AWS_ENDPOINT_URL", "http://aws:443");
         std::env::set_var("FLOWSTATE_S3_REGION", "garage");
         std::env::set_var("FLOWSTATE_S3_BUCKET", "fs-bucket");
         std::env::set_var("FLOWSTATE_S3_ACCESS_KEY_ID", "fs-key");
         std::env::set_var("FLOWSTATE_S3_SECRET_ACCESS_KEY", "fs-secret");
-
         let config = StoreConfig::from_env();
         assert_eq!(config.endpoint_url.as_deref(), Some("http://flowstate:3900"));
         assert_eq!(config.region.as_deref(), Some("garage"));
@@ -313,35 +325,6 @@ mod tests {
         assert_eq!(config.access_key_id.as_deref(), Some("fs-key"));
         assert_eq!(config.secret_access_key.as_deref(), Some("fs-secret"));
 
-        // Cleanup
-        std::env::remove_var("FLOWSTATE_S3_ENDPOINT");
-        std::env::remove_var("AWS_ENDPOINT_URL");
-        std::env::remove_var("FLOWSTATE_S3_REGION");
-        std::env::remove_var("FLOWSTATE_S3_BUCKET");
-        std::env::remove_var("FLOWSTATE_S3_ACCESS_KEY_ID");
-        std::env::remove_var("FLOWSTATE_S3_SECRET_ACCESS_KEY");
-    }
-
-    #[test]
-    fn store_config_from_env_no_vars_set() {
-        // Clear everything
-        std::env::remove_var("FLOWSTATE_S3_ENDPOINT");
-        std::env::remove_var("AWS_ENDPOINT_URL");
-        std::env::remove_var("FLOWSTATE_S3_REGION");
-        std::env::remove_var("AWS_REGION");
-        std::env::remove_var("FLOWSTATE_S3_BUCKET");
-        std::env::remove_var("GARAGE_BUCKET");
-        std::env::remove_var("FLOWSTATE_S3_ACCESS_KEY_ID");
-        std::env::remove_var("AWS_ACCESS_KEY_ID");
-        std::env::remove_var("FLOWSTATE_S3_SECRET_ACCESS_KEY");
-        std::env::remove_var("AWS_SECRET_ACCESS_KEY");
-
-        let config = StoreConfig::from_env();
-        assert!(config.endpoint_url.is_none());
-        assert!(config.region.is_none());
-        assert!(config.bucket.is_none());
-        assert!(config.access_key_id.is_none());
-        assert!(config.secret_access_key.is_none());
-        assert!(!config.is_s3());
+        clear_all();
     }
 }
