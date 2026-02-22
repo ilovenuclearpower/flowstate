@@ -106,19 +106,49 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_builtin_profiles_count() {
+    fn builtin_profiles_count() {
         assert_eq!(builtin_profiles().len(), 4);
     }
 
     #[test]
-    fn test_builtin_profile_names() {
+    fn profile_names() {
         let profiles = builtin_profiles();
         let names: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, vec!["Rust TUI", "Rust Backend", "Vite Frontend", "NixOS"]);
     }
 
     #[test]
-    fn test_builtin_profiles_have_steps() {
+    fn rust_tui_steps() {
+        let profiles = builtin_profiles();
+        let steps = &profiles[0].steps;
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0].name, "Check");
+        assert_eq!(steps[1].name, "Test");
+        assert_eq!(steps[2].name, "Clippy");
+    }
+
+    #[test]
+    fn vite_frontend_steps() {
+        let profiles = builtin_profiles();
+        let steps = &profiles[2].steps;
+        assert_eq!(steps.len(), 4);
+        assert_eq!(steps[0].name, "Typecheck");
+        assert_eq!(steps[1].name, "Test");
+        assert_eq!(steps[2].name, "Lint");
+        assert_eq!(steps[3].name, "Build");
+    }
+
+    #[test]
+    fn nixos_steps() {
+        let profiles = builtin_profiles();
+        let steps = &profiles[3].steps;
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].name, "Build");
+        assert_eq!(steps[1].name, "Flake Check");
+    }
+
+    #[test]
+    fn all_profiles_have_steps() {
         for profile in builtin_profiles() {
             assert!(
                 !profile.steps.is_empty(),
@@ -129,15 +159,10 @@ mod tests {
     }
 
     #[test]
-    fn test_builtin_profiles_positive_timeouts() {
+    fn all_steps_have_timeouts() {
         for profile in builtin_profiles() {
             for step in &profile.steps {
-                assert!(
-                    step.timeout_s > 0,
-                    "step '{}' in profile '{}' should have positive timeout",
-                    step.name,
-                    profile.name
-                );
+                assert!(step.timeout_s > 0, "Step '{}' in '{}' has timeout_s <= 0", step.name, profile.name);
             }
         }
     }

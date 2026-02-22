@@ -173,3 +173,208 @@ fn to_error(e: flowstate_service::ServiceError) -> (StatusCode, Json<Value>) {
     };
     (status, Json(json!({ "error": msg })))
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use serde_json::{json, Value};
+    use tower::ServiceExt;
+
+    use crate::test_helpers::test_router;
+
+    #[tokio::test]
+    async fn project_crud_lifecycle() {
+        let app = test_router().await;
+
+        // POST /api/projects → 201
+        let body = serde_json::to_string(&json!({
+            "name": "My Project",
+            "slug": "my-project",
+            "description": "A test project"
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/projects")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: Value = serde_json::from_slice(&bytes).unwrap();
+        let id = created["id"].as_str().unwrap();
+
+        // GET /api/projects/{id}
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/projects/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let fetched: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(fetched["name"], "My Project");
+        assert_eq!(fetched["slug"], "my-project");
+
+        // PUT /api/projects/{id}
+        let body = serde_json::to_string(&json!({
+            "name": "Renamed Project"
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/api/projects/{id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let updated: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(updated["name"], "Renamed Project");
+
+        // DELETE /api/projects/{id} → 204
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!("/api/projects/{id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn project_not_found() {
+        let app = test_router().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/projects/00000000-0000-0000-0000-000000000000")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn project_list() {
+        let app = test_router().await;
+
+        // Create 2 projects
+        for slug in &["proj-a", "proj-b"] {
+            let body = serde_json::to_string(&json!({
+                "name": slug,
+                "slug": slug,
+            }))
+            .unwrap();
+            let resp = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(Method::POST)
+                        .uri("/api/projects")
+                        .header("content-type", "application/json")
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::CREATED);
+        }
+
+        // GET /api/projects → list of 2
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/projects")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn project_get_by_slug() {
+        let app = test_router().await;
+
+        // Create a project
+        let body = serde_json::to_string(&json!({
+            "name": "Slug Test",
+            "slug": "slug-test",
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/projects")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: Value = serde_json::from_slice(&bytes).unwrap();
+        let id = created["id"].as_str().unwrap();
+
+        // GET /api/projects/by-slug/slug-test
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/projects/by-slug/slug-test")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let fetched: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(fetched["id"].as_str().unwrap(), id);
+        assert_eq!(fetched["slug"], "slug-test");
+    }
+}

@@ -12,6 +12,7 @@ path = "src/main.rs"
 path = "src/lib.rs"
 
 [dependencies]
+cargo-llvm-cov = { workspace = true }
 flowstate-core = { path = "../flowstate-core" }
 flowstate-db = { path = "../flowstate-db", default-features = false }
 flowstate-service = { path = "../flowstate-service" }
@@ -32,8 +33,21 @@ flowstate-store = { path = "../flowstate-store" }
 bytes = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+tempfile = { version = "3", optional = true }
+
+[[test]]
+name = "http_client_integration"
+required-features = ["test-helpers"]
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }
+flowstate-core = { path = "../flowstate-core" }
+flowstate-service = { path = "../flowstate-service" }
+tokio = { workspace = true, features = ["full", "test-util"] }
 
 [features]
 default = ["sqlite"]
 sqlite = ["flowstate-db/sqlite"]
 postgres = ["flowstate-db/postgres"]
+test-helpers = ["sqlite", "tempfile"]

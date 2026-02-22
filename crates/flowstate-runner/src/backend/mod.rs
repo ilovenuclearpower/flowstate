@@ -1,4 +1,5 @@
 pub mod claude_cli;
+pub mod mock;
 pub mod opencode;
 
 use std::path::Path;

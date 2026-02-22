@@ -77,3 +77,34 @@ async fn check_server_auth(service: &HttpService) -> Result<()> {
     info!("server: API key valid");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_git_succeeds() {
+        // Git should be available in the nix dev shell
+        check_git().unwrap();
+    }
+
+    #[test]
+    fn check_gh_cli_succeeds() {
+        // gh should be available in the nix dev shell
+        check_gh_cli().unwrap();
+    }
+
+    #[tokio::test]
+    async fn check_server_health_succeeds() {
+        let server = flowstate_server::test_helpers::spawn_test_server().await;
+        let svc = HttpService::new(&server.base_url);
+        check_server_health(&svc).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn check_server_auth_succeeds() {
+        let server = flowstate_server::test_helpers::spawn_test_server().await;
+        let svc = HttpService::new(&server.base_url);
+        check_server_auth(&svc).await.unwrap();
+    }
+}

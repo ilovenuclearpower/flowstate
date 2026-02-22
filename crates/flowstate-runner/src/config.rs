@@ -276,4 +276,48 @@ mod tests {
         assert!(!RunnerConfig::is_build_action(ClaudeAction::PlanDistill));
         assert!(!RunnerConfig::is_build_action(ClaudeAction::VerifyDistill));
     }
+
+    #[test]
+    fn test_capability_heavy() {
+        let cfg = test_config();
+        let cap = cfg.capability().unwrap();
+        assert_eq!(cap, RunnerCapability::Heavy);
+    }
+
+    #[test]
+    fn test_capability_light() {
+        let mut cfg = test_config();
+        cfg.runner_capability = "light".into();
+        let cap = cfg.capability().unwrap();
+        assert_eq!(cap, RunnerCapability::Light);
+    }
+
+    #[test]
+    fn test_capability_invalid() {
+        let mut cfg = test_config();
+        cfg.runner_capability = "turbo".into();
+        assert!(cfg.capability().is_err());
+    }
+
+    #[test]
+    fn test_build_backend_claude_cli() {
+        let cfg = test_config();
+        let backend = cfg.build_backend().unwrap();
+        assert_eq!(backend.name(), "claude-cli");
+    }
+
+    #[test]
+    fn test_build_backend_opencode() {
+        let mut cfg = test_config();
+        cfg.agent_backend = "opencode".into();
+        let backend = cfg.build_backend().unwrap();
+        assert_eq!(backend.name(), "opencode");
+    }
+
+    #[test]
+    fn test_build_backend_unknown() {
+        let mut cfg = test_config();
+        cfg.agent_backend = "unknown".into();
+        assert!(cfg.build_backend().is_err());
+    }
 }

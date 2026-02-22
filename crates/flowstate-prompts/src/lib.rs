@@ -47,14 +47,13 @@ pub fn assemble_prompt(ctx: &PromptContext, action: ClaudeAction) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use context::PromptContext;
 
-    fn test_context() -> PromptContext {
+    fn minimal_ctx() -> PromptContext {
         PromptContext {
             project_name: "TestProject".into(),
-            repo_url: "https://github.com/test/repo".into(),
+            repo_url: String::new(),
             task_title: "Test Task".into(),
-            task_description: "A test task description".into(),
+            task_description: "Do the thing".into(),
             spec_content: None,
             plan_content: None,
             research_content: None,
@@ -66,27 +65,76 @@ mod tests {
     }
 
     #[test]
-    fn test_assemble_prompt_research() {
-        let ctx = test_context();
-        let output = assemble_prompt(&ctx, ClaudeAction::Research);
-        assert!(output.contains("# Project: TestProject"));
-        assert!(output.contains("## Instructions"));
+    fn assemble_prompt_research() {
+        let ctx = minimal_ctx();
+        let out = assemble_prompt(&ctx, ClaudeAction::Research);
+        assert!(out.contains("# Project:"));
+        assert!(out.contains("Perform a thorough research phase"));
     }
 
     #[test]
-    fn test_assemble_prompt_build() {
-        let ctx = test_context();
-        let output = assemble_prompt(&ctx, ClaudeAction::Build);
-        assert!(output.contains("# Project: TestProject"));
-        assert!(output.contains("## Instructions"));
+    fn assemble_prompt_design() {
+        let ctx = minimal_ctx();
+        let out = assemble_prompt(&ctx, ClaudeAction::Design);
+        assert!(out.contains("technical specification"));
     }
 
     #[test]
-    fn test_assemble_prompt_distill_includes_feedback() {
-        let mut ctx = test_context();
-        ctx.distill_feedback = Some("Please fix the intro section".into());
-        let output = assemble_prompt(&ctx, ClaudeAction::ResearchDistill);
-        assert!(output.contains("Please fix the intro section"));
-        assert!(output.contains("research"));
+    fn assemble_prompt_plan() {
+        let ctx = minimal_ctx();
+        let out = assemble_prompt(&ctx, ClaudeAction::Plan);
+        assert!(out.contains("implementation plan"));
+    }
+
+    #[test]
+    fn assemble_prompt_build() {
+        let ctx = minimal_ctx();
+        let out = assemble_prompt(&ctx, ClaudeAction::Build);
+        assert!(out.contains("Implement the changes"));
+    }
+
+    #[test]
+    fn assemble_prompt_verify() {
+        let ctx = minimal_ctx();
+        let out = assemble_prompt(&ctx, ClaudeAction::Verify);
+        assert!(out.contains("verification"));
+    }
+
+    #[test]
+    fn assemble_prompt_research_distill() {
+        let mut ctx = minimal_ctx();
+        ctx.research_content = Some("Existing research".into());
+        ctx.distill_feedback = Some("fix typos".into());
+        let out = assemble_prompt(&ctx, ClaudeAction::ResearchDistill);
+        assert!(out.contains("Current Research Document"));
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("Existing research"));
+    }
+
+    #[test]
+    fn assemble_prompt_design_distill() {
+        let mut ctx = minimal_ctx();
+        ctx.distill_feedback = Some("revise API".into());
+        let out = assemble_prompt(&ctx, ClaudeAction::DesignDistill);
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("design"));
+    }
+
+    #[test]
+    fn assemble_prompt_plan_distill() {
+        let mut ctx = minimal_ctx();
+        ctx.distill_feedback = Some("add phases".into());
+        let out = assemble_prompt(&ctx, ClaudeAction::PlanDistill);
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("plan"));
+    }
+
+    #[test]
+    fn assemble_prompt_verify_distill() {
+        let mut ctx = minimal_ctx();
+        ctx.distill_feedback = Some("check edge cases".into());
+        let out = assemble_prompt(&ctx, ClaudeAction::VerifyDistill);
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("verification"));
     }
 }

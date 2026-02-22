@@ -35,7 +35,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_distill_output_file_mapping() {
+    fn distill_output_file_mapping() {
         let cases = vec![
             ("research", "RESEARCH.md"),
             ("design", "SPECIFICATION.md"),
@@ -53,5 +53,61 @@ mod tests {
                 "phase '{phase}' should produce file '{expected_file}', got: {prompt}"
             );
         }
+    }
+
+    #[test]
+    fn distill_instructions_research() {
+        let mut out = String::new();
+        append_instructions(&mut out, "research", "fix typos");
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("research"));
+        assert!(out.contains("fix typos"));
+        assert!(out.contains("RESEARCH.md"));
+    }
+
+    #[test]
+    fn distill_instructions_design() {
+        let mut out = String::new();
+        append_instructions(&mut out, "design", "revise API");
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("design"));
+        assert!(out.contains("SPECIFICATION.md"));
+    }
+
+    #[test]
+    fn distill_instructions_plan() {
+        let mut out = String::new();
+        append_instructions(&mut out, "plan", "add phases");
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("plan"));
+        assert!(out.contains("PLAN.md"));
+    }
+
+    #[test]
+    fn distill_instructions_verify() {
+        let mut out = String::new();
+        append_instructions(&mut out, "verification", "check edge cases");
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("verification"));
+        assert!(out.contains("VERIFICATION.md"));
+    }
+
+    #[test]
+    fn distill_instructions_unknown_phase() {
+        let mut out = String::new();
+        append_instructions(&mut out, "foobar", "some feedback");
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("foobar"));
+        assert!(out.contains("OUTPUT.md"));
+    }
+
+    #[test]
+    fn distill_instructions_empty_feedback() {
+        let mut out = String::new();
+        append_instructions(&mut out, "research", "");
+        assert!(out.contains("Review & Distill"));
+        assert!(out.contains("research"));
+        assert!(out.contains("RESEARCH.md"));
+        assert!(out.contains("### Reviewer Feedback"));
     }
 }

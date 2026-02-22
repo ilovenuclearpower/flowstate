@@ -333,4 +333,74 @@ mod tests {
             store.delete(key).await.unwrap();
         }
     }
+
+    #[tokio::test]
+    async fn s3_delete_nonexistent_is_noop() {
+        let Some(config) = s3_config() else {
+            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
+            return;
+        };
+        let store = S3Store::new(&config).unwrap();
+        // Deleting a key that doesn't exist should not error
+        store.delete("integration-test/nonexistent-delete-target").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn s3_list_empty_prefix() {
+        let Some(config) = s3_config() else {
+            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
+            return;
+        };
+        let store = S3Store::new(&config).unwrap();
+        let keys = store.list("integration-test/guaranteed-empty-prefix-xyz").await.unwrap();
+        assert!(keys.is_empty());
+    }
+
+    #[tokio::test]
+    async fn s3_exists_returns_correct_values() {
+        let Some(config) = s3_config() else {
+            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
+            return;
+        };
+        let store = S3Store::new(&config).unwrap();
+        let key = "integration-test/exists-check.txt";
+
+        // Should not exist initially
+        assert!(!store.exists(key).await.unwrap());
+
+        // Put something
+        store.put(key, Bytes::from("data")).await.unwrap();
+        assert!(store.exists(key).await.unwrap());
+
+        // Cleanup
+        store.delete(key).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn s3_get_opt_returns_none_for_missing() {
+        let Some(config) = s3_config() else {
+            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
+            return;
+        };
+        let store = S3Store::new(&config).unwrap();
+        let result = store.get_opt("integration-test/nonexistent-opt").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn s3_get_opt_returns_some_for_existing() {
+        let Some(config) = s3_config() else {
+            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
+            return;
+        };
+        let store = S3Store::new(&config).unwrap();
+        let key = "integration-test/get-opt-existing.txt";
+
+        store.put(key, Bytes::from("hello")).await.unwrap();
+        let result = store.get_opt(key).await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().as_ref(), b"hello");
+
+        store.delete(key).await.unwrap();
+    }
 }

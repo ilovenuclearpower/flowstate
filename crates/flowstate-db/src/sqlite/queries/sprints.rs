@@ -98,7 +98,17 @@ impl SqliteDatabase {
             }
 
             if sets.is_empty() {
-                return self.get_sprint_sync(id);
+                return conn.query_row(
+                    "SELECT * FROM sprints WHERE id = ?1",
+                    params![id],
+                    row_to_sprint,
+                )
+                .map_err(|e| match e {
+                    rusqlite::Error::QueryReturnedNoRows => {
+                        DbError::NotFound(format!("sprint {id}"))
+                    }
+                    other => DbError::Internal(other.to_string()),
+                });
             }
 
             sets.push("updated_at = ?");

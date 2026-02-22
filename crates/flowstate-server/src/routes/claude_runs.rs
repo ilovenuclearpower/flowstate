@@ -109,12 +109,12 @@ pub(crate) fn validate_action_prerequisites(
     }
 
     // Verify: build must be completed or a PR must be linked
-    if action == ClaudeAction::Verify {
-        if !has_completed_build && !has_prs {
-            return Err(
-                "cannot verify: build must be completed or a PR must be linked first".to_string(),
-            );
-        }
+    if action == ClaudeAction::Verify
+        && !has_completed_build && !has_prs
+    {
+        return Err(
+            "cannot verify: build must be completed or a PR must be linked first".to_string(),
+        );
     }
 
     // VerifyDistill: verify artifact must exist
@@ -529,5 +529,484 @@ mod tests {
         assert!(validate_action_prerequisites(ClaudeAction::VerifyDistill, &task, false, false).is_err());
         task.verify_status = ApprovalStatus::Pending;
         assert!(validate_action_prerequisites(ClaudeAction::VerifyDistill, &task, false, false).is_ok());
+    }
+
+    // ---- Integration tests ----
+
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode as AxumStatusCode};
+    use serde_json::{json, Value};
+    use tower::ServiceExt;
+
+    use crate::test_helpers::test_router;
+
+    /// Helper: create a project and return its id.
+    async fn create_project(app: &axum::Router) -> String {
+        let body = serde_json::to_string(&json!({
+            "name": "Test Project",
+            "slug": "test-proj",
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/projects")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        v["id"].as_str().unwrap().to_string()
+    }
+
+    /// Helper: create a task and return its id.
+    async fn create_task(app: &axum::Router, project_id: &str) -> String {
+        let body = serde_json::to_string(&json!({
+            "project_id": project_id,
+            "title": "Run Task",
+            "status": "todo",
+            "priority": "medium",
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/tasks")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        v["id"].as_str().unwrap().to_string()
+    }
+
+    #[tokio::test]
+    async fn claim_claude_run_empty() {
+        let app = test_router().await;
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/claude-runs/claim")
+                    .header("X-Runner-Id", "test-runner")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn claim_claude_run_success() {
+        let app = test_router().await;
+        let project_id = create_project(&app).await;
+        let task_id = create_task(&app, &project_id).await;
+
+        // Trigger a research run (no prerequisites)
+        let body = serde_json::to_string(&json!({"action": "research"})).unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/tasks/{task_id}/claude-runs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::CREATED);
+
+        // Claim the run
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/claude-runs/claim")
+                    .header("X-Runner-Id", "test-runner")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let run: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(run["status"], "running");
+    }
+
+    #[tokio::test]
+    async fn get_claude_run_by_id() {
+        let app = test_router().await;
+        let project_id = create_project(&app).await;
+        let task_id = create_task(&app, &project_id).await;
+
+        // Trigger
+        let body = serde_json::to_string(&json!({"action": "research"})).unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/tasks/{task_id}/claude-runs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: Value = serde_json::from_slice(&bytes).unwrap();
+        let run_id = created["id"].as_str().unwrap();
+
+        // Get by ID
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/claude-runs/{run_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let run: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(run["id"], run_id);
+    }
+
+    #[tokio::test]
+    async fn update_claude_run_status_flow() {
+        let app = test_router().await;
+        let project_id = create_project(&app).await;
+        let task_id = create_task(&app, &project_id).await;
+
+        // Trigger
+        let body = serde_json::to_string(&json!({"action": "research"})).unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/tasks/{task_id}/claude-runs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: Value = serde_json::from_slice(&bytes).unwrap();
+        let run_id = created["id"].as_str().unwrap();
+
+        // Claim to set Running
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/claude-runs/claim")
+                    .header("X-Runner-Id", "test-runner")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Update status to completed
+        let body = serde_json::to_string(&json!({
+            "status": "completed",
+            "exit_code": 0
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/api/claude-runs/{run_id}/status"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let run: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(run["status"], "completed");
+    }
+
+    #[tokio::test]
+    async fn update_claude_run_progress_flow() {
+        let app = test_router().await;
+        let project_id = create_project(&app).await;
+        let task_id = create_task(&app, &project_id).await;
+
+        // Trigger + claim
+        let body = serde_json::to_string(&json!({"action": "research"})).unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/tasks/{task_id}/claude-runs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: Value = serde_json::from_slice(&bytes).unwrap();
+        let run_id = created["id"].as_str().unwrap();
+
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/claude-runs/claim")
+                    .header("X-Runner-Id", "test-runner")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Update progress
+        let body = serde_json::to_string(&json!({"message": "Cloning..."})).unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/api/claude-runs/{run_id}/progress"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn update_claude_run_status_with_pr_info() {
+        let app = test_router().await;
+        let project_id = create_project(&app).await;
+        let task_id = create_task(&app, &project_id).await;
+
+        // Trigger + claim
+        let body = serde_json::to_string(&json!({"action": "research"})).unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/tasks/{task_id}/claude-runs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: Value = serde_json::from_slice(&bytes).unwrap();
+        let run_id = created["id"].as_str().unwrap();
+
+        let _ = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/claude-runs/claim")
+                    .header("X-Runner-Id", "test-runner")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Update status with PR info
+        let body = serde_json::to_string(&json!({
+            "status": "completed",
+            "pr_url": "https://github.com/test/repo/pull/1",
+            "pr_number": 1,
+            "branch_name": "flowstate/test"
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/api/claude-runs/{run_id}/status"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let run: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(run["pr_url"], "https://github.com/test/repo/pull/1");
+    }
+
+    #[tokio::test]
+    async fn register_runner_with_capabilities() {
+        let app = test_router().await;
+
+        let body = serde_json::to_string(&json!({
+            "runner_id": "cap-runner-1",
+            "backend_name": "claude-cli",
+            "capability": "heavy",
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/runners/register")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let result: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(result["status"], "registered");
+        assert_eq!(result["runner_id"], "cap-runner-1");
+    }
+
+    #[tokio::test]
+    async fn get_claude_run_output_missing() {
+        let app = test_router().await;
+        let project_id = create_project(&app).await;
+        let task_id = create_task(&app, &project_id).await;
+
+        // Trigger
+        let body = serde_json::to_string(&json!({"action": "research"})).unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/tasks/{task_id}/claude-runs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let created: Value = serde_json::from_slice(&bytes).unwrap();
+        let run_id = created["id"].as_str().unwrap();
+
+        // Get output (none exists)
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/claude-runs/{run_id}/output"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn trigger_and_list_runs() {
+        let app = test_router().await;
+        let project_id = create_project(&app).await;
+        let task_id = create_task(&app, &project_id).await;
+
+        // POST /api/tasks/{task_id}/claude-runs with action=research (no prerequisites)
+        let body = serde_json::to_string(&json!({
+            "action": "research",
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/tasks/{task_id}/claude-runs"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::CREATED);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let run: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(run["task_id"].as_str().unwrap(), task_id);
+        assert_eq!(run["action"], "research");
+
+        // GET /api/tasks/{task_id}/claude-runs → list has 1 item
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/tasks/{task_id}/claude-runs"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), AxumStatusCode::OK);
+        let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let list: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(list.as_array().unwrap().len(), 1);
     }
 }

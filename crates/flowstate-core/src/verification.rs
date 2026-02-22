@@ -99,7 +99,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_run_status_parse_str_round_trip() {
+    fn run_status_parse_str() {
+        assert_eq!(RunStatus::parse_str("running"), Some(RunStatus::Running));
+        assert_eq!(RunStatus::parse_str("passed"), Some(RunStatus::Passed));
+        assert_eq!(RunStatus::parse_str("failed"), Some(RunStatus::Failed));
+        assert_eq!(RunStatus::parse_str("error"), Some(RunStatus::Error));
+        assert_eq!(RunStatus::parse_str("cancelled"), Some(RunStatus::Cancelled));
+        assert_eq!(RunStatus::parse_str("invalid"), None);
+        assert_eq!(RunStatus::parse_str("timeout"), None);
+        assert_eq!(RunStatus::parse_str(""), None);
+    }
+
+    #[test]
+    fn run_status_as_str_roundtrip() {
         let all = [
             RunStatus::Running,
             RunStatus::Passed,
@@ -107,19 +119,8 @@ mod tests {
             RunStatus::Error,
             RunStatus::Cancelled,
         ];
-        for s in all {
-            assert_eq!(
-                RunStatus::parse_str(s.as_str()),
-                Some(s),
-                "RunStatus::{:?} should round-trip",
-                s
-            );
+        for s in &all {
+            assert_eq!(RunStatus::parse_str(s.as_str()), Some(*s));
         }
-    }
-
-    #[test]
-    fn test_run_status_parse_str_invalid() {
-        assert_eq!(RunStatus::parse_str("timeout"), None);
-        assert_eq!(RunStatus::parse_str(""), None);
     }
 }

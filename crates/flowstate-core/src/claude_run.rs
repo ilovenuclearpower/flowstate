@@ -136,7 +136,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_claude_action_parse_str_round_trip() {
+    fn claude_action_parse_str_all() {
+        assert_eq!(ClaudeAction::parse_str("research"), Some(ClaudeAction::Research));
+        assert_eq!(ClaudeAction::parse_str("design"), Some(ClaudeAction::Design));
+        assert_eq!(ClaudeAction::parse_str("plan"), Some(ClaudeAction::Plan));
+        assert_eq!(ClaudeAction::parse_str("build"), Some(ClaudeAction::Build));
+        assert_eq!(ClaudeAction::parse_str("verify"), Some(ClaudeAction::Verify));
+        assert_eq!(ClaudeAction::parse_str("research_distill"), Some(ClaudeAction::ResearchDistill));
+        assert_eq!(ClaudeAction::parse_str("design_distill"), Some(ClaudeAction::DesignDistill));
+        assert_eq!(ClaudeAction::parse_str("plan_distill"), Some(ClaudeAction::PlanDistill));
+        assert_eq!(ClaudeAction::parse_str("verify_distill"), Some(ClaudeAction::VerifyDistill));
+        assert_eq!(ClaudeAction::parse_str("invalid"), None);
+        assert_eq!(ClaudeAction::parse_str("compile"), None);
+        assert_eq!(ClaudeAction::parse_str(""), None);
+    }
+
+    #[test]
+    fn claude_action_as_str_roundtrip() {
         let all = [
             ClaudeAction::Research,
             ClaudeAction::Design,
@@ -148,31 +164,45 @@ mod tests {
             ClaudeAction::PlanDistill,
             ClaudeAction::VerifyDistill,
         ];
-        for a in all {
-            assert_eq!(
-                ClaudeAction::parse_str(a.as_str()),
-                Some(a),
-                "ClaudeAction::{:?} should round-trip",
-                a
-            );
+        for a in &all {
+            assert_eq!(ClaudeAction::parse_str(a.as_str()), Some(*a));
         }
     }
 
     #[test]
-    fn test_claude_action_parse_str_invalid() {
-        assert_eq!(ClaudeAction::parse_str("compile"), None);
-        assert_eq!(ClaudeAction::parse_str(""), None);
+    fn claude_action_display() {
+        let all = [
+            ClaudeAction::Research,
+            ClaudeAction::Design,
+            ClaudeAction::Plan,
+            ClaudeAction::Build,
+            ClaudeAction::Verify,
+            ClaudeAction::ResearchDistill,
+            ClaudeAction::DesignDistill,
+            ClaudeAction::PlanDistill,
+            ClaudeAction::VerifyDistill,
+        ];
+        for a in &all {
+            assert_eq!(format!("{a}"), a.as_str());
+        }
     }
 
     #[test]
-    fn test_claude_action_display() {
-        assert_eq!(format!("{}", ClaudeAction::Build), "build");
-        assert_eq!(format!("{}", ClaudeAction::Research), "research");
-        assert_eq!(format!("{}", ClaudeAction::VerifyDistill), "verify_distill");
+    fn claude_run_status_parse_str_all() {
+        assert_eq!(ClaudeRunStatus::parse_str("queued"), Some(ClaudeRunStatus::Queued));
+        assert_eq!(ClaudeRunStatus::parse_str("running"), Some(ClaudeRunStatus::Running));
+        assert_eq!(ClaudeRunStatus::parse_str("completed"), Some(ClaudeRunStatus::Completed));
+        assert_eq!(ClaudeRunStatus::parse_str("failed"), Some(ClaudeRunStatus::Failed));
+        assert_eq!(ClaudeRunStatus::parse_str("cancelled"), Some(ClaudeRunStatus::Cancelled));
+        assert_eq!(ClaudeRunStatus::parse_str("timed_out"), Some(ClaudeRunStatus::TimedOut));
+        assert_eq!(ClaudeRunStatus::parse_str("salvaging"), Some(ClaudeRunStatus::Salvaging));
+        assert_eq!(ClaudeRunStatus::parse_str("invalid"), None);
+        assert_eq!(ClaudeRunStatus::parse_str("pending"), None);
+        assert_eq!(ClaudeRunStatus::parse_str(""), None);
     }
 
     #[test]
-    fn test_claude_run_status_parse_str_round_trip() {
+    fn claude_run_status_as_str_roundtrip() {
         let all = [
             ClaudeRunStatus::Queued,
             ClaudeRunStatus::Running,
@@ -182,27 +212,24 @@ mod tests {
             ClaudeRunStatus::TimedOut,
             ClaudeRunStatus::Salvaging,
         ];
-        for s in all {
-            assert_eq!(
-                ClaudeRunStatus::parse_str(s.as_str()),
-                Some(s),
-                "ClaudeRunStatus::{:?} should round-trip",
-                s
-            );
+        for s in &all {
+            assert_eq!(ClaudeRunStatus::parse_str(s.as_str()), Some(*s));
         }
     }
 
     #[test]
-    fn test_claude_run_status_parse_str_invalid() {
-        assert_eq!(ClaudeRunStatus::parse_str("pending"), None);
-        assert_eq!(ClaudeRunStatus::parse_str(""), None);
-    }
-
-    #[test]
-    fn test_claude_run_status_display() {
-        assert_eq!(format!("{}", ClaudeRunStatus::Queued), "queued");
-        assert_eq!(format!("{}", ClaudeRunStatus::Running), "running");
-        assert_eq!(format!("{}", ClaudeRunStatus::Completed), "completed");
-        assert_eq!(format!("{}", ClaudeRunStatus::TimedOut), "timed_out");
+    fn claude_run_status_display() {
+        let all = [
+            ClaudeRunStatus::Queued,
+            ClaudeRunStatus::Running,
+            ClaudeRunStatus::Completed,
+            ClaudeRunStatus::Failed,
+            ClaudeRunStatus::Cancelled,
+            ClaudeRunStatus::TimedOut,
+            ClaudeRunStatus::Salvaging,
+        ];
+        for s in &all {
+            assert_eq!(format!("{s}"), s.as_str());
+        }
     }
 }

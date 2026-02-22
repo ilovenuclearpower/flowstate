@@ -145,6 +145,10 @@ pub async fn build_auth_config(db: Arc<dyn Database>) -> Option<Arc<AuthConfig>>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    /// Mutex to serialize tests that modify environment variables.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_sha256_hex_deterministic() {
@@ -207,5 +211,132 @@ mod tests {
     #[test]
     fn test_constant_time_eq_empty() {
         assert!(constant_time_eq("", ""));
+    }
+
+    #[tokio::test]
+    async fn build_auth_config_no_keys() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        // Remove env var if present
+        std::env::remove_var("FLOWSTATE_API_KEY");
+        let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
+        let config = build_auth_config(db).await;
+        // No env key, no DB keys → open access
+        assert!(config.is_none());
+    }
+
+    #[tokio::test]
+    async fn build_auth_config_env_key() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
+        std::env::set_var("FLOWSTATE_API_KEY", "test-key-for-auth");
+        let config = build_auth_config(db).await;
+        assert!(config.is_some());
+        let auth = config.unwrap();
+        assert!(auth.env_key_hash.is_some());
+        std::env::remove_var("FLOWSTATE_API_KEY");
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_no_config_passes_all() {
+        use crate::test_helpers::test_router;
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let app = test_router().await;
+        // Protected endpoint should work without auth header since no auth configured
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/projects")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_valid_bearer() {
+        use crate::test_helpers::test_router_with_auth;
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let (app, api_key) = test_router_with_auth().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/projects")
+                    .header("Authorization", format!("Bearer {api_key}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_invalid_bearer() {
+        use crate::test_helpers::test_router_with_auth;
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let (app, _api_key) = test_router_with_auth().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/projects")
+                    .header("Authorization", "Bearer wrong-key")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_middleware_missing_header() {
+        use crate::test_helpers::test_router_with_auth;
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let (app, _api_key) = test_router_with_auth().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/projects")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn auth_health_endpoint_no_auth_required() {
+        use crate::test_helpers::test_router_with_auth;
+        use axum::body::Body;
+        use axum::http::Request;
+        use tower::ServiceExt;
+
+        let (app, _api_key) = test_router_with_auth().await;
+        // Health is a public endpoint — should work without auth
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }

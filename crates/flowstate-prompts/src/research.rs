@@ -25,3 +25,17 @@ pub fn append_instructions(prompt: &mut String) {
          You may use tools (web search, file reading, etc.) for research.\n",
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn research_instructions_content() {
+        let mut out = String::new();
+        append_instructions(&mut out);
+        assert!(out.contains("## Instructions"));
+        assert!(out.contains("research phase"));
+        assert!(out.contains("RESEARCH.md"));
+    }
+}

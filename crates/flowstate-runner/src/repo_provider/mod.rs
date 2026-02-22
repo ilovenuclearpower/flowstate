@@ -1,4 +1,5 @@
 pub mod github;
+pub mod mock;
 
 use std::path::Path;
 
@@ -63,4 +64,44 @@ pub fn provider_for_url(
     }
 
     Err(ProviderError::Unsupported(repo_url.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_for_github_url() {
+        let provider = provider_for_url("https://github.com/user/repo", None)
+            .expect("github URL should be supported");
+        assert_eq!(provider.name(), "github");
+    }
+
+    #[test]
+    fn provider_for_github_ssh_url() {
+        // SSH-style URL still contains "github.com"
+        let provider = provider_for_url("git@github.com:user/repo.git", None)
+            .expect("github SSH URL should be supported");
+        assert_eq!(provider.name(), "github");
+    }
+
+    #[test]
+    fn provider_for_unsupported_url() {
+        let result = provider_for_url("https://gitlab.com/user/repo", None);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(
+            matches!(err, ProviderError::Unsupported(_)),
+            "expected Unsupported, got {err:?}"
+        );
+        assert!(err.to_string().contains("gitlab.com"));
+    }
+
+    #[test]
+    fn provider_for_github_with_token() {
+        let provider =
+            provider_for_url("https://github.com/user/repo", Some("ghp_test123".into()))
+                .expect("github URL with token should be supported");
+        assert_eq!(provider.name(), "github");
+    }
 }

@@ -8,7 +8,11 @@ license.workspace = true
 name = "flowstate"
 path = "src/main.rs"
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
+cargo-llvm-cov = { workspace = true }
 flowstate-core = { path = "../flowstate-core" }
 flowstate-db = { path = "../flowstate-db", default-features = false }
 flowstate-service = { path = "../flowstate-service" }
@@ -19,3 +23,6 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 chrono = { workspace = true }
+flowstate-server = { path = "../flowstate-server", features = ["test-helpers"] }
+tokio = { workspace = true, features = ["full"] }
+ratatui = { workspace = true }

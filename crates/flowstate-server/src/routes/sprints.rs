@@ -98,3 +98,126 @@ fn to_error(e: flowstate_service::ServiceError) -> (StatusCode, Json<Value>) {
     };
     (status, Json(json!({ "error": msg })))
 }
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Method, Request, StatusCode};
+    use tower::ServiceExt;
+    use crate::test_helpers::test_router;
+
+    #[tokio::test]
+    async fn sprint_crud_lifecycle() {
+        let app = test_router().await;
+
+        // Create a project first (sprints require a project_id)
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/projects")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "name": "Test Project",
+                            "slug": "test-project"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let project: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let project_id = project["id"].as_str().unwrap();
+
+        // POST /api/sprints → 201
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/sprints")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "project_id": project_id,
+                            "name": "Sprint 1",
+                            "goal": "First sprint"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let sprint: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let sprint_id = sprint["id"].as_str().unwrap();
+        assert_eq!(sprint["name"], "Sprint 1");
+
+        // GET /api/sprints/{id}
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/sprints/{sprint_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let fetched: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(fetched["name"], "Sprint 1");
+
+        // PUT /api/sprints/{id}
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::PUT)
+                    .uri(format!("/api/sprints/{sprint_id}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "name": "Sprint 1 Updated"
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let updated: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(updated["name"], "Sprint 1 Updated");
+
+        // DELETE /api/sprints/{id} → 204
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!("/api/sprints/{sprint_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    }
+}

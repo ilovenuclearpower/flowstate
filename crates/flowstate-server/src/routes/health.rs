@@ -18,6 +18,104 @@ async fn health() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
+#[cfg(test)]
+mod tests {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    use crate::test_helpers::test_router;
+
+    #[tokio::test]
+    async fn health_returns_ok() {
+        let app = test_router().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["status"], "ok");
+    }
+
+    #[tokio::test]
+    async fn system_status_with_registered_runner() {
+        use axum::http::Method;
+
+        let app = test_router().await;
+
+        // Register a runner
+        let body = serde_json::to_string(&serde_json::json!({
+            "runner_id": "test-runner-1",
+            "backend_name": "claude-cli",
+            "capability": "heavy",
+        }))
+        .unwrap();
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/runners/register")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Check status includes the runner
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["runners"].as_array().unwrap().len(), 1);
+        assert_eq!(json["runners"][0]["runner_id"], "test-runner-1");
+    }
+
+    #[tokio::test]
+    async fn system_status_empty() {
+        let app = test_router().await;
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/status")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["server"], "ok");
+        assert_eq!(json["runners"].as_array().unwrap().len(), 0);
+        assert_eq!(json["stuck_runs"].as_array().unwrap().len(), 0);
+    }
+}
+
 async fn system_status(State(state): State<AppState>) -> Json<Value> {
     let now = Utc::now();
     let stale_threshold = chrono::Duration::minutes(5);

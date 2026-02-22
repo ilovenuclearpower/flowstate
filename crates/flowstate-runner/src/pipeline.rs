@@ -276,6 +276,39 @@ fn slugify(title: &str) -> String {
         .collect()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slugify_simple() {
+        assert_eq!(slugify("My Task"), "my-task");
+    }
+
+    #[test]
+    fn slugify_special_chars() {
+        assert_eq!(slugify("Hello, World!"), "hello-world");
+    }
+
+    #[test]
+    fn slugify_consecutive_dashes() {
+        assert_eq!(slugify("a--b"), "a-b");
+    }
+
+    #[test]
+    fn slugify_truncates_at_50() {
+        let long_title = "a".repeat(100);
+        let result = slugify(&long_title);
+        assert_eq!(result.len(), 50);
+        assert!(result.chars().all(|c| c == 'a'));
+    }
+
+    #[test]
+    fn slugify_empty() {
+        assert_eq!(slugify(""), "");
+    }
+}
+
 fn save_run_prompt(run_id: &str, prompt: &str) -> Result<()> {
     let data_dir = if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
         PathBuf::from(xdg).join("flowstate")

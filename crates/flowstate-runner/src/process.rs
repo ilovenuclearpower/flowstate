@@ -11,6 +11,83 @@ use tracing::{info, warn};
 
 use crate::backend::AgentOutput;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn run_managed_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cmd = Command::new("echo");
+        cmd.arg("hello world");
+        let output = run_managed_with_timeout(
+            &mut cmd,
+            tmp.path(),
+            Duration::from_secs(10),
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert!(output.success);
+        assert!(output.stdout.contains("hello world"));
+        assert_eq!(output.exit_code, 0);
+    }
+
+    #[tokio::test]
+    async fn run_managed_failure() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cmd = Command::new("false");
+        let output = run_managed_with_timeout(
+            &mut cmd,
+            tmp.path(),
+            Duration::from_secs(10),
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert!(!output.success);
+        assert_ne!(output.exit_code, 0);
+    }
+
+    #[tokio::test]
+    async fn run_managed_timeout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cmd = Command::new("sleep");
+        cmd.arg("60");
+        let result = run_managed_with_timeout(
+            &mut cmd,
+            tmp.path(),
+            Duration::from_millis(100),
+            Duration::from_millis(100),
+        )
+        .await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("timed out"));
+    }
+
+    #[tokio::test]
+    async fn output_saved_to_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut cmd = Command::new("echo");
+        cmd.arg("saved output");
+        let output = run_managed_with_timeout(
+            &mut cmd,
+            tmp.path(),
+            Duration::from_secs(10),
+            Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        assert!(output.success);
+
+        let output_file = tmp.path().join(".flowstate-output/output.txt");
+        assert!(output_file.exists());
+        let content = std::fs::read_to_string(&output_file).unwrap();
+        assert!(content.contains("saved output"));
+    }
+}
+
 /// A child process managed within its own process group.
 /// Enables killing the entire process tree (including any orphaned children
 /// that inherit pipe file descriptors).
