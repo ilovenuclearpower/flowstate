@@ -29,3 +29,29 @@ pub fn append_instructions(prompt: &mut String, phase: &str, feedback: &str) {
          This file will be picked up by the system.\n"
     ));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_distill_output_file_mapping() {
+        let cases = vec![
+            ("research", "RESEARCH.md"),
+            ("design", "SPECIFICATION.md"),
+            ("specification", "SPECIFICATION.md"),
+            ("plan", "PLAN.md"),
+            ("verification", "VERIFICATION.md"),
+            ("verify", "VERIFICATION.md"),
+            ("unknown", "OUTPUT.md"),
+        ];
+        for (phase, expected_file) in cases {
+            let mut prompt = String::new();
+            append_instructions(&mut prompt, phase, "feedback");
+            assert!(
+                prompt.contains(expected_file),
+                "phase '{phase}' should produce file '{expected_file}', got: {prompt}"
+            );
+        }
+    }
+}

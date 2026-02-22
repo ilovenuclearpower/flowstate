@@ -234,4 +234,34 @@ mod tests {
         };
         assert!(!config.is_s3());
     }
+
+    #[test]
+    fn test_create_store_local_fallback() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = StoreConfig {
+            endpoint_url: None,
+            region: None,
+            bucket: None,
+            access_key_id: None,
+            secret_access_key: None,
+            local_data_dir: Some(tmp.path().to_string_lossy().to_string()),
+        };
+        assert!(!config.is_s3());
+        let store = create_store(&config);
+        assert!(store.is_ok(), "local store creation should succeed");
+    }
+
+    #[test]
+    fn test_create_store_no_local_dir_uses_default() {
+        let config = StoreConfig {
+            endpoint_url: None,
+            region: None,
+            bucket: None,
+            access_key_id: None,
+            secret_access_key: None,
+            local_data_dir: None,
+        };
+        let store = create_store(&config);
+        assert!(store.is_ok(), "should fall back to default local dir");
+    }
 }

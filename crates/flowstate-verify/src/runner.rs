@@ -123,3 +123,57 @@ async fn run_command(command: &str, dir: &Path) -> std::io::Result<std::process:
         .output()
         .await
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flowstate_core::verification::VerificationStep;
+
+    fn make_step(name: &str, command: &str) -> VerificationStep {
+        VerificationStep {
+            id: uuid::Uuid::new_v4().to_string(),
+            profile_id: String::new(),
+            name: name.into(),
+            command: command.into(),
+            working_dir: None,
+            sort_order: 0,
+            timeout_s: 30,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_runner_execute_passing_step() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runner = Runner::new();
+        let steps = vec![make_step("pass", "true")];
+        let result = runner.execute(&steps, tmp.path()).await;
+        assert!(matches!(result.status, RunStatus::Passed));
+        assert_eq!(result.steps.len(), 1);
+        assert_eq!(result.steps[0].exit_code, Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_runner_execute_failing_step() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runner = Runner::new();
+        let steps = vec![make_step("fail", "false")];
+        let result = runner.execute(&steps, tmp.path()).await;
+        assert!(matches!(result.status, RunStatus::Failed));
+        assert_eq!(result.steps.len(), 1);
+        assert_eq!(result.steps[0].exit_code, Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_runner_execute_multiple_passing_steps() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runner = Runner::new();
+        let steps = vec![
+            make_step("step1", "true"),
+            make_step("step2", "true"),
+        ];
+        let result = runner.execute(&steps, tmp.path()).await;
+        assert!(matches!(result.status, RunStatus::Passed));
+        assert_eq!(result.steps.len(), 2);
+    }
+}

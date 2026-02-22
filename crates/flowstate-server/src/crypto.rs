@@ -87,3 +87,67 @@ fn key_file_path() -> PathBuf {
         PathBuf::from("flowstate").join("server.key")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aes_gcm::KeyInit;
+
+    fn test_key() -> Key<Aes256Gcm> {
+        Aes256Gcm::generate_key(OsRng)
+    }
+
+    #[test]
+    fn test_encrypt_decrypt_round_trip() {
+        let key = test_key();
+        let plaintext = "hello world";
+        let encrypted = encrypt(&key, plaintext).unwrap();
+        let decrypted = decrypt(&key, &encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_encrypt_produces_unique_ciphertext() {
+        let key = test_key();
+        let a = encrypt(&key, "same text").unwrap();
+        let b = encrypt(&key, "same text").unwrap();
+        assert_ne!(a, b, "two encryptions should produce different ciphertext due to unique nonces");
+    }
+
+    #[test]
+    fn test_decrypt_corrupted_input() {
+        let key = test_key();
+        let result = decrypt(&key, "not-valid-base64!!!");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_decrypt_too_short() {
+        let key = test_key();
+        // Encode fewer than 12 bytes
+        let short = B64.encode(b"short");
+        let result = decrypt(&key, &short);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().contains("too short"),
+            "error should mention 'too short'"
+        );
+    }
+
+    #[test]
+    fn test_decrypt_wrong_key() {
+        let key_a = test_key();
+        let key_b = test_key();
+        let encrypted = encrypt(&key_a, "secret").unwrap();
+        let result = decrypt(&key_b, &encrypted);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_encrypt_empty_string() {
+        let key = test_key();
+        let encrypted = encrypt(&key, "").unwrap();
+        let decrypted = decrypt(&key, &encrypted).unwrap();
+        assert_eq!(decrypted, "");
+    }
+}

@@ -949,3 +949,164 @@ pub async fn test_subtask_workflow(db: &dyn Database) {
     assert_eq!(sprint_tasks.len(), 1);
     assert_eq!(sprint_tasks[0].id, parent.id);
 }
+
+// ---------------------------------------------------------------------------
+// Edge case tests
+// ---------------------------------------------------------------------------
+
+/// Test that update_task with default (no-op) UpdateTask returns the task unchanged.
+pub async fn test_update_task_no_changes(db: &dyn Database) {
+    let project = db.create_project(&make_project("update-noop")).await.unwrap();
+    let task = db.create_task(&make_task(&project.id, "Unchanged")).await.unwrap();
+
+    let updated = db.update_task(&task.id, &UpdateTask::default()).await.unwrap();
+    assert_eq!(updated.title, "Unchanged");
+    assert_eq!(updated.status, Status::Todo);
+    assert_eq!(updated.priority, Priority::Medium);
+}
+
+/// Test filtering tasks by status + priority + limit simultaneously.
+pub async fn test_list_tasks_combined_filters(db: &dyn Database) {
+    let project = db.create_project(&make_project("combined-filter")).await.unwrap();
+
+    // Create 3 high-priority Todo tasks and 2 medium-priority Todo tasks
+    for i in 0..3 {
+        db.create_task(&CreateTask {
+            project_id: project.id.clone(),
+            title: format!("High {i}"),
+            description: String::new(),
+            status: Status::Todo,
+            priority: Priority::High,
+            parent_id: None,
+            reviewer: String::new(),
+        })
+        .await
+        .unwrap();
+    }
+    for i in 0..2 {
+        db.create_task(&CreateTask {
+            project_id: project.id.clone(),
+            title: format!("Med {i}"),
+            description: String::new(),
+            status: Status::Todo,
+            priority: Priority::Medium,
+            parent_id: None,
+            reviewer: String::new(),
+        })
+        .await
+        .unwrap();
+    }
+
+    // Filter: status=Todo, priority=High, limit=2
+    let results = db
+        .list_tasks(&TaskFilter {
+            project_id: Some(project.id.clone()),
+            status: Some(Status::Todo),
+            priority: Some(Priority::High),
+            limit: Some(2),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(results.len(), 2);
+    for t in &results {
+        assert_eq!(t.priority, Priority::High);
+    }
+}
+
+/// Test update_project with all fields set at once.
+pub async fn test_update_project_all_fields(db: &dyn Database) {
+    let project = db.create_project(&make_project("update-all")).await.unwrap();
+
+    let updated = db
+        .update_project(
+            &project.id,
+            &UpdateProject {
+                name: Some("New Name".into()),
+                description: Some("New desc".into()),
+                repo_url: Some("https://new-url.com".into()),
+                repo_token: Some("tok_123".into()),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(updated.name, "New Name");
+    assert_eq!(updated.description, "New desc");
+    assert_eq!(updated.repo_url, "https://new-url.com");
+}
+
+/// Test update_project with default (no-op) returns project unchanged.
+pub async fn test_update_project_no_changes(db: &dyn Database) {
+    let project = db.create_project(&make_project("proj-noop")).await.unwrap();
+
+    let updated = db.update_project(&project.id, &UpdateProject::default()).await.unwrap();
+    assert_eq!(updated.name, project.name);
+    assert_eq!(updated.slug, project.slug);
+}
+
+/// Test get_project_by_slug with non-existent slug returns error.
+pub async fn test_get_project_by_slug_not_found(db: &dyn Database) {
+    let result = db.get_project_by_slug("nonexistent-slug-xyz").await;
+    assert!(result.is_err());
+}
+
+/// Test filtering tasks by sprint_id returns only assigned tasks.
+pub async fn test_task_filter_by_sprint_id(db: &dyn Database) {
+    let project = db.create_project(&make_project("sprint-filter")).await.unwrap();
+    let sprint = db
+        .create_sprint(&CreateSprint {
+            project_id: project.id.clone(),
+            name: "Sprint X".into(),
+            goal: String::new(),
+            starts_at: None,
+            ends_at: None,
+        })
+        .await
+        .unwrap();
+
+    // Task assigned to sprint
+    let t1 = db.create_task(&make_task(&project.id, "In Sprint")).await.unwrap();
+    db.update_task(
+        &t1.id,
+        &UpdateTask {
+            sprint_id: Some(Some(sprint.id.clone())),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    // Task not assigned to sprint
+    let _t2 = db.create_task(&make_task(&project.id, "No Sprint")).await.unwrap();
+
+    let filtered = db
+        .list_tasks(&TaskFilter {
+            project_id: Some(project.id.clone()),
+            sprint_id: Some(sprint.id.clone()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].title, "In Sprint");
+}
+
+/// Test update_sprint with default (no-op) returns sprint unchanged.
+pub async fn test_update_sprint_no_changes(db: &dyn Database) {
+    let project = db.create_project(&make_project("sprint-noop")).await.unwrap();
+    let sprint = db
+        .create_sprint(&CreateSprint {
+            project_id: project.id.clone(),
+            name: "Original".into(),
+            goal: "Goal".into(),
+            starts_at: None,
+            ends_at: None,
+        })
+        .await
+        .unwrap();
+
+    let updated = db.update_sprint(&sprint.id, &UpdateSprint::default()).await.unwrap();
+    assert_eq!(updated.name, "Original");
+    assert_eq!(updated.goal, "Goal");
+    assert_eq!(updated.status, SprintStatus::Planned);
+}

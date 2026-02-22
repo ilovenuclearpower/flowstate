@@ -100,3 +100,45 @@ async fn subtask_workflow() {
     let db = make_db().await;
     common::test_subtask_workflow(&*db).await;
 }
+
+#[tokio::test]
+async fn update_task_no_changes() {
+    let db = make_db().await;
+    common::test_update_task_no_changes(&*db).await;
+}
+
+#[tokio::test]
+async fn list_tasks_combined_filters() {
+    let db = make_db().await;
+    common::test_list_tasks_combined_filters(&*db).await;
+}
+
+#[tokio::test]
+async fn update_project_all_fields() {
+    let db = make_db().await;
+    common::test_update_project_all_fields(&*db).await;
+}
+
+#[tokio::test]
+async fn update_project_no_changes() {
+    let db = make_db().await;
+    common::test_update_project_no_changes(&*db).await;
+}
+
+#[tokio::test]
+async fn get_project_by_slug_not_found() {
+    let db = make_db().await;
+    common::test_get_project_by_slug_not_found(&*db).await;
+}
+
+#[tokio::test]
+async fn task_filter_by_sprint_id() {
+    let db = make_db().await;
+    common::test_task_filter_by_sprint_id(&*db).await;
+}
+
+#[tokio::test]
+async fn update_sprint_no_changes() {
+    let db = make_db().await;
+    common::test_update_sprint_no_changes(&*db).await;
+}

@@ -130,3 +130,79 @@ pub struct CreateClaudeRun {
     #[serde(default)]
     pub required_capability: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_claude_action_parse_str_round_trip() {
+        let all = [
+            ClaudeAction::Research,
+            ClaudeAction::Design,
+            ClaudeAction::Plan,
+            ClaudeAction::Build,
+            ClaudeAction::Verify,
+            ClaudeAction::ResearchDistill,
+            ClaudeAction::DesignDistill,
+            ClaudeAction::PlanDistill,
+            ClaudeAction::VerifyDistill,
+        ];
+        for a in all {
+            assert_eq!(
+                ClaudeAction::parse_str(a.as_str()),
+                Some(a),
+                "ClaudeAction::{:?} should round-trip",
+                a
+            );
+        }
+    }
+
+    #[test]
+    fn test_claude_action_parse_str_invalid() {
+        assert_eq!(ClaudeAction::parse_str("compile"), None);
+        assert_eq!(ClaudeAction::parse_str(""), None);
+    }
+
+    #[test]
+    fn test_claude_action_display() {
+        assert_eq!(format!("{}", ClaudeAction::Build), "build");
+        assert_eq!(format!("{}", ClaudeAction::Research), "research");
+        assert_eq!(format!("{}", ClaudeAction::VerifyDistill), "verify_distill");
+    }
+
+    #[test]
+    fn test_claude_run_status_parse_str_round_trip() {
+        let all = [
+            ClaudeRunStatus::Queued,
+            ClaudeRunStatus::Running,
+            ClaudeRunStatus::Completed,
+            ClaudeRunStatus::Failed,
+            ClaudeRunStatus::Cancelled,
+            ClaudeRunStatus::TimedOut,
+            ClaudeRunStatus::Salvaging,
+        ];
+        for s in all {
+            assert_eq!(
+                ClaudeRunStatus::parse_str(s.as_str()),
+                Some(s),
+                "ClaudeRunStatus::{:?} should round-trip",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn test_claude_run_status_parse_str_invalid() {
+        assert_eq!(ClaudeRunStatus::parse_str("pending"), None);
+        assert_eq!(ClaudeRunStatus::parse_str(""), None);
+    }
+
+    #[test]
+    fn test_claude_run_status_display() {
+        assert_eq!(format!("{}", ClaudeRunStatus::Queued), "queued");
+        assert_eq!(format!("{}", ClaudeRunStatus::Running), "running");
+        assert_eq!(format!("{}", ClaudeRunStatus::Completed), "completed");
+        assert_eq!(format!("{}", ClaudeRunStatus::TimedOut), "timed_out");
+    }
+}

@@ -43,3 +43,50 @@ pub fn assemble_prompt(ctx: &PromptContext, action: ClaudeAction) -> String {
 
     prompt
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use context::PromptContext;
+
+    fn test_context() -> PromptContext {
+        PromptContext {
+            project_name: "TestProject".into(),
+            repo_url: "https://github.com/test/repo".into(),
+            task_title: "Test Task".into(),
+            task_description: "A test task description".into(),
+            spec_content: None,
+            plan_content: None,
+            research_content: None,
+            verification_content: None,
+            distill_feedback: None,
+            child_tasks: vec![],
+            parent_context: None,
+        }
+    }
+
+    #[test]
+    fn test_assemble_prompt_research() {
+        let ctx = test_context();
+        let output = assemble_prompt(&ctx, ClaudeAction::Research);
+        assert!(output.contains("# Project: TestProject"));
+        assert!(output.contains("## Instructions"));
+    }
+
+    #[test]
+    fn test_assemble_prompt_build() {
+        let ctx = test_context();
+        let output = assemble_prompt(&ctx, ClaudeAction::Build);
+        assert!(output.contains("# Project: TestProject"));
+        assert!(output.contains("## Instructions"));
+    }
+
+    #[test]
+    fn test_assemble_prompt_distill_includes_feedback() {
+        let mut ctx = test_context();
+        ctx.distill_feedback = Some("Please fix the intro section".into());
+        let output = assemble_prompt(&ctx, ClaudeAction::ResearchDistill);
+        assert!(output.contains("Please fix the intro section"));
+        assert!(output.contains("research"));
+    }
+}

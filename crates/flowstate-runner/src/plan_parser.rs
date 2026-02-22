@@ -190,4 +190,52 @@ cargo clippy --workspace -- -D warnings
         let steps = extract_validation_commands("# Some Plan\n\nNo validation section here.");
         assert!(steps.is_empty());
     }
+
+    #[test]
+    fn test_extract_dollar_prefix_command() {
+        let plan = r#"
+### 4. Validation Steps
+
+```bash
+$ cargo test --workspace
+$ cargo build
+```
+
+### 5. Done
+"#;
+        let steps = extract_validation_commands(plan);
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].command, "cargo test --workspace");
+        assert_eq!(steps[1].command, "cargo build");
+    }
+
+    #[test]
+    fn test_section_heading_level_two() {
+        let plan = r#"
+## 4. Validation Steps
+
+```bash
+cargo test
+```
+
+## 5. Done
+"#;
+        let steps = extract_validation_commands(plan);
+        assert_eq!(steps.len(), 1);
+        assert_eq!(steps[0].command, "cargo test");
+    }
+
+    #[test]
+    fn test_non_command_content_ignored() {
+        let plan = r#"
+### 4. Validation Steps
+
+- The `some_variable` should be set
+- Check `config_value` in the output
+
+### 5. Done
+"#;
+        let steps = extract_validation_commands(plan);
+        assert!(steps.is_empty(), "non-command backtick content should be skipped");
+    }
 }

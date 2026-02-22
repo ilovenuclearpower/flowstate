@@ -100,3 +100,45 @@ pub fn builtin_profiles() -> Vec<ProfileTemplate> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_builtin_profiles_count() {
+        assert_eq!(builtin_profiles().len(), 4);
+    }
+
+    #[test]
+    fn test_builtin_profile_names() {
+        let profiles = builtin_profiles();
+        let names: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["Rust TUI", "Rust Backend", "Vite Frontend", "NixOS"]);
+    }
+
+    #[test]
+    fn test_builtin_profiles_have_steps() {
+        for profile in builtin_profiles() {
+            assert!(
+                !profile.steps.is_empty(),
+                "profile '{}' should have at least one step",
+                profile.name
+            );
+        }
+    }
+
+    #[test]
+    fn test_builtin_profiles_positive_timeouts() {
+        for profile in builtin_profiles() {
+            for step in &profile.steps {
+                assert!(
+                    step.timeout_s > 0,
+                    "step '{}' in profile '{}' should have positive timeout",
+                    step.name,
+                    profile.name
+                );
+            }
+        }
+    }
+}

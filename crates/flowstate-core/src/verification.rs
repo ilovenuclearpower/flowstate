@@ -93,3 +93,33 @@ pub struct VerificationRunStep {
     pub finished_at: Option<DateTime<Utc>>,
     pub sort_order: i32,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_run_status_parse_str_round_trip() {
+        let all = [
+            RunStatus::Running,
+            RunStatus::Passed,
+            RunStatus::Failed,
+            RunStatus::Error,
+            RunStatus::Cancelled,
+        ];
+        for s in all {
+            assert_eq!(
+                RunStatus::parse_str(s.as_str()),
+                Some(s),
+                "RunStatus::{:?} should round-trip",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn test_run_status_parse_str_invalid() {
+        assert_eq!(RunStatus::parse_str("timeout"), None);
+        assert_eq!(RunStatus::parse_str(""), None);
+    }
+}

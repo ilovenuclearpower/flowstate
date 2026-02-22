@@ -152,3 +152,22 @@ impl TaskService for LocalService {
         Ok(self.db.list_attachments(task_id).await?)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_db_error_not_found_maps_to_service_not_found() {
+        let db_err = flowstate_db::DbError::NotFound("task-1".into());
+        let svc_err: ServiceError = db_err.into();
+        assert!(matches!(svc_err, ServiceError::NotFound(ref msg) if msg == "task-1"));
+    }
+
+    #[test]
+    fn test_db_error_other_maps_to_service_internal() {
+        let db_err = flowstate_db::DbError::Internal("connection lost".into());
+        let svc_err: ServiceError = db_err.into();
+        assert!(matches!(svc_err, ServiceError::Internal(_)));
+    }
+}

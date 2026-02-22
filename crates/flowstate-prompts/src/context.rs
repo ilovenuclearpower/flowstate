@@ -95,3 +95,93 @@ impl PromptContext {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_context() -> PromptContext {
+        PromptContext {
+            project_name: "TestProject".into(),
+            repo_url: "https://github.com/test/repo".into(),
+            task_title: "Test Task".into(),
+            task_description: "A test task description".into(),
+            spec_content: None,
+            plan_content: None,
+            research_content: None,
+            verification_content: None,
+            distill_feedback: None,
+            child_tasks: vec![],
+            parent_context: None,
+        }
+    }
+
+    #[test]
+    fn test_preamble_includes_project_and_task() {
+        let ctx = test_context();
+        let mut output = String::new();
+        ctx.append_preamble(&mut output);
+        assert!(output.contains("# Project: TestProject"), "should contain project name");
+        assert!(output.contains("# Task: Test Task"), "should contain task title");
+    }
+
+    #[test]
+    fn test_preamble_includes_repo_url() {
+        let ctx = test_context();
+        let mut output = String::new();
+        ctx.append_preamble(&mut output);
+        assert!(output.contains("Repository: https://github.com/test/repo"));
+    }
+
+    #[test]
+    fn test_preamble_omits_repo_url_when_empty() {
+        let mut ctx = test_context();
+        ctx.repo_url = String::new();
+        let mut output = String::new();
+        ctx.append_preamble(&mut output);
+        assert!(!output.contains("Repository:"));
+    }
+
+    #[test]
+    fn test_preamble_includes_parent_context() {
+        let mut ctx = test_context();
+        ctx.parent_context = Some(ParentContext {
+            title: "Parent Feature".into(),
+            description: "Parent desc".into(),
+            spec_content: None,
+            plan_content: None,
+        });
+        let mut output = String::new();
+        ctx.append_preamble(&mut output);
+        assert!(output.contains("# Parent Task: Parent Feature"));
+    }
+
+    #[test]
+    fn test_preamble_includes_child_tasks() {
+        let mut ctx = test_context();
+        ctx.child_tasks = vec![ChildTaskInfo {
+            title: "Subtask 1".into(),
+            description: "Do sub-thing".into(),
+            status: "todo".into(),
+        }];
+        let mut output = String::new();
+        ctx.append_preamble(&mut output);
+        assert!(output.contains("## Sub-tasks"));
+        assert!(output.contains("Subtask 1"));
+    }
+
+    #[test]
+    fn test_preamble_includes_content_sections() {
+        let mut ctx = test_context();
+        ctx.spec_content = Some("spec text".into());
+        ctx.plan_content = Some("plan text".into());
+        ctx.research_content = Some("research text".into());
+        ctx.verification_content = Some("verify text".into());
+        let mut output = String::new();
+        ctx.append_preamble(&mut output);
+        assert!(output.contains("## Specification"));
+        assert!(output.contains("## Implementation Plan"));
+        assert!(output.contains("## Research"));
+        assert!(output.contains("## Verification"));
+    }
+}
