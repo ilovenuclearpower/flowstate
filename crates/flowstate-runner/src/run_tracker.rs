@@ -87,3 +87,67 @@ impl RunTracker {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_run(id: &str, task_id: &str, action: ClaudeAction) -> ActiveRun {
+        ActiveRun {
+            run_id: id.into(),
+            task_id: task_id.into(),
+            action,
+            started_at: Instant::now(),
+        }
+    }
+
+    #[test]
+    fn test_run_tracker_empty() {
+        let tracker = RunTracker::new();
+        assert_eq!(tracker.active_count(), 0);
+        assert_eq!(tracker.active_build_count(), 0);
+    }
+
+    #[test]
+    fn test_run_tracker_insert_and_count() {
+        let mut tracker = RunTracker::new();
+        tracker.insert(make_run("r1", "t1", ClaudeAction::Build));
+        tracker.insert(make_run("r2", "t2", ClaudeAction::Research));
+        assert_eq!(tracker.active_count(), 2);
+        assert_eq!(tracker.active_build_count(), 1);
+    }
+
+    #[test]
+    fn test_run_tracker_remove() {
+        let mut tracker = RunTracker::new();
+        tracker.insert(make_run("r1", "t1", ClaudeAction::Build));
+        assert_eq!(tracker.active_count(), 1);
+        tracker.remove("r1");
+        assert_eq!(tracker.active_count(), 0);
+        // Removing non-existent is a no-op
+        tracker.remove("r999");
+        assert_eq!(tracker.active_count(), 0);
+    }
+
+    #[test]
+    fn test_run_tracker_snapshot() {
+        let mut tracker = RunTracker::new();
+        tracker.insert(make_run("r1", "t1", ClaudeAction::Design));
+        let snap = tracker.snapshot();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap[0].run_id, "r1");
+        assert_eq!(snap[0].task_id, "t1");
+        assert_eq!(snap[0].action, "design");
+    }
+
+    #[test]
+    fn test_run_tracker_active_build_count_only_builds() {
+        let mut tracker = RunTracker::new();
+        tracker.insert(make_run("r1", "t1", ClaudeAction::Research));
+        tracker.insert(make_run("r2", "t2", ClaudeAction::Design));
+        tracker.insert(make_run("r3", "t3", ClaudeAction::Verify));
+        assert_eq!(tracker.active_build_count(), 0);
+        tracker.insert(make_run("r4", "t4", ClaudeAction::Build));
+        assert_eq!(tracker.active_build_count(), 1);
+    }
+}

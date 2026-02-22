@@ -141,3 +141,71 @@ pub async fn build_auth_config(db: Arc<dyn Database>) -> Option<Arc<AuthConfig>>
         db,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sha256_hex_deterministic() {
+        let a = sha256_hex("test-input");
+        let b = sha256_hex("test-input");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_sha256_hex_known_vector() {
+        // SHA-256("hello") is well-known
+        assert_eq!(
+            sha256_hex("hello"),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
+    }
+
+    #[test]
+    fn test_sha256_hex_empty_string() {
+        assert_eq!(
+            sha256_hex(""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+    }
+
+    #[test]
+    fn test_generate_api_key_format() {
+        let key = generate_api_key();
+        assert!(key.starts_with("fs_"), "key should start with 'fs_': {key}");
+        assert_eq!(key.len(), 46, "key should be 46 chars: {key}");
+        // Remaining 43 chars should be alphanumeric (base62)
+        assert!(
+            key[3..].chars().all(|c| c.is_ascii_alphanumeric()),
+            "key suffix should be base62: {key}"
+        );
+    }
+
+    #[test]
+    fn test_generate_api_key_uniqueness() {
+        let a = generate_api_key();
+        let b = generate_api_key();
+        assert_ne!(a, b, "two generated keys should differ");
+    }
+
+    #[test]
+    fn test_constant_time_eq_equal() {
+        assert!(constant_time_eq("hello", "hello"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_unequal() {
+        assert!(!constant_time_eq("hello", "world"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_different_length() {
+        assert!(!constant_time_eq("short", "longer-string"));
+    }
+
+    #[test]
+    fn test_constant_time_eq_empty() {
+        assert!(constant_time_eq("", ""));
+    }
+}

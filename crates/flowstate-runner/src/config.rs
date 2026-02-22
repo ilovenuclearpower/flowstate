@@ -171,3 +171,109 @@ impl RunnerConfig {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> RunnerConfig {
+        RunnerConfig {
+            server_url: "http://localhost:3710".into(),
+            api_key: None,
+            poll_interval: 5,
+            workspace_root: None,
+            health_port: 3711,
+            light_timeout: 900,
+            build_timeout: 3600,
+            kill_grace_period: 10,
+            activity_timeout: 900,
+            max_concurrent: 5,
+            max_builds: 1,
+            shutdown_timeout: 120,
+            agent_backend: "claude-cli".into(),
+            runner_capability: "heavy".into(),
+            anthropic_base_url: None,
+            anthropic_auth_token: None,
+            anthropic_model: None,
+            opencode_provider: None,
+            opencode_model: None,
+            opencode_api_key: None,
+            opencode_base_url: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_valid_config() {
+        assert!(test_config().validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_max_concurrent_zero() {
+        let mut cfg = test_config();
+        cfg.max_concurrent = 0;
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            err.to_string().contains("max-concurrent"),
+            "error should mention max-concurrent: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_max_builds_zero() {
+        let mut cfg = test_config();
+        cfg.max_builds = 0;
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            err.to_string().contains("max-builds"),
+            "error should mention max-builds: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_max_builds_exceeds_concurrent() {
+        let mut cfg = test_config();
+        cfg.max_builds = 6;
+        cfg.max_concurrent = 5;
+        let err = cfg.validate().unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("6") && msg.contains("5"), "error should mention both values: {msg}");
+    }
+
+    #[test]
+    fn test_validate_max_builds_equals_concurrent() {
+        let mut cfg = test_config();
+        cfg.max_builds = 5;
+        cfg.max_concurrent = 5;
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_timeout_for_action_build_vs_non_build() {
+        let cfg = test_config();
+        assert_eq!(
+            cfg.timeout_for_action(ClaudeAction::Build),
+            Duration::from_secs(3600)
+        );
+        assert_eq!(
+            cfg.timeout_for_action(ClaudeAction::Research),
+            Duration::from_secs(900)
+        );
+        assert_eq!(
+            cfg.timeout_for_action(ClaudeAction::Verify),
+            Duration::from_secs(900)
+        );
+    }
+
+    #[test]
+    fn test_is_build_action() {
+        assert!(RunnerConfig::is_build_action(ClaudeAction::Build));
+        assert!(!RunnerConfig::is_build_action(ClaudeAction::Research));
+        assert!(!RunnerConfig::is_build_action(ClaudeAction::Design));
+        assert!(!RunnerConfig::is_build_action(ClaudeAction::Plan));
+        assert!(!RunnerConfig::is_build_action(ClaudeAction::Verify));
+        assert!(!RunnerConfig::is_build_action(ClaudeAction::ResearchDistill));
+        assert!(!RunnerConfig::is_build_action(ClaudeAction::DesignDistill));
+        assert!(!RunnerConfig::is_build_action(ClaudeAction::PlanDistill));
+        assert!(!RunnerConfig::is_build_action(ClaudeAction::VerifyDistill));
+    }
+}

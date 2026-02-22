@@ -59,3 +59,34 @@ pub struct CreateTaskLink {
     pub target_task_id: String,
     pub link_type: LinkType,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_link_type_parse_str_round_trip() {
+        let all = [LinkType::Blocks, LinkType::RelatesTo, LinkType::Duplicates];
+        for lt in all {
+            assert_eq!(
+                LinkType::parse_str(lt.as_str()),
+                Some(lt),
+                "LinkType::{:?} should round-trip",
+                lt
+            );
+        }
+    }
+
+    #[test]
+    fn test_link_type_parse_str_invalid() {
+        assert_eq!(LinkType::parse_str("depends_on"), None);
+        assert_eq!(LinkType::parse_str(""), None);
+    }
+
+    #[test]
+    fn test_link_type_display() {
+        assert_eq!(format!("{}", LinkType::Blocks), "Blocks");
+        assert_eq!(format!("{}", LinkType::RelatesTo), "Relates To");
+        assert_eq!(format!("{}", LinkType::Duplicates), "Duplicates");
+    }
+}

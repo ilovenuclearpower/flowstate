@@ -174,3 +174,35 @@ pub async fn detect_default_branch(dir: &Path) -> Result<String> {
     Ok("master".to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inject_token_https_url() {
+        let url = "https://github.com/user/repo.git";
+        let result = inject_token(url, Some("mytoken"));
+        assert_eq!(result, "https://x-access-token:mytoken@github.com/user/repo.git");
+    }
+
+    #[test]
+    fn test_inject_token_no_token() {
+        let url = "https://github.com/user/repo.git";
+        let result = inject_token(url, None);
+        assert_eq!(result, url);
+    }
+
+    #[test]
+    fn test_inject_token_empty_token() {
+        let url = "https://github.com/user/repo.git";
+        let result = inject_token(url, Some(""));
+        assert_eq!(result, url);
+    }
+
+    #[test]
+    fn test_inject_token_non_https() {
+        let url = "git@github.com:user/repo.git";
+        let result = inject_token(url, Some("mytoken"));
+        assert_eq!(result, url);
+    }
+}

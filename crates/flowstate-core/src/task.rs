@@ -359,4 +359,209 @@ mod tests {
         let target = status_after_approval("research").unwrap();
         assert!(target.ordinal() <= current.ordinal());
     }
+
+    #[test]
+    fn test_status_parse_str_round_trip() {
+        for &s in Status::ALL {
+            assert_eq!(
+                Status::parse_str(s.as_str()),
+                Some(s),
+                "Status::{:?} should round-trip through parse_str/as_str",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn test_status_parse_str_legacy_aliases() {
+        assert_eq!(Status::parse_str("backlog"), Some(Status::Todo));
+        assert_eq!(Status::parse_str("in_progress"), Some(Status::Build));
+        assert_eq!(Status::parse_str("in_review"), Some(Status::Verify));
+    }
+
+    #[test]
+    fn test_status_parse_str_invalid() {
+        assert_eq!(Status::parse_str("garbage"), None);
+        assert_eq!(Status::parse_str(""), None);
+        assert_eq!(Status::parse_str("TODO"), None);
+    }
+
+    #[test]
+    fn test_status_display_name() {
+        assert_eq!(Status::Todo.display_name(), "Todo");
+        assert_eq!(Status::Research.display_name(), "Research");
+        assert_eq!(Status::Design.display_name(), "Design");
+        assert_eq!(Status::Plan.display_name(), "Plan");
+        assert_eq!(Status::Build.display_name(), "Build");
+        assert_eq!(Status::Verify.display_name(), "Verify");
+        assert_eq!(Status::Done.display_name(), "Done");
+        assert_eq!(Status::Cancelled.display_name(), "Cancelled");
+    }
+
+    #[test]
+    fn test_status_board_columns() {
+        assert_eq!(Status::BOARD_COLUMNS.len(), 7);
+        assert!(!Status::BOARD_COLUMNS.contains(&Status::Cancelled));
+        // Verify order matches ordinal
+        for w in Status::BOARD_COLUMNS.windows(2) {
+            assert!(w[0].ordinal() < w[1].ordinal());
+        }
+    }
+
+    #[test]
+    fn test_status_subtask_board_columns() {
+        assert_eq!(
+            Status::SUBTASK_BOARD_COLUMNS,
+            &[Status::Todo, Status::Build, Status::Verify, Status::Done]
+        );
+    }
+
+    #[test]
+    fn test_priority_parse_str_round_trip() {
+        let all = [
+            Priority::Urgent,
+            Priority::High,
+            Priority::Medium,
+            Priority::Low,
+            Priority::None,
+        ];
+        for p in all {
+            assert_eq!(
+                Priority::parse_str(p.as_str()),
+                Some(p),
+                "Priority::{:?} should round-trip",
+                p
+            );
+        }
+    }
+
+    #[test]
+    fn test_priority_parse_str_invalid() {
+        assert_eq!(Priority::parse_str("critical"), None);
+        assert_eq!(Priority::parse_str(""), None);
+    }
+
+    #[test]
+    fn test_priority_symbol() {
+        assert_eq!(Priority::Urgent.symbol(), "!!!");
+        assert_eq!(Priority::High.symbol(), "!!");
+        assert_eq!(Priority::Medium.symbol(), "!");
+        assert_eq!(Priority::Low.symbol(), "-");
+        assert_eq!(Priority::None.symbol(), " ");
+    }
+
+    #[test]
+    fn test_priority_display() {
+        assert_eq!(format!("{}", Priority::Urgent), "Urgent");
+        assert_eq!(format!("{}", Priority::High), "High");
+        assert_eq!(format!("{}", Priority::Medium), "Medium");
+        assert_eq!(format!("{}", Priority::Low), "Low");
+        assert_eq!(format!("{}", Priority::None), "None");
+    }
+
+    #[test]
+    fn test_approval_status_parse_str_round_trip() {
+        let all = [
+            ApprovalStatus::None,
+            ApprovalStatus::Pending,
+            ApprovalStatus::Approved,
+            ApprovalStatus::Rejected,
+        ];
+        for a in all {
+            assert_eq!(
+                ApprovalStatus::parse_str(a.as_str()),
+                Some(a),
+                "ApprovalStatus::{:?} should round-trip",
+                a
+            );
+        }
+    }
+
+    #[test]
+    fn test_approval_status_parse_str_invalid() {
+        assert_eq!(ApprovalStatus::parse_str("maybe"), None);
+        assert_eq!(ApprovalStatus::parse_str(""), None);
+    }
+
+    #[test]
+    fn test_approval_status_default() {
+        assert_eq!(ApprovalStatus::default(), ApprovalStatus::None);
+    }
+
+    #[test]
+    fn test_approval_status_display() {
+        assert_eq!(format!("{}", ApprovalStatus::Approved), "Approved");
+        assert_eq!(format!("{}", ApprovalStatus::Pending), "Pending");
+        assert_eq!(format!("{}", ApprovalStatus::Rejected), "Rejected");
+        assert_eq!(format!("{}", ApprovalStatus::None), "None");
+    }
+
+    #[test]
+    fn test_next_subtask_status() {
+        assert_eq!(next_subtask_status(Status::Todo), Some(Status::Build));
+        assert_eq!(next_subtask_status(Status::Build), Some(Status::Verify));
+        assert_eq!(next_subtask_status(Status::Verify), Some(Status::Done));
+        assert_eq!(next_subtask_status(Status::Done), None);
+        assert_eq!(next_subtask_status(Status::Research), None);
+        assert_eq!(next_subtask_status(Status::Design), None);
+        assert_eq!(next_subtask_status(Status::Plan), None);
+        assert_eq!(next_subtask_status(Status::Cancelled), None);
+    }
+
+    #[test]
+    fn test_prev_subtask_status() {
+        assert_eq!(prev_subtask_status(Status::Done), Some(Status::Verify));
+        assert_eq!(prev_subtask_status(Status::Verify), Some(Status::Build));
+        assert_eq!(prev_subtask_status(Status::Build), Some(Status::Todo));
+        assert_eq!(prev_subtask_status(Status::Todo), None);
+        assert_eq!(prev_subtask_status(Status::Research), None);
+        assert_eq!(prev_subtask_status(Status::Design), None);
+        assert_eq!(prev_subtask_status(Status::Plan), None);
+        assert_eq!(prev_subtask_status(Status::Cancelled), None);
+    }
+
+    #[test]
+    fn test_task_is_subtask() {
+        let mut task = Task {
+            id: "t1".into(),
+            project_id: "p1".into(),
+            sprint_id: None,
+            parent_id: Some("parent".into()),
+            title: "Sub".into(),
+            description: String::new(),
+            reviewer: String::new(),
+            research_status: ApprovalStatus::None,
+            spec_status: ApprovalStatus::None,
+            plan_status: ApprovalStatus::None,
+            verify_status: ApprovalStatus::None,
+            spec_approved_hash: String::new(),
+            research_approved_hash: String::new(),
+            research_feedback: String::new(),
+            spec_feedback: String::new(),
+            plan_feedback: String::new(),
+            verify_feedback: String::new(),
+            status: Status::Todo,
+            priority: Priority::Medium,
+            sort_order: 1.0,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        assert!(task.is_subtask());
+
+        task.parent_id = None;
+        assert!(!task.is_subtask());
+    }
+
+    #[test]
+    fn test_update_task_default() {
+        let u = UpdateTask::default();
+        assert!(u.title.is_none());
+        assert!(u.description.is_none());
+        assert!(u.status.is_none());
+        assert!(u.priority.is_none());
+        assert!(u.sprint_id.is_none());
+        assert!(u.sort_order.is_none());
+        assert!(u.parent_id.is_none());
+        assert!(u.reviewer.is_none());
+    }
 }

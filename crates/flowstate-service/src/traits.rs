@@ -79,3 +79,24 @@ pub trait TaskService: Send + Sync {
     // -- Attachments --
     async fn list_attachments(&self, task_id: &str) -> Result<Vec<Attachment>, ServiceError>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_service_error_display() {
+        assert_eq!(
+            ServiceError::NotFound("task-1".into()).to_string(),
+            "not found: task-1"
+        );
+        assert_eq!(
+            ServiceError::InvalidInput("bad data".into()).to_string(),
+            "invalid input: bad data"
+        );
+        assert_eq!(
+            ServiceError::Internal("conn failed".into()).to_string(),
+            "internal error: conn failed"
+        );
+    }
+}

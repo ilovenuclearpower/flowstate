@@ -35,6 +35,100 @@ struct TriggerInput {
     action: String,
 }
 
+/// Validate that prerequisites are met for triggering a Claude run
+/// with the given action on the given task.
+///
+/// `has_completed_build`: whether any ClaudeRun with action=Build
+///     and status=Completed exists for this task
+/// `has_prs`: whether any TaskPrs are linked to this task
+///
+/// Returns Ok(()) if the action can proceed, or Err with a human-readable message.
+pub(crate) fn validate_action_prerequisites(
+    action: ClaudeAction,
+    task: &flowstate_core::task::Task,
+    has_completed_build: bool,
+    has_prs: bool,
+) -> Result<(), String> {
+    // Research: no prerequisites
+
+    // ResearchDistill: research artifact must exist
+    if action == ClaudeAction::ResearchDistill
+        && task.research_status == flowstate_core::task::ApprovalStatus::None
+    {
+        return Err("cannot distill research: research artifact must exist first".to_string());
+    }
+
+    // Design: research must be approved
+    if action == ClaudeAction::Design
+        && task.research_status != flowstate_core::task::ApprovalStatus::Approved
+    {
+        return Err(format!(
+            "cannot design: research must be approved first (current: {})",
+            task.research_status.display_name()
+        ));
+    }
+
+    // DesignDistill: spec artifact must exist
+    if action == ClaudeAction::DesignDistill
+        && task.spec_status == flowstate_core::task::ApprovalStatus::None
+    {
+        return Err("cannot distill design: spec artifact must exist first".to_string());
+    }
+
+    // Spec must be approved before planning
+    if action == ClaudeAction::Plan
+        && task.spec_status != flowstate_core::task::ApprovalStatus::Approved
+    {
+        return Err(format!(
+            "cannot plan: spec must be approved first (current: {})",
+            task.spec_status.display_name()
+        ));
+    }
+
+    // PlanDistill: plan artifact must exist
+    if action == ClaudeAction::PlanDistill
+        && task.plan_status == flowstate_core::task::ApprovalStatus::None
+    {
+        return Err("cannot distill plan: plan artifact must exist first".to_string());
+    }
+
+    // Both spec and plan must be approved before building
+    if action == ClaudeAction::Build {
+        if task.spec_status != flowstate_core::task::ApprovalStatus::Approved {
+            return Err(format!(
+                "cannot build: spec must be approved first (current: {})",
+                task.spec_status.display_name()
+            ));
+        }
+        if task.plan_status != flowstate_core::task::ApprovalStatus::Approved {
+            return Err(format!(
+                "cannot build: plan must be approved first (current: {})",
+                task.plan_status.display_name()
+            ));
+        }
+    }
+
+    // Verify: build must be completed or a PR must be linked
+    if action == ClaudeAction::Verify {
+        if !has_completed_build && !has_prs {
+            return Err(
+                "cannot verify: build must be completed or a PR must be linked first".to_string(),
+            );
+        }
+    }
+
+    // VerifyDistill: verify artifact must exist
+    if action == ClaudeAction::VerifyDistill
+        && task.verify_status == flowstate_core::task::ApprovalStatus::None
+    {
+        return Err(
+            "cannot distill verification: verification artifact must exist first".to_string(),
+        );
+    }
+
+    Ok(())
+}
+
 async fn trigger_claude_run(
     State(state): State<AppState>,
     Path(task_id): Path<String>,
@@ -49,101 +143,22 @@ async fn trigger_claude_run(
 
     let task = state.service.get_task(&task_id).await.map_err(to_error)?;
 
-    // Research: no prerequisites
-
-    // ResearchDistill: research artifact must exist
-    if action == ClaudeAction::ResearchDistill
-        && task.research_status == flowstate_core::task::ApprovalStatus::None
-    {
-        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-            "cannot distill research: research artifact must exist first".to_string(),
-        )));
-    }
-
-    // Design: research must be approved
-    if action == ClaudeAction::Design
-        && task.research_status != flowstate_core::task::ApprovalStatus::Approved
-    {
-        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-            format!(
-                "cannot design: research must be approved first (current: {})",
-                task.research_status.display_name()
-            ),
-        )));
-    }
-
-    // DesignDistill: spec artifact must exist
-    if action == ClaudeAction::DesignDistill
-        && task.spec_status == flowstate_core::task::ApprovalStatus::None
-    {
-        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-            "cannot distill design: spec artifact must exist first".to_string(),
-        )));
-    }
-
-    // Spec must be approved before planning
-    if action == ClaudeAction::Plan
-        && task.spec_status != flowstate_core::task::ApprovalStatus::Approved
-    {
-        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-            format!(
-                "cannot plan: spec must be approved first (current: {})",
-                task.spec_status.display_name()
-            ),
-        )));
-    }
-
-    // PlanDistill: plan artifact must exist
-    if action == ClaudeAction::PlanDistill
-        && task.plan_status == flowstate_core::task::ApprovalStatus::None
-    {
-        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-            "cannot distill plan: plan artifact must exist first".to_string(),
-        )));
-    }
-
-    // Both spec and plan must be approved before building
-    if action == ClaudeAction::Build {
-        if task.spec_status != flowstate_core::task::ApprovalStatus::Approved {
-            return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-                format!(
-                    "cannot build: spec must be approved first (current: {})",
-                    task.spec_status.display_name()
-                ),
-            )));
-        }
-        if task.plan_status != flowstate_core::task::ApprovalStatus::Approved {
-            return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-                format!(
-                    "cannot build: plan must be approved first (current: {})",
-                    task.plan_status.display_name()
-                ),
-            )));
-        }
-    }
-
-    // Verify: build must be completed or a PR must be linked
-    if action == ClaudeAction::Verify {
+    // For Verify, look up build/PR status
+    let (has_completed_build, has_prs) = if action == ClaudeAction::Verify {
         let runs = state.service.list_claude_runs(&task_id).await.map_err(to_error)?;
-        let has_completed_build = runs.iter().any(|r|
-            r.action == ClaudeAction::Build && r.status == ClaudeRunStatus::Completed
-        );
         let prs = state.service.list_task_prs(&task_id).await.map_err(to_error)?;
-        if !has_completed_build && prs.is_empty() {
-            return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-                "cannot verify: build must be completed or a PR must be linked first".to_string(),
-            )));
-        }
-    }
+        (
+            runs.iter().any(|r| {
+                r.action == ClaudeAction::Build && r.status == ClaudeRunStatus::Completed
+            }),
+            !prs.is_empty(),
+        )
+    } else {
+        (false, false)
+    };
 
-    // VerifyDistill: verify artifact must exist
-    if action == ClaudeAction::VerifyDistill
-        && task.verify_status == flowstate_core::task::ApprovalStatus::None
-    {
-        return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-            "cannot distill verification: verification artifact must exist first".to_string(),
-        )));
-    }
+    validate_action_prerequisites(action, &task, has_completed_build, has_prs)
+        .map_err(|msg| to_error(flowstate_service::ServiceError::InvalidInput(msg)))?;
 
     let required_capability = Some(
         RunnerCapability::default_for_action(action).as_str().to_string(),
@@ -400,4 +415,119 @@ fn to_error(e: flowstate_service::ServiceError) -> (StatusCode, Json<Value>) {
         }
     };
     (status, Json(json!({ "error": msg })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flowstate_core::task::{ApprovalStatus, Priority, Status, Task};
+
+    fn make_test_task() -> Task {
+        Task {
+            id: "task-1".into(),
+            project_id: "proj-1".into(),
+            sprint_id: None,
+            parent_id: None,
+            title: "Test".into(),
+            description: String::new(),
+            reviewer: String::new(),
+            research_status: ApprovalStatus::None,
+            spec_status: ApprovalStatus::None,
+            plan_status: ApprovalStatus::None,
+            verify_status: ApprovalStatus::None,
+            spec_approved_hash: String::new(),
+            research_approved_hash: String::new(),
+            research_feedback: String::new(),
+            spec_feedback: String::new(),
+            plan_feedback: String::new(),
+            verify_feedback: String::new(),
+            status: Status::Todo,
+            priority: Priority::Medium,
+            sort_order: 1.0,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_prerequisites_research_always_passes() {
+        let task = make_test_task();
+        assert!(validate_action_prerequisites(ClaudeAction::Research, &task, false, false).is_ok());
+    }
+
+    #[test]
+    fn test_prerequisites_research_distill_needs_research() {
+        let mut task = make_test_task();
+        assert!(validate_action_prerequisites(ClaudeAction::ResearchDistill, &task, false, false).is_err());
+        task.research_status = ApprovalStatus::Pending;
+        assert!(validate_action_prerequisites(ClaudeAction::ResearchDistill, &task, false, false).is_ok());
+    }
+
+    #[test]
+    fn test_prerequisites_design_needs_approved_research() {
+        let mut task = make_test_task();
+        task.research_status = ApprovalStatus::Pending;
+        assert!(validate_action_prerequisites(ClaudeAction::Design, &task, false, false).is_err());
+        task.research_status = ApprovalStatus::Approved;
+        assert!(validate_action_prerequisites(ClaudeAction::Design, &task, false, false).is_ok());
+    }
+
+    #[test]
+    fn test_prerequisites_design_distill_needs_spec() {
+        let mut task = make_test_task();
+        assert!(validate_action_prerequisites(ClaudeAction::DesignDistill, &task, false, false).is_err());
+        task.spec_status = ApprovalStatus::Pending;
+        assert!(validate_action_prerequisites(ClaudeAction::DesignDistill, &task, false, false).is_ok());
+    }
+
+    #[test]
+    fn test_prerequisites_plan_needs_approved_spec() {
+        let mut task = make_test_task();
+        task.spec_status = ApprovalStatus::Pending;
+        assert!(validate_action_prerequisites(ClaudeAction::Plan, &task, false, false).is_err());
+        task.spec_status = ApprovalStatus::Approved;
+        assert!(validate_action_prerequisites(ClaudeAction::Plan, &task, false, false).is_ok());
+    }
+
+    #[test]
+    fn test_prerequisites_plan_distill_needs_plan() {
+        let mut task = make_test_task();
+        assert!(validate_action_prerequisites(ClaudeAction::PlanDistill, &task, false, false).is_err());
+        task.plan_status = ApprovalStatus::Pending;
+        assert!(validate_action_prerequisites(ClaudeAction::PlanDistill, &task, false, false).is_ok());
+    }
+
+    #[test]
+    fn test_prerequisites_build_needs_approved_spec_and_plan() {
+        let mut task = make_test_task();
+        // Only spec approved
+        task.spec_status = ApprovalStatus::Approved;
+        assert!(validate_action_prerequisites(ClaudeAction::Build, &task, false, false).is_err());
+        // Only plan approved
+        task.spec_status = ApprovalStatus::None;
+        task.plan_status = ApprovalStatus::Approved;
+        assert!(validate_action_prerequisites(ClaudeAction::Build, &task, false, false).is_err());
+        // Both approved
+        task.spec_status = ApprovalStatus::Approved;
+        assert!(validate_action_prerequisites(ClaudeAction::Build, &task, false, false).is_ok());
+    }
+
+    #[test]
+    fn test_prerequisites_verify_needs_build_or_pr() {
+        let task = make_test_task();
+        // Neither
+        assert!(validate_action_prerequisites(ClaudeAction::Verify, &task, false, false).is_err());
+        // Build only
+        assert!(validate_action_prerequisites(ClaudeAction::Verify, &task, true, false).is_ok());
+        // PR only
+        assert!(validate_action_prerequisites(ClaudeAction::Verify, &task, false, true).is_ok());
+    }
+
+    #[test]
+    fn test_prerequisites_verify_distill_needs_verification() {
+        let mut task = make_test_task();
+        assert!(validate_action_prerequisites(ClaudeAction::VerifyDistill, &task, false, false).is_err());
+        task.verify_status = ApprovalStatus::Pending;
+        assert!(validate_action_prerequisites(ClaudeAction::VerifyDistill, &task, false, false).is_ok());
+    }
 }

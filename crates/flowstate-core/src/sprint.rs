@@ -77,3 +77,38 @@ pub struct UpdateSprint {
     pub starts_at: Option<Option<DateTime<Utc>>>,
     pub ends_at: Option<Option<DateTime<Utc>>>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sprint_status_parse_str_round_trip() {
+        let all = [
+            SprintStatus::Planned,
+            SprintStatus::Active,
+            SprintStatus::Completed,
+        ];
+        for s in all {
+            assert_eq!(
+                SprintStatus::parse_str(s.as_str()),
+                Some(s),
+                "SprintStatus::{:?} should round-trip",
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn test_sprint_status_parse_str_invalid() {
+        assert_eq!(SprintStatus::parse_str("cancelled"), None);
+        assert_eq!(SprintStatus::parse_str(""), None);
+    }
+
+    #[test]
+    fn test_sprint_status_display() {
+        assert_eq!(format!("{}", SprintStatus::Planned), "Planned");
+        assert_eq!(format!("{}", SprintStatus::Active), "Active");
+        assert_eq!(format!("{}", SprintStatus::Completed), "Completed");
+    }
+}
