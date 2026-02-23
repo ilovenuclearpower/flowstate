@@ -35,6 +35,17 @@ let
     HEALTH_PORT="''${FLOWSTATE_HEALTH_PORT:-${toString defaultHealthPort}}"
     RUNNER_CAPABILITY="''${FLOWSTATE_RUNNER_CAPABILITY:-heavy}"
 
+    # ── Sandbox gemini CLI config ──
+    # The user's ~/.gemini/settings.json may force interactive OAuth
+    # (selectedType: "oauth-personal"). Point GEMINI_CLI_HOME to an isolated
+    # directory under our data tree so the runner always uses env-var auth.
+    GEMINI_CONFIG_DIR="''${XDG_DATA_HOME:-$HOME/.local/share}/flowstate/runner/gemini"
+    mkdir -p "$GEMINI_CONFIG_DIR/.gemini"
+    if [ ! -f "$GEMINI_CONFIG_DIR/.gemini/settings.json" ]; then
+      echo '{}' > "$GEMINI_CONFIG_DIR/.gemini/settings.json"
+    fi
+    export GEMINI_CLI_HOME="$GEMINI_CONFIG_DIR"
+
     echo "=== Flowstate Gemini Runner (${name}) ==="
     echo ""
 
