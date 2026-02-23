@@ -171,11 +171,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_crud_roundtrip() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let key = "integration-test/crud-roundtrip.txt";
 
@@ -201,11 +199,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_not_found() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
 
         let err = store
@@ -216,11 +212,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_overwrite() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let key = "integration-test/overwrite.txt";
 
@@ -235,11 +229,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_list_prefix() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let prefix = "integration-test/list-prefix";
 
@@ -266,11 +258,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_unicode_roundtrip() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let key = "integration-test/unicode.md";
         let content = "# Spécification 🚀\n日本語テスト";
@@ -283,11 +273,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_large_object() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let key = "integration-test/large.bin";
         let data = vec![0x42u8; 1_000_000]; // 1 MB
@@ -301,11 +289,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_concurrent_operations() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = std::sync::Arc::new(S3Store::new(&config).unwrap());
         let prefix = "integration-test/concurrent";
 
@@ -335,33 +321,27 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_delete_nonexistent_is_noop() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         // Deleting a key that doesn't exist should not error
         store.delete("integration-test/nonexistent-delete-target").await.unwrap();
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_list_empty_prefix() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let keys = store.list("integration-test/guaranteed-empty-prefix-xyz").await.unwrap();
         assert!(keys.is_empty());
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_exists_returns_correct_values() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let key = "integration-test/exists-check.txt";
 
@@ -377,22 +357,18 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_get_opt_returns_none_for_missing() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let result = store.get_opt("integration-test/nonexistent-opt").await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
+    #[ignore]
     async fn s3_get_opt_returns_some_for_existing() {
-        let Some(config) = s3_config() else {
-            eprintln!("Skipping S3 integration test: no S3 endpoint configured");
-            return;
-        };
+        let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         let key = "integration-test/get-opt-existing.txt";
 
