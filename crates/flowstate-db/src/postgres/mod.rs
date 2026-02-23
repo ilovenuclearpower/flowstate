@@ -62,11 +62,7 @@ impl Database for PostgresDatabase {
     async fn list_projects(&self) -> Result<Vec<Project>, DbError> {
         self.pg_list_projects().await
     }
-    async fn update_project(
-        &self,
-        id: &str,
-        update: &UpdateProject,
-    ) -> Result<Project, DbError> {
+    async fn update_project(&self, id: &str, update: &UpdateProject) -> Result<Project, DbError> {
         self.pg_update_project(id, update).await
     }
     async fn delete_project(&self, id: &str) -> Result<(), DbError> {
@@ -86,37 +82,24 @@ impl Database for PostgresDatabase {
     async fn list_child_tasks(&self, parent_id: &str) -> Result<Vec<Task>, DbError> {
         self.pg_list_child_tasks(parent_id).await
     }
-    async fn update_task(
-        &self,
-        id: &str,
-        update: &UpdateTask,
-    ) -> Result<Task, DbError> {
+    async fn update_task(&self, id: &str, update: &UpdateTask) -> Result<Task, DbError> {
         self.pg_update_task(id, update).await
     }
     async fn delete_task(&self, id: &str) -> Result<(), DbError> {
         self.pg_delete_task(id).await
     }
-    async fn count_tasks_by_status(
-        &self,
-        project_id: &str,
-    ) -> Result<Vec<(String, i64)>, DbError> {
+    async fn count_tasks_by_status(&self, project_id: &str) -> Result<Vec<(String, i64)>, DbError> {
         self.pg_count_tasks_by_status(project_id).await
     }
 
     // -- Claude Runs --
-    async fn create_claude_run(
-        &self,
-        input: &CreateClaudeRun,
-    ) -> Result<ClaudeRun, DbError> {
+    async fn create_claude_run(&self, input: &CreateClaudeRun) -> Result<ClaudeRun, DbError> {
         self.pg_create_claude_run(input).await
     }
     async fn get_claude_run(&self, id: &str) -> Result<ClaudeRun, DbError> {
         self.pg_get_claude_run(id).await
     }
-    async fn list_claude_runs_for_task(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<ClaudeRun>, DbError> {
+    async fn list_claude_runs_for_task(&self, task_id: &str) -> Result<Vec<ClaudeRun>, DbError> {
         self.pg_list_claude_runs_for_task(task_id).await
     }
     async fn update_claude_run_status(
@@ -135,11 +118,7 @@ impl Database for PostgresDatabase {
     ) -> Result<Option<ClaudeRun>, DbError> {
         self.pg_claim_next_claude_run(capabilities).await
     }
-    async fn update_claude_run_progress(
-        &self,
-        id: &str,
-        message: &str,
-    ) -> Result<(), DbError> {
+    async fn update_claude_run_progress(&self, id: &str, message: &str) -> Result<(), DbError> {
         self.pg_update_claude_run_progress(id, message).await
     }
     async fn update_claude_run_pr(
@@ -171,11 +150,7 @@ impl Database for PostgresDatabase {
     ) -> Result<Option<ClaudeRun>, DbError> {
         self.pg_timeout_claude_run(id, error_message).await
     }
-    async fn set_claude_run_runner(
-        &self,
-        id: &str,
-        runner_id: &str,
-    ) -> Result<(), DbError> {
+    async fn set_claude_run_runner(&self, id: &str, runner_id: &str) -> Result<(), DbError> {
         self.pg_set_claude_run_runner(id, runner_id).await
     }
 
@@ -197,10 +172,7 @@ impl Database for PostgresDatabase {
     }
 
     // -- Task Links --
-    async fn create_task_link(
-        &self,
-        input: &CreateTaskLink,
-    ) -> Result<TaskLink, DbError> {
+    async fn create_task_link(&self, input: &CreateTaskLink) -> Result<TaskLink, DbError> {
         self.pg_create_task_link(input).await
     }
     async fn list_task_links(&self, task_id: &str) -> Result<Vec<TaskLink>, DbError> {
@@ -211,10 +183,7 @@ impl Database for PostgresDatabase {
     }
 
     // -- Task PRs --
-    async fn create_task_pr(
-        &self,
-        input: &CreateTaskPr,
-    ) -> Result<TaskPr, DbError> {
+    async fn create_task_pr(&self, input: &CreateTaskPr) -> Result<TaskPr, DbError> {
         self.pg_create_task_pr(input).await
     }
     async fn list_task_prs(&self, task_id: &str) -> Result<Vec<TaskPr>, DbError> {
@@ -232,10 +201,7 @@ impl Database for PostgresDatabase {
         self.pg_create_attachment(task_id, filename, store_key, size_bytes)
             .await
     }
-    async fn list_attachments(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<Attachment>, DbError> {
+    async fn list_attachments(&self, task_id: &str) -> Result<Vec<Attachment>, DbError> {
         self.pg_list_attachments(task_id).await
     }
     async fn get_attachment(&self, id: &str) -> Result<Attachment, DbError> {
@@ -246,17 +212,10 @@ impl Database for PostgresDatabase {
     }
 
     // -- API Keys --
-    async fn insert_api_key(
-        &self,
-        name: &str,
-        key_hash: &str,
-    ) -> Result<ApiKey, DbError> {
+    async fn insert_api_key(&self, name: &str, key_hash: &str) -> Result<ApiKey, DbError> {
         self.pg_insert_api_key(name, key_hash).await
     }
-    async fn find_api_key_by_hash(
-        &self,
-        key_hash: &str,
-    ) -> Result<Option<ApiKey>, DbError> {
+    async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, DbError> {
         self.pg_find_api_key_by_hash(key_hash).await
     }
     async fn touch_api_key(&self, id: &str) -> Result<(), DbError> {

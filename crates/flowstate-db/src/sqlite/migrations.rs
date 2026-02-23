@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
-use crate::DbError;
 use super::SqliteResultExt;
+use crate::DbError;
 
 pub fn run(conn: &Connection) -> Result<(), DbError> {
     // Original schema -- idempotent CREATE TABLE IF NOT EXISTS
@@ -285,10 +285,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                 .is_ok()
         };
         if !has_column("claude_runs", "progress_message") {
-            conn.execute_batch(
-                "ALTER TABLE claude_runs ADD COLUMN progress_message TEXT;",
-            )
-            .to_db()?;
+            conn.execute_batch("ALTER TABLE claude_runs ADD COLUMN progress_message TEXT;")
+                .to_db()?;
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (4, datetime('now'))",
@@ -303,10 +301,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                 .is_ok()
         };
         if !has_column("projects", "repo_token") {
-            conn.execute_batch(
-                "ALTER TABLE projects ADD COLUMN repo_token TEXT;",
-            )
-            .to_db()?;
+            conn.execute_batch("ALTER TABLE projects ADD COLUMN repo_token TEXT;")
+                .to_db()?;
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (5, datetime('now'))",
@@ -344,10 +340,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                 .is_ok()
         };
         if has_column("attachments", "disk_path") {
-            conn.execute_batch(
-                "ALTER TABLE attachments RENAME COLUMN disk_path TO store_key;",
-            )
-            .to_db()?;
+            conn.execute_batch("ALTER TABLE attachments RENAME COLUMN disk_path TO store_key;")
+                .to_db()?;
 
             // Convert absolute filesystem paths to relative object keys.
             // Existing disk_path values look like:
@@ -512,14 +506,9 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
 
         // Verify FK integrity
         let mut fk_stmt = conn.prepare("PRAGMA foreign_key_check").to_db()?;
-        let fk_errors: i64 = fk_stmt
-            .query_map([], |_row| Ok(1))
-            .to_db()?
-            .count() as i64;
+        let fk_errors: i64 = fk_stmt.query_map([], |_row| Ok(1)).to_db()?.count() as i64;
         if fk_errors > 0 {
-            eprintln!(
-                "WARNING: foreign key check found {fk_errors} issues after v8 migration"
-            );
+            eprintln!("WARNING: foreign key check found {fk_errors} issues after v8 migration");
         }
 
         conn.execute(
@@ -585,10 +574,8 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
                 .is_ok()
         };
         if !has_column("claude_runs", "required_capability") {
-            conn.execute_batch(
-                "ALTER TABLE claude_runs ADD COLUMN required_capability TEXT;",
-            )
-            .to_db()?;
+            conn.execute_batch("ALTER TABLE claude_runs ADD COLUMN required_capability TEXT;")
+                .to_db()?;
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (10, datetime('now'))",
@@ -612,6 +599,28 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         }
         conn.execute(
             "INSERT INTO schema_version (version, applied_at) VALUES (11, datetime('now'))",
+            [],
+        )
+        .to_db()?;
+    }
+
+    if current_version < 12 {
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if !has_column("tasks", "research_capability") {
+            conn.execute_batch(
+                "ALTER TABLE tasks ADD COLUMN research_capability TEXT;
+                 ALTER TABLE tasks ADD COLUMN design_capability TEXT;
+                 ALTER TABLE tasks ADD COLUMN plan_capability TEXT;
+                 ALTER TABLE tasks ADD COLUMN build_capability TEXT;
+                 ALTER TABLE tasks ADD COLUMN verify_capability TEXT;",
+            )
+            .to_db()?;
+        }
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (12, datetime('now'))",
             [],
         )
         .to_db()?;

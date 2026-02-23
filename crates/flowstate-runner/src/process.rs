@@ -127,9 +127,7 @@ impl ManagedChild {
 
 /// Spawn a command in a new process group via setsid.
 /// Returns the managed child and its stdout/stderr handles.
-pub fn spawn_managed(
-    cmd: &mut Command,
-) -> Result<(ManagedChild, ChildStdout, ChildStderr)> {
+pub fn spawn_managed(cmd: &mut Command) -> Result<(ManagedChild, ChildStdout, ChildStderr)> {
     // Create new process group via setsid so we can kill the whole tree
     unsafe {
         cmd.pre_exec(|| {
@@ -139,9 +137,7 @@ pub fn spawn_managed(
     }
 
     let mut child = cmd.spawn().context("spawn process")?;
-    let pid = child
-        .id()
-        .ok_or_else(|| anyhow::anyhow!("no child PID"))? as i32;
+    let pid = child.id().ok_or_else(|| anyhow::anyhow!("no child PID"))? as i32;
 
     let stdout = child.stdout.take().unwrap();
     let stderr = child.stderr.take().unwrap();

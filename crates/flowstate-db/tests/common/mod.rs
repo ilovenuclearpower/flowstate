@@ -5,7 +5,8 @@
 
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
 use flowstate_core::project::{CreateProject, UpdateProject};
-use flowstate_core::sprint::{CreateSprint, UpdateSprint, SprintStatus};
+use flowstate_core::runner::RunnerCapability;
+use flowstate_core::sprint::{CreateSprint, SprintStatus, UpdateSprint};
 use flowstate_core::task::{CreateTask, Priority, Status, TaskFilter, UpdateTask};
 use flowstate_core::task_link::{CreateTaskLink, LinkType};
 use flowstate_core::task_pr::CreateTaskPr;
@@ -33,6 +34,11 @@ fn make_task(project_id: &str, title: &str) -> CreateTask {
         priority: Priority::Medium,
         parent_id: None,
         reviewer: String::new(),
+        research_capability: None,
+        design_capability: None,
+        plan_capability: None,
+        build_capability: None,
+        verify_capability: None,
     }
 }
 
@@ -108,16 +114,25 @@ pub async fn test_task_crud(db: &dyn Database) {
             priority: Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: Some(RunnerCapability::Light),
+            design_capability: None,
+            plan_capability: None,
+            build_capability: Some(RunnerCapability::Heavy),
+            verify_capability: None,
         })
         .await
         .unwrap();
     assert_eq!(task.title, "Task 1");
     assert_eq!(task.status, Status::Todo);
     assert_eq!(task.priority, Priority::Medium);
+    assert_eq!(task.research_capability, Some(RunnerCapability::Light));
+    assert_eq!(task.build_capability, Some(RunnerCapability::Heavy));
 
     // get
     let fetched = db.get_task(&task.id).await.unwrap();
     assert_eq!(fetched.id, task.id);
+    assert_eq!(fetched.research_capability, Some(RunnerCapability::Light));
+    assert_eq!(fetched.build_capability, Some(RunnerCapability::Heavy));
 
     // update
     let updated = db
@@ -126,6 +141,8 @@ pub async fn test_task_crud(db: &dyn Database) {
             &UpdateTask {
                 status: Some(Status::Build),
                 priority: Some(Priority::High),
+                research_capability: Some(None), // unset
+                build_capability: Some(Some(RunnerCapability::Standard)), // change
                 ..Default::default()
             },
         )
@@ -133,6 +150,8 @@ pub async fn test_task_crud(db: &dyn Database) {
         .unwrap();
     assert_eq!(updated.status, Status::Build);
     assert_eq!(updated.priority, Priority::High);
+    assert_eq!(updated.research_capability, None);
+    assert_eq!(updated.build_capability, Some(RunnerCapability::Standard));
 
     // list with filter
     let tasks = db
@@ -172,9 +191,18 @@ pub async fn test_task_filtering(db: &dyn Database) {
             title: format!("Task {i}"),
             description: String::new(),
             status: if i < 3 { Status::Todo } else { Status::Done },
-            priority: if i == 0 { Priority::High } else { Priority::Medium },
+            priority: if i == 0 {
+                Priority::High
+            } else {
+                Priority::Medium
+            },
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -273,6 +301,11 @@ pub async fn test_count_by_status(db: &dyn Database) {
         priority: Priority::Medium,
         parent_id: None,
         reviewer: String::new(),
+        research_capability: None,
+        design_capability: None,
+        plan_capability: None,
+        build_capability: None,
+        verify_capability: None,
     })
     .await
     .unwrap();
@@ -284,6 +317,11 @@ pub async fn test_count_by_status(db: &dyn Database) {
         priority: Priority::Medium,
         parent_id: None,
         reviewer: String::new(),
+        research_capability: None,
+        design_capability: None,
+        plan_capability: None,
+        build_capability: None,
+        verify_capability: None,
     })
     .await
     .unwrap();
@@ -295,6 +333,11 @@ pub async fn test_count_by_status(db: &dyn Database) {
         priority: Priority::Medium,
         parent_id: None,
         reviewer: String::new(),
+        research_capability: None,
+        design_capability: None,
+        plan_capability: None,
+        build_capability: None,
+        verify_capability: None,
     })
     .await
     .unwrap();
@@ -327,6 +370,11 @@ pub async fn test_child_tasks(db: &dyn Database) {
             priority: Priority::Medium,
             parent_id: Some(parent.id.clone()),
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -341,6 +389,11 @@ pub async fn test_child_tasks(db: &dyn Database) {
             priority: Priority::Medium,
             parent_id: Some(parent.id.clone()),
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -413,7 +466,9 @@ pub async fn test_claude_run_lifecycle(db: &dyn Database) {
     assert_eq!(claimed.status, ClaudeRunStatus::Running);
 
     // Set runner_id
-    db.set_claude_run_runner(&run.id, "runner-42").await.unwrap();
+    db.set_claude_run_runner(&run.id, "runner-42")
+        .await
+        .unwrap();
     let with_runner = db.get_claude_run(&run.id).await.unwrap();
     assert_eq!(with_runner.runner_id.as_deref(), Some("runner-42"));
 
@@ -442,10 +497,7 @@ pub async fn test_claude_run_lifecycle(db: &dyn Database) {
         Some("https://github.com/org/repo/pull/99")
     );
     assert_eq!(with_pr.pr_number, Some(99));
-    assert_eq!(
-        with_pr.branch_name.as_deref(),
-        Some("flowstate/feature")
-    );
+    assert_eq!(with_pr.branch_name.as_deref(), Some("flowstate/feature"));
 
     // Complete the run
     let completed = db
@@ -623,10 +675,7 @@ pub async fn test_task_links(db: &dyn Database) {
 
 /// Test task PR CRUD: create and list.
 pub async fn test_task_prs(db: &dyn Database) {
-    let project = db
-        .create_project(&make_project("task-prs"))
-        .await
-        .unwrap();
+    let project = db.create_project(&make_project("task-prs")).await.unwrap();
     let task = db
         .create_task(&make_task(&project.id, "PR task"))
         .await
@@ -804,7 +853,10 @@ pub async fn test_api_keys(db: &dyn Database) {
 
 /// Test sprint CRUD: create, get, list, update, delete.
 pub async fn test_sprint_crud(db: &dyn Database) {
-    let project = db.create_project(&make_project("sprint-crud")).await.unwrap();
+    let project = db
+        .create_project(&make_project("sprint-crud"))
+        .await
+        .unwrap();
 
     // Create
     let sprint = db
@@ -875,7 +927,10 @@ pub async fn test_sprint_crud(db: &dyn Database) {
 
 /// Test subtask creation with parent context and sprint assignment via tasks.
 pub async fn test_subtask_workflow(db: &dyn Database) {
-    let project = db.create_project(&make_project("subtask-wf")).await.unwrap();
+    let project = db
+        .create_project(&make_project("subtask-wf"))
+        .await
+        .unwrap();
 
     // Create a sprint and a parent task assigned to it
     let sprint = db
@@ -898,6 +953,11 @@ pub async fn test_subtask_workflow(db: &dyn Database) {
             priority: Priority::High,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -925,6 +985,11 @@ pub async fn test_subtask_workflow(db: &dyn Database) {
             priority: Priority::High,
             parent_id: Some(parent.id.clone()),
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -956,10 +1021,19 @@ pub async fn test_subtask_workflow(db: &dyn Database) {
 
 /// Test that update_task with default (no-op) UpdateTask returns the task unchanged.
 pub async fn test_update_task_no_changes(db: &dyn Database) {
-    let project = db.create_project(&make_project("update-noop")).await.unwrap();
-    let task = db.create_task(&make_task(&project.id, "Unchanged")).await.unwrap();
+    let project = db
+        .create_project(&make_project("update-noop"))
+        .await
+        .unwrap();
+    let task = db
+        .create_task(&make_task(&project.id, "Unchanged"))
+        .await
+        .unwrap();
 
-    let updated = db.update_task(&task.id, &UpdateTask::default()).await.unwrap();
+    let updated = db
+        .update_task(&task.id, &UpdateTask::default())
+        .await
+        .unwrap();
     assert_eq!(updated.title, "Unchanged");
     assert_eq!(updated.status, Status::Todo);
     assert_eq!(updated.priority, Priority::Medium);
@@ -967,7 +1041,10 @@ pub async fn test_update_task_no_changes(db: &dyn Database) {
 
 /// Test filtering tasks by status + priority + limit simultaneously.
 pub async fn test_list_tasks_combined_filters(db: &dyn Database) {
-    let project = db.create_project(&make_project("combined-filter")).await.unwrap();
+    let project = db
+        .create_project(&make_project("combined-filter"))
+        .await
+        .unwrap();
 
     // Create 3 high-priority Todo tasks and 2 medium-priority Todo tasks
     for i in 0..3 {
@@ -979,6 +1056,11 @@ pub async fn test_list_tasks_combined_filters(db: &dyn Database) {
             priority: Priority::High,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -992,6 +1074,11 @@ pub async fn test_list_tasks_combined_filters(db: &dyn Database) {
             priority: Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -1016,7 +1103,10 @@ pub async fn test_list_tasks_combined_filters(db: &dyn Database) {
 
 /// Test update_project with all fields set at once.
 pub async fn test_update_project_all_fields(db: &dyn Database) {
-    let project = db.create_project(&make_project("update-all")).await.unwrap();
+    let project = db
+        .create_project(&make_project("update-all"))
+        .await
+        .unwrap();
 
     let updated = db
         .update_project(
@@ -1040,7 +1130,10 @@ pub async fn test_update_project_all_fields(db: &dyn Database) {
 pub async fn test_update_project_no_changes(db: &dyn Database) {
     let project = db.create_project(&make_project("proj-noop")).await.unwrap();
 
-    let updated = db.update_project(&project.id, &UpdateProject::default()).await.unwrap();
+    let updated = db
+        .update_project(&project.id, &UpdateProject::default())
+        .await
+        .unwrap();
     assert_eq!(updated.name, project.name);
     assert_eq!(updated.slug, project.slug);
 }
@@ -1053,7 +1146,10 @@ pub async fn test_get_project_by_slug_not_found(db: &dyn Database) {
 
 /// Test filtering tasks by sprint_id returns only assigned tasks.
 pub async fn test_task_filter_by_sprint_id(db: &dyn Database) {
-    let project = db.create_project(&make_project("sprint-filter")).await.unwrap();
+    let project = db
+        .create_project(&make_project("sprint-filter"))
+        .await
+        .unwrap();
     let sprint = db
         .create_sprint(&CreateSprint {
             project_id: project.id.clone(),
@@ -1066,7 +1162,10 @@ pub async fn test_task_filter_by_sprint_id(db: &dyn Database) {
         .unwrap();
 
     // Task assigned to sprint
-    let t1 = db.create_task(&make_task(&project.id, "In Sprint")).await.unwrap();
+    let t1 = db
+        .create_task(&make_task(&project.id, "In Sprint"))
+        .await
+        .unwrap();
     db.update_task(
         &t1.id,
         &UpdateTask {
@@ -1078,7 +1177,10 @@ pub async fn test_task_filter_by_sprint_id(db: &dyn Database) {
     .unwrap();
 
     // Task not assigned to sprint
-    let _t2 = db.create_task(&make_task(&project.id, "No Sprint")).await.unwrap();
+    let _t2 = db
+        .create_task(&make_task(&project.id, "No Sprint"))
+        .await
+        .unwrap();
 
     let filtered = db
         .list_tasks(&TaskFilter {
@@ -1094,7 +1196,10 @@ pub async fn test_task_filter_by_sprint_id(db: &dyn Database) {
 
 /// Test update_sprint with default (no-op) returns sprint unchanged.
 pub async fn test_update_sprint_no_changes(db: &dyn Database) {
-    let project = db.create_project(&make_project("sprint-noop")).await.unwrap();
+    let project = db
+        .create_project(&make_project("sprint-noop"))
+        .await
+        .unwrap();
     let sprint = db
         .create_sprint(&CreateSprint {
             project_id: project.id.clone(),
@@ -1106,7 +1211,10 @@ pub async fn test_update_sprint_no_changes(db: &dyn Database) {
         .await
         .unwrap();
 
-    let updated = db.update_sprint(&sprint.id, &UpdateSprint::default()).await.unwrap();
+    let updated = db
+        .update_sprint(&sprint.id, &UpdateSprint::default())
+        .await
+        .unwrap();
     assert_eq!(updated.name, "Original");
     assert_eq!(updated.goal, "Goal");
     assert_eq!(updated.status, SprintStatus::Planned);

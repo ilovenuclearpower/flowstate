@@ -125,6 +125,11 @@ async fn setup_run(
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -182,10 +187,7 @@ fn resolve_workspace_dir_with_home() {
 #[test]
 fn resolve_workspace_dir_no_env() {
     let dir = executor::resolve_workspace_dir_from(&None, "run-000", None, None);
-    assert_eq!(
-        dir,
-        PathBuf::from("./flowstate/workspaces/run-000")
-    );
+    assert_eq!(dir, PathBuf::from("./flowstate/workspaces/run-000"));
 }
 
 #[test]
@@ -326,8 +328,7 @@ async fn dispatch_plan_success() {
     let config = test_config(ws_root);
 
     // Complete research
-    let backend = MockBackend::success("ok")
-        .with_files(vec![("RESEARCH.md", "# Research")]);
+    let backend = MockBackend::success("ok").with_files(vec![("RESEARCH.md", "# Research")]);
     executor::dispatch(&svc, &run, &task, &project, &config, &backend)
         .await
         .unwrap();
@@ -346,8 +347,7 @@ async fn dispatch_plan_success() {
     // Design
     let _design_run = svc.trigger_claude_run(&task.id, "design").await.unwrap();
     let claimed = svc.claim_claude_run().await.unwrap().unwrap();
-    let backend = MockBackend::success("ok")
-        .with_files(vec![("SPECIFICATION.md", "# Spec")]);
+    let backend = MockBackend::success("ok").with_files(vec![("SPECIFICATION.md", "# Spec")]);
     executor::dispatch(&svc, &claimed, &task, &project, &config, &backend)
         .await
         .unwrap();
@@ -367,8 +367,10 @@ async fn dispatch_plan_success() {
     let claimed = svc.claim_claude_run().await.unwrap().unwrap();
     assert_eq!(claimed.id, plan_run.id);
 
-    let backend = MockBackend::success("ok")
-        .with_files(vec![("PLAN.md", "# Plan\n\n## Validation\n\n```bash\necho ok\n```")]);
+    let backend = MockBackend::success("ok").with_files(vec![(
+        "PLAN.md",
+        "# Plan\n\n## Validation\n\n```bash\necho ok\n```",
+    )]);
     executor::dispatch(&svc, &claimed, &task, &project, &config, &backend)
         .await
         .unwrap();

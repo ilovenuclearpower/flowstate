@@ -40,11 +40,10 @@ async fn run_inner(pool: &PgPool) -> Result<(), DbError> {
     .await
     .map_err(|e| DbError::Internal(e.to_string()))?;
 
-    let current: i32 =
-        sqlx::query_scalar("SELECT COALESCE(MAX(version), 0) FROM schema_version")
-            .fetch_one(pool)
-            .await
-            .map_err(|e| DbError::Internal(e.to_string()))?;
+    let current: i32 = sqlx::query_scalar("SELECT COALESCE(MAX(version), 0) FROM schema_version")
+        .fetch_one(pool)
+        .await
+        .map_err(|e| DbError::Internal(e.to_string()))?;
 
     if current < 1 {
         sqlx::raw_sql(include_str!("sql/V1__initial.sql"))
@@ -62,6 +61,13 @@ async fn run_inner(pool: &PgPool) -> Result<(), DbError> {
 
     if current < 3 {
         sqlx::raw_sql(include_str!("sql/V3__add_provider_type.sql"))
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?;
+    }
+
+    if current < 4 {
+        sqlx::raw_sql(include_str!("sql/V4__add_task_capabilities.sql"))
             .execute(pool)
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?;

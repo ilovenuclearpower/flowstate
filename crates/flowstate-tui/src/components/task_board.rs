@@ -164,12 +164,7 @@ impl TaskBoard {
 
         let list = List::new(items)
             .block(block)
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::Cyan)
-                    .bold(),
-            )
+            .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan).bold())
             .highlight_symbol("> ");
 
         let mut state = col.list_state.clone();
@@ -202,6 +197,11 @@ mod tests {
             title: format!("Task {id}"),
             description: String::new(),
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
             research_status: ApprovalStatus::default(),
             spec_status: ApprovalStatus::default(),
             plan_status: ApprovalStatus::default(),
@@ -222,10 +222,20 @@ mod tests {
 
     fn make_board() -> TaskBoard {
         TaskBoard::new(vec![
-            (Status::Todo, vec![make_task("t1", Status::Todo), make_task("t2", Status::Todo)]),
+            (
+                Status::Todo,
+                vec![make_task("t1", Status::Todo), make_task("t2", Status::Todo)],
+            ),
             (Status::Research, vec![make_task("r1", Status::Research)]),
             (Status::Design, vec![]),
-            (Status::Plan, vec![make_task("p1", Status::Plan), make_task("p2", Status::Plan), make_task("p3", Status::Plan)]),
+            (
+                Status::Plan,
+                vec![
+                    make_task("p1", Status::Plan),
+                    make_task("p2", Status::Plan),
+                    make_task("p3", Status::Plan),
+                ],
+            ),
             (Status::Build, vec![]),
             (Status::Verify, vec![]),
             (Status::Done, vec![make_task("d1", Status::Done)]),

@@ -4,8 +4,8 @@
 
 mod common;
 
-use std::sync::Arc;
 use flowstate_db::Database;
+use std::sync::Arc;
 
 async fn make_db() -> Arc<dyn Database> {
     Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap())

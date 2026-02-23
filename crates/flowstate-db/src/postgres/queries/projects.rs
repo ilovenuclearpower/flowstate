@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 
 use flowstate_core::project::{CreateProject, Project, ProviderType, UpdateProject};
 
-use crate::DbError;
 use super::super::{pg_err, pg_not_found, PostgresDatabase};
+use crate::DbError;
 
 #[derive(sqlx::FromRow)]
 struct ProjectRow {
@@ -59,53 +59,42 @@ impl PostgresDatabase {
         .await
         .map_err(pg_err)?;
 
-        let row = sqlx::query_as::<_, ProjectRow>(
-            "SELECT * FROM projects WHERE id = $1",
-        )
-        .bind(&id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let row = sqlx::query_as::<_, ProjectRow>("SELECT * FROM projects WHERE id = $1")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(row.into())
     }
 
     pub(crate) async fn pg_get_project(&self, id: &str) -> Result<Project, DbError> {
-        let row = sqlx::query_as::<_, ProjectRow>(
-            "SELECT * FROM projects WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(pg_err)?
-        .ok_or_else(|| pg_not_found(&format!("project {id}")))?;
+        let row = sqlx::query_as::<_, ProjectRow>("SELECT * FROM projects WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(pg_err)?
+            .ok_or_else(|| pg_not_found(&format!("project {id}")))?;
 
         Ok(row.into())
     }
 
-    pub(crate) async fn pg_get_project_by_slug(
-        &self,
-        slug: &str,
-    ) -> Result<Project, DbError> {
-        let row = sqlx::query_as::<_, ProjectRow>(
-            "SELECT * FROM projects WHERE slug = $1",
-        )
-        .bind(slug)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(pg_err)?
-        .ok_or_else(|| pg_not_found(&format!("project with slug '{slug}'")))?;
+    pub(crate) async fn pg_get_project_by_slug(&self, slug: &str) -> Result<Project, DbError> {
+        let row = sqlx::query_as::<_, ProjectRow>("SELECT * FROM projects WHERE slug = $1")
+            .bind(slug)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(pg_err)?
+            .ok_or_else(|| pg_not_found(&format!("project with slug '{slug}'")))?;
 
         Ok(row.into())
     }
 
     pub(crate) async fn pg_list_projects(&self) -> Result<Vec<Project>, DbError> {
-        let rows = sqlx::query_as::<_, ProjectRow>(
-            "SELECT * FROM projects ORDER BY name",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let rows = sqlx::query_as::<_, ProjectRow>("SELECT * FROM projects ORDER BY name")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
@@ -132,27 +121,37 @@ impl PostgresDatabase {
 
         if let Some(ref name) = update.name {
             sets.push(format!("name = ${param_idx}"));
-            params.push(Param { value: name.clone() });
+            params.push(Param {
+                value: name.clone(),
+            });
             param_idx += 1;
         }
         if let Some(ref description) = update.description {
             sets.push(format!("description = ${param_idx}"));
-            params.push(Param { value: description.clone() });
+            params.push(Param {
+                value: description.clone(),
+            });
             param_idx += 1;
         }
         if let Some(ref repo_url) = update.repo_url {
             sets.push(format!("repo_url = ${param_idx}"));
-            params.push(Param { value: repo_url.clone() });
+            params.push(Param {
+                value: repo_url.clone(),
+            });
             param_idx += 1;
         }
         if let Some(ref repo_token) = update.repo_token {
             sets.push(format!("repo_token = ${param_idx}"));
-            params.push(Param { value: repo_token.clone() });
+            params.push(Param {
+                value: repo_token.clone(),
+            });
             param_idx += 1;
         }
         if let Some(ref provider_type) = update.provider_type {
             sets.push(format!("provider_type = ${param_idx}"));
-            params.push(Param { value: provider_type.as_str().to_string() });
+            params.push(Param {
+                value: provider_type.as_str().to_string(),
+            });
             param_idx += 1;
         }
         if let Some(skip_tls_verify) = update.skip_tls_verify {

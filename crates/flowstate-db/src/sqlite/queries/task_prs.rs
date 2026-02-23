@@ -3,8 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
 
-use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
+use crate::DbError;
 
 fn row_to_task_pr(row: &Row) -> rusqlite::Result<TaskPr> {
     Ok(TaskPr {
@@ -49,9 +49,7 @@ impl SqliteDatabase {
     pub fn list_task_prs_sync(&self, task_id: &str) -> Result<Vec<TaskPr>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn
-                .prepare(
-                    "SELECT * FROM task_prs WHERE task_id = ?1 ORDER BY created_at DESC",
-                )
+                .prepare("SELECT * FROM task_prs WHERE task_id = ?1 ORDER BY created_at DESC")
                 .to_db()?;
             let prs = stmt
                 .query_map(params![task_id], row_to_task_pr)
@@ -91,6 +89,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
         (db, project.id, task.id)

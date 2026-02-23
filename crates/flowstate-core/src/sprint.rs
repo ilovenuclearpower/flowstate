@@ -84,9 +84,18 @@ mod tests {
 
     #[test]
     fn sprint_status_parse_str() {
-        assert_eq!(SprintStatus::parse_str("planned"), Some(SprintStatus::Planned));
-        assert_eq!(SprintStatus::parse_str("active"), Some(SprintStatus::Active));
-        assert_eq!(SprintStatus::parse_str("completed"), Some(SprintStatus::Completed));
+        assert_eq!(
+            SprintStatus::parse_str("planned"),
+            Some(SprintStatus::Planned)
+        );
+        assert_eq!(
+            SprintStatus::parse_str("active"),
+            Some(SprintStatus::Active)
+        );
+        assert_eq!(
+            SprintStatus::parse_str("completed"),
+            Some(SprintStatus::Completed)
+        );
         assert_eq!(SprintStatus::parse_str("invalid"), None);
         assert_eq!(SprintStatus::parse_str("cancelled"), None);
         assert_eq!(SprintStatus::parse_str(""), None);
@@ -94,7 +103,11 @@ mod tests {
 
     #[test]
     fn sprint_status_as_str_roundtrip() {
-        let all = [SprintStatus::Planned, SprintStatus::Active, SprintStatus::Completed];
+        let all = [
+            SprintStatus::Planned,
+            SprintStatus::Active,
+            SprintStatus::Completed,
+        ];
         for s in &all {
             assert_eq!(SprintStatus::parse_str(s.as_str()), Some(*s));
         }
@@ -109,7 +122,11 @@ mod tests {
 
     #[test]
     fn sprint_status_display() {
-        let all = [SprintStatus::Planned, SprintStatus::Active, SprintStatus::Completed];
+        let all = [
+            SprintStatus::Planned,
+            SprintStatus::Active,
+            SprintStatus::Completed,
+        ];
         for s in &all {
             assert_eq!(format!("{s}"), s.display_name());
         }

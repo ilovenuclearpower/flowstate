@@ -10,16 +10,16 @@
 
 mod common;
 
-use std::sync::Arc;
 use flowstate_db::Database;
+use std::sync::Arc;
 
 /// Connect to the test Postgres database and TRUNCATE all tables so each
 /// test starts with a clean slate.  The `pool` field on `PostgresDatabase`
 /// is `pub(crate)` so integration tests cannot access it directly; we open
 /// a second throwaway `sqlx::PgPool` for the cleanup step.
 async fn make_db() -> Arc<dyn Database> {
-    let url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set for postgres parity tests");
+    let url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for postgres parity tests");
 
     let db = flowstate_db::postgres::PostgresDatabase::connect(&url)
         .await

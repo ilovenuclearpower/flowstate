@@ -15,7 +15,11 @@ use crate::backend::AgentBackend;
 #[command(name = "flowstate-runner", about = "Flowstate build runner")]
 pub struct RunnerConfig {
     /// Server URL
-    #[arg(long, env = "FLOWSTATE_SERVER_URL", default_value = "http://127.0.0.1:3710")]
+    #[arg(
+        long,
+        env = "FLOWSTATE_SERVER_URL",
+        default_value = "http://127.0.0.1:3710"
+    )]
     pub server_url: String,
 
     /// API key for authenticating with the server
@@ -178,9 +182,9 @@ impl RunnerConfig {
                 api_key: self.opencode_api_key.clone(),
                 api_base_url: self.opencode_base_url.clone(),
             })),
-            other => bail!(
-                "unknown agent backend: {other}. Supported: claude-cli, gemini-cli, opencode"
-            ),
+            other => {
+                bail!("unknown agent backend: {other}. Supported: claude-cli, gemini-cli, opencode")
+            }
         }
     }
 
@@ -263,7 +267,10 @@ mod tests {
         cfg.max_concurrent = 5;
         let err = cfg.validate().unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("6") && msg.contains("5"), "error should mention both values: {msg}");
+        assert!(
+            msg.contains("6") && msg.contains("5"),
+            "error should mention both values: {msg}"
+        );
     }
 
     #[test]
@@ -298,7 +305,9 @@ mod tests {
         assert!(!RunnerConfig::is_build_action(ClaudeAction::Design));
         assert!(!RunnerConfig::is_build_action(ClaudeAction::Plan));
         assert!(!RunnerConfig::is_build_action(ClaudeAction::Verify));
-        assert!(!RunnerConfig::is_build_action(ClaudeAction::ResearchDistill));
+        assert!(!RunnerConfig::is_build_action(
+            ClaudeAction::ResearchDistill
+        ));
         assert!(!RunnerConfig::is_build_action(ClaudeAction::DesignDistill));
         assert!(!RunnerConfig::is_build_action(ClaudeAction::PlanDistill));
         assert!(!RunnerConfig::is_build_action(ClaudeAction::VerifyDistill));

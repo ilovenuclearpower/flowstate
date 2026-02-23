@@ -2,8 +2,8 @@ use chrono::Utc;
 
 use flowstate_core::api_key::ApiKey;
 
-use crate::DbError;
 use super::super::{pg_err, pg_not_found, PostgresDatabase};
+use crate::DbError;
 
 /// ApiKey stores dates as plain TEXT strings (not TIMESTAMPTZ),
 /// matching the core ApiKey type which uses String for created_at/last_used_at.
@@ -48,13 +48,11 @@ impl PostgresDatabase {
         .await
         .map_err(pg_err)?;
 
-        let row = sqlx::query_as::<_, ApiKeyRow>(
-            "SELECT * FROM api_keys WHERE id = $1",
-        )
-        .bind(&id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let row = sqlx::query_as::<_, ApiKeyRow>("SELECT * FROM api_keys WHERE id = $1")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(row.into())
     }
@@ -63,13 +61,11 @@ impl PostgresDatabase {
         &self,
         key_hash: &str,
     ) -> Result<Option<ApiKey>, DbError> {
-        let row = sqlx::query_as::<_, ApiKeyRow>(
-            "SELECT * FROM api_keys WHERE key_hash = $1",
-        )
-        .bind(key_hash)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let row = sqlx::query_as::<_, ApiKeyRow>("SELECT * FROM api_keys WHERE key_hash = $1")
+            .bind(key_hash)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(row.map(|r| r.into()))
     }
@@ -88,22 +84,20 @@ impl PostgresDatabase {
     }
 
     pub(crate) async fn pg_has_api_keys(&self) -> Result<bool, DbError> {
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM api_keys")
-                .fetch_one(&self.pool)
-                .await
-                .map_err(pg_err)?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM api_keys")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(count > 0)
     }
 
     pub(crate) async fn pg_list_api_keys(&self) -> Result<Vec<ApiKey>, DbError> {
-        let rows = sqlx::query_as::<_, ApiKeyRow>(
-            "SELECT * FROM api_keys ORDER BY created_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let rows =
+            sqlx::query_as::<_, ApiKeyRow>("SELECT * FROM api_keys ORDER BY created_at DESC")
+                .fetch_all(&self.pool)
+                .await
+                .map_err(pg_err)?;
 
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }

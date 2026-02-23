@@ -88,7 +88,10 @@ mod tests {
 
     #[test]
     fn provider_type_parse_str() {
-        assert_eq!(ProviderType::parse_str("github"), Some(ProviderType::Github));
+        assert_eq!(
+            ProviderType::parse_str("github"),
+            Some(ProviderType::Github)
+        );
         assert_eq!(ProviderType::parse_str("gitea"), Some(ProviderType::Gitea));
         assert_eq!(ProviderType::parse_str("unknown"), None);
         assert_eq!(ProviderType::parse_str(""), None);

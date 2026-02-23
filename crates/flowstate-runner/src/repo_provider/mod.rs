@@ -94,11 +94,7 @@ pub trait RepoProvider: Send + Sync {
     ) -> Result<PullRequest, ProviderError>;
 
     /// Get the diff for a pull request as a unified diff string.
-    async fn get_pr_diff(
-        &self,
-        _repo_url: &str,
-        _pr_number: u64,
-    ) -> Result<String, ProviderError> {
+    async fn get_pr_diff(&self, _repo_url: &str, _pr_number: u64) -> Result<String, ProviderError> {
         Err(ProviderError::NotSupported(format!(
             "{} does not support get_pr_diff",
             self.name()
@@ -178,9 +174,11 @@ pub fn provider_for_url(
 
     match provider_type {
         Some(ProviderType::Github) => Ok(Box::new(github::GitHubProvider::new(token))),
-        Some(ProviderType::Gitea) => {
-            Ok(Box::new(gitea::GiteaProvider::new(repo_url, token, skip_tls_verify)?))
-        }
+        Some(ProviderType::Gitea) => Ok(Box::new(gitea::GiteaProvider::new(
+            repo_url,
+            token,
+            skip_tls_verify,
+        )?)),
         None => {
             // Auto-detect from URL
             let gh = github::GitHubProvider::new(token);
@@ -200,9 +198,8 @@ mod tests {
 
     #[test]
     fn provider_for_github_url() {
-        let provider =
-            provider_for_url("https://github.com/user/repo", None, None, false)
-                .expect("github URL should be supported");
+        let provider = provider_for_url("https://github.com/user/repo", None, None, false)
+            .expect("github URL should be supported");
         assert_eq!(provider.name(), "github");
     }
 
@@ -256,12 +253,7 @@ mod tests {
 
     #[test]
     fn factory_rejects_http() {
-        let result = provider_for_url(
-            "http://insecure.example.com/user/repo",
-            None,
-            None,
-            false,
-        );
+        let result = provider_for_url("http://insecure.example.com/user/repo", None, None, false);
         assert!(result.is_err());
     }
 

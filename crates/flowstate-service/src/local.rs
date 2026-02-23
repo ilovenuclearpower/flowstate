@@ -104,11 +104,7 @@ impl TaskService for LocalService {
         Ok(self.db.list_sprints(project_id).await?)
     }
 
-    async fn update_sprint(
-        &self,
-        id: &str,
-        update: &UpdateSprint,
-    ) -> Result<Sprint, ServiceError> {
+    async fn update_sprint(&self, id: &str, update: &UpdateSprint) -> Result<Sprint, ServiceError> {
         Ok(self.db.update_sprint(id, update).await?)
     }
 
@@ -249,6 +245,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .await
             .unwrap();

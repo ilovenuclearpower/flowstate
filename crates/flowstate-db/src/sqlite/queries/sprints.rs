@@ -3,8 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::sprint::{CreateSprint, Sprint, SprintStatus, UpdateSprint};
 
-use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
+use crate::DbError;
 
 fn row_to_sprint(row: &Row) -> rusqlite::Result<Sprint> {
     let status_str: String = row.get("status")?;
@@ -49,9 +49,7 @@ impl SqliteDatabase {
                 row_to_sprint,
             )
             .map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    DbError::NotFound(format!("sprint {id}"))
-                }
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("sprint {id}")),
                 other => DbError::Internal(other.to_string()),
             })
         })
@@ -98,29 +96,26 @@ impl SqliteDatabase {
             }
 
             if sets.is_empty() {
-                return conn.query_row(
-                    "SELECT * FROM sprints WHERE id = ?1",
-                    params![id],
-                    row_to_sprint,
-                )
-                .map_err(|e| match e {
-                    rusqlite::Error::QueryReturnedNoRows => {
-                        DbError::NotFound(format!("sprint {id}"))
-                    }
-                    other => DbError::Internal(other.to_string()),
-                });
+                return conn
+                    .query_row(
+                        "SELECT * FROM sprints WHERE id = ?1",
+                        params![id],
+                        row_to_sprint,
+                    )
+                    .map_err(|e| match e {
+                        rusqlite::Error::QueryReturnedNoRows => {
+                            DbError::NotFound(format!("sprint {id}"))
+                        }
+                        other => DbError::Internal(other.to_string()),
+                    });
             }
 
             sets.push("updated_at = ?");
             values.push(Box::new(Utc::now()));
             values.push(Box::new(id.to_string()));
 
-            let sql = format!(
-                "UPDATE sprints SET {} WHERE id = ?",
-                sets.join(", ")
-            );
-            let params: Vec<&dyn rusqlite::ToSql> =
-                values.iter().map(|v| v.as_ref()).collect();
+            let sql = format!("UPDATE sprints SET {} WHERE id = ?", sets.join(", "));
+            let params: Vec<&dyn rusqlite::ToSql> = values.iter().map(|v| v.as_ref()).collect();
             let changed = conn.execute(&sql, params.as_slice()).to_db()?;
             if changed == 0 {
                 return Err(DbError::NotFound(format!("sprint {id}")));
@@ -137,8 +132,9 @@ impl SqliteDatabase {
 
     pub fn delete_sprint_sync(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
-            let changed =
-                conn.execute("DELETE FROM sprints WHERE id = ?1", params![id]).to_db()?;
+            let changed = conn
+                .execute("DELETE FROM sprints WHERE id = ?1", params![id])
+                .to_db()?;
             if changed == 0 {
                 return Err(DbError::NotFound(format!("sprint {id}")));
             }

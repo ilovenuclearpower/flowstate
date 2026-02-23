@@ -259,7 +259,10 @@ mod tests {
         ctx.append_preamble(&mut out);
         let research_pos = out.find("### Research").unwrap();
         let spec_pos = out.find("### Specification").unwrap();
-        assert!(research_pos < spec_pos, "Research should appear before Specification");
+        assert!(
+            research_pos < spec_pos,
+            "Research should appear before Specification"
+        );
         assert!(out.contains("research note"));
         assert!(out.contains("spec note"));
     }

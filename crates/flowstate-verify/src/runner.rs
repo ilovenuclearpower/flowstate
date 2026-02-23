@@ -37,11 +37,7 @@ impl Runner {
         Self
     }
 
-    pub async fn execute(
-        &self,
-        steps: &[VerificationStep],
-        working_dir: &Path,
-    ) -> RunResult {
+    pub async fn execute(&self, steps: &[VerificationStep], working_dir: &Path) -> RunResult {
         let mut results = Vec::new();
 
         for step in steps {
@@ -105,7 +101,10 @@ impl Runner {
             RunStatus::Failed
         };
 
-        RunResult { status, steps: results }
+        RunResult {
+            status,
+            steps: results,
+        }
     }
 }
 

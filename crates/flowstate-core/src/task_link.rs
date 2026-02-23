@@ -68,7 +68,10 @@ mod tests {
     fn link_type_parse_str() {
         assert_eq!(LinkType::parse_str("blocks"), Some(LinkType::Blocks));
         assert_eq!(LinkType::parse_str("relates_to"), Some(LinkType::RelatesTo));
-        assert_eq!(LinkType::parse_str("duplicates"), Some(LinkType::Duplicates));
+        assert_eq!(
+            LinkType::parse_str("duplicates"),
+            Some(LinkType::Duplicates)
+        );
         assert_eq!(LinkType::parse_str("invalid"), None);
         assert_eq!(LinkType::parse_str("depends_on"), None);
         assert_eq!(LinkType::parse_str(""), None);

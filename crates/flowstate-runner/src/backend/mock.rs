@@ -106,8 +106,8 @@ mod tests {
 
     #[test]
     fn with_files_stores_entries() {
-        let mock = MockBackend::success("ok")
-            .with_files(vec![("a.txt", "aaa"), ("sub/b.txt", "bbb")]);
+        let mock =
+            MockBackend::success("ok").with_files(vec![("a.txt", "aaa"), ("sub/b.txt", "bbb")]);
         assert_eq!(mock.files.len(), 2);
         assert_eq!(mock.files[0].0, "a.txt");
         assert_eq!(mock.files[0].1, "aaa");
@@ -132,7 +132,12 @@ mod tests {
         let mock = MockBackend::success("result");
         let tmp = tempfile::tempdir().unwrap();
         let output = mock
-            .run("prompt", tmp.path(), Duration::from_secs(60), Duration::from_secs(5))
+            .run(
+                "prompt",
+                tmp.path(),
+                Duration::from_secs(60),
+                Duration::from_secs(5),
+            )
             .await
             .unwrap();
         assert!(output.success);
@@ -144,9 +149,14 @@ mod tests {
         let mock = MockBackend::success("ok")
             .with_files(vec![("output.txt", "data"), ("sub/nested.txt", "nested")]);
         let tmp = tempfile::tempdir().unwrap();
-        mock.run("prompt", tmp.path(), Duration::from_secs(60), Duration::from_secs(5))
-            .await
-            .unwrap();
+        mock.run(
+            "prompt",
+            tmp.path(),
+            Duration::from_secs(60),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
             std::fs::read_to_string(tmp.path().join("output.txt")).unwrap(),
@@ -163,7 +173,12 @@ mod tests {
         let mock = MockBackend::failure("err", 1);
         let tmp = tempfile::tempdir().unwrap();
         let output = mock
-            .run("prompt", tmp.path(), Duration::from_secs(60), Duration::from_secs(5))
+            .run(
+                "prompt",
+                tmp.path(),
+                Duration::from_secs(60),
+                Duration::from_secs(5),
+            )
             .await
             .unwrap();
         assert!(!output.success);

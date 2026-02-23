@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 
 use flowstate_core::task_link::{CreateTaskLink, LinkType, TaskLink};
 
-use crate::DbError;
 use super::super::{pg_err, pg_not_found, PostgresDatabase};
+use crate::DbError;
 
 #[derive(sqlx::FromRow)]
 struct TaskLinkRow {
@@ -47,21 +47,16 @@ impl PostgresDatabase {
         .await
         .map_err(pg_err)?;
 
-        let row = sqlx::query_as::<_, TaskLinkRow>(
-            "SELECT * FROM task_links WHERE id = $1",
-        )
-        .bind(&id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let row = sqlx::query_as::<_, TaskLinkRow>("SELECT * FROM task_links WHERE id = $1")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(row.into())
     }
 
-    pub(crate) async fn pg_list_task_links(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<TaskLink>, DbError> {
+    pub(crate) async fn pg_list_task_links(&self, task_id: &str) -> Result<Vec<TaskLink>, DbError> {
         let rows = sqlx::query_as::<_, TaskLinkRow>(
             "SELECT * FROM task_links
              WHERE source_task_id = $1 OR target_task_id = $1

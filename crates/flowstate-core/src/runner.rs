@@ -83,9 +83,18 @@ mod tests {
 
     #[test]
     fn runner_capability_parse_str() {
-        assert_eq!(RunnerCapability::parse_str("light"), Some(RunnerCapability::Light));
-        assert_eq!(RunnerCapability::parse_str("standard"), Some(RunnerCapability::Standard));
-        assert_eq!(RunnerCapability::parse_str("heavy"), Some(RunnerCapability::Heavy));
+        assert_eq!(
+            RunnerCapability::parse_str("light"),
+            Some(RunnerCapability::Light)
+        );
+        assert_eq!(
+            RunnerCapability::parse_str("standard"),
+            Some(RunnerCapability::Standard)
+        );
+        assert_eq!(
+            RunnerCapability::parse_str("heavy"),
+            Some(RunnerCapability::Heavy)
+        );
         assert_eq!(RunnerCapability::parse_str("invalid"), None);
         assert_eq!(RunnerCapability::parse_str("extreme"), None);
         assert_eq!(RunnerCapability::parse_str(""), None);
@@ -119,7 +128,11 @@ mod tests {
     fn handled_tiers_heavy() {
         assert_eq!(
             RunnerCapability::Heavy.handled_tiers(),
-            vec![RunnerCapability::Light, RunnerCapability::Standard, RunnerCapability::Heavy]
+            vec![
+                RunnerCapability::Light,
+                RunnerCapability::Standard,
+                RunnerCapability::Heavy
+            ]
         );
     }
 
@@ -141,14 +154,41 @@ mod tests {
 
     #[test]
     fn default_for_action() {
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Build), RunnerCapability::Heavy);
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Research), RunnerCapability::Light);
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::ResearchDistill), RunnerCapability::Light);
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Design), RunnerCapability::Standard);
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::DesignDistill), RunnerCapability::Light);
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Plan), RunnerCapability::Standard);
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::PlanDistill), RunnerCapability::Light);
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::Verify), RunnerCapability::Standard);
-        assert_eq!(RunnerCapability::default_for_action(ClaudeAction::VerifyDistill), RunnerCapability::Light);
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::Build),
+            RunnerCapability::Heavy
+        );
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::Research),
+            RunnerCapability::Light
+        );
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::ResearchDistill),
+            RunnerCapability::Light
+        );
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::Design),
+            RunnerCapability::Standard
+        );
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::DesignDistill),
+            RunnerCapability::Light
+        );
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::Plan),
+            RunnerCapability::Standard
+        );
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::PlanDistill),
+            RunnerCapability::Light
+        );
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::Verify),
+            RunnerCapability::Standard
+        );
+        assert_eq!(
+            RunnerCapability::default_for_action(ClaudeAction::VerifyDistill),
+            RunnerCapability::Light
+        );
     }
 }

@@ -51,8 +51,7 @@ impl SqliteDatabase {
     }
 
     pub fn open_path(path: &Path) -> Result<Self, DbError> {
-        let conn =
-            Connection::open(path).map_err(|e| DbError::Internal(e.to_string()))?;
+        let conn = Connection::open(path).map_err(|e| DbError::Internal(e.to_string()))?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL;
              PRAGMA foreign_keys=ON;
@@ -67,8 +66,7 @@ impl SqliteDatabase {
     }
 
     pub fn open_in_memory() -> Result<Self, DbError> {
-        let conn =
-            Connection::open_in_memory().map_err(|e| DbError::Internal(e.to_string()))?;
+        let conn = Connection::open_in_memory().map_err(|e| DbError::Internal(e.to_string()))?;
         conn.execute_batch("PRAGMA foreign_keys=ON;")
             .map_err(|e| DbError::Internal(e.to_string()))?;
         let db = Self {
@@ -111,12 +109,12 @@ pub(crate) fn map_sqlite_err(e: rusqlite::Error) -> DbError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flowstate_core::claude_run::{ClaudeAction, CreateClaudeRun};
     use flowstate_core::project::CreateProject;
+    use flowstate_core::sprint::CreateSprint;
     use flowstate_core::task::{CreateTask, Priority, Status, TaskFilter, UpdateTask};
     use flowstate_core::task_link::{CreateTaskLink, LinkType};
     use flowstate_core::task_pr::CreateTaskPr;
-    use flowstate_core::claude_run::{ClaudeAction, CreateClaudeRun};
-    use flowstate_core::sprint::CreateSprint;
 
     #[test]
     fn open_in_memory_returns_working_db() {
@@ -170,12 +168,15 @@ mod tests {
     #[tokio::test]
     async fn async_project_crud() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "Async Test".into(),
-            slug: "async-test".into(),
-            description: "desc".into(),
-            repo_url: String::new(),
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "Async Test".into(),
+                slug: "async-test".into(),
+                description: "desc".into(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
         assert_eq!(project.name, "Async Test");
 
         let fetched = db.get_project(&project.id).await.unwrap();
@@ -187,10 +188,16 @@ mod tests {
         let all = db.list_projects().await.unwrap();
         assert_eq!(all.len(), 1);
 
-        let updated = db.update_project(&project.id, &UpdateProject {
-            name: Some("Updated".into()),
-            ..Default::default()
-        }).await.unwrap();
+        let updated = db
+            .update_project(
+                &project.id,
+                &UpdateProject {
+                    name: Some("Updated".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         assert_eq!(updated.name, "Updated");
 
         db.delete_project(&project.id).await.unwrap();
@@ -201,52 +208,80 @@ mod tests {
     #[tokio::test]
     async fn async_task_crud() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "P".into(),
-            slug: "p".into(),
-            description: String::new(),
-            repo_url: String::new(),
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".into(),
+                slug: "p".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
 
-        let task = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "Task 1".into(),
-            description: "desc".into(),
-            status: Status::Todo,
-            priority: Priority::Medium,
-            parent_id: None,
-            reviewer: String::new(),
-        }).await.unwrap();
+        let task = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "Task 1".into(),
+                description: "desc".into(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
         assert_eq!(task.title, "Task 1");
 
         let fetched = db.get_task(&task.id).await.unwrap();
         assert_eq!(fetched.id, task.id);
 
-        let tasks = db.list_tasks(&TaskFilter {
-            project_id: Some(project.id.clone()),
-            ..Default::default()
-        }).await.unwrap();
+        let tasks = db
+            .list_tasks(&TaskFilter {
+                project_id: Some(project.id.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         assert_eq!(tasks.len(), 1);
 
-        let updated = db.update_task(&task.id, &UpdateTask {
-            title: Some("Updated".into()),
-            ..Default::default()
-        }).await.unwrap();
+        let updated = db
+            .update_task(
+                &task.id,
+                &UpdateTask {
+                    title: Some("Updated".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         assert_eq!(updated.title, "Updated");
 
         let counts = db.count_tasks_by_status(&project.id).await.unwrap();
         assert!(!counts.is_empty());
 
         // Child tasks
-        let child = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "Child".into(),
-            description: String::new(),
-            status: Status::Todo,
-            priority: Priority::Low,
-            parent_id: Some(task.id.clone()),
-            reviewer: String::new(),
-        }).await.unwrap();
+        let child = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "Child".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Low,
+                parent_id: Some(task.id.clone()),
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
         let children = db.list_child_tasks(&task.id).await.unwrap();
         assert_eq!(children.len(), 1);
         assert_eq!(children[0].id, child.id);
@@ -258,22 +293,41 @@ mod tests {
     #[tokio::test]
     async fn async_claude_run_lifecycle() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "P".into(), slug: "p".into(),
-            description: String::new(), repo_url: String::new(),
-        }).await.unwrap();
-        let task = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "T".into(), description: String::new(),
-            status: Status::Todo, priority: Priority::Medium,
-            parent_id: None, reviewer: String::new(),
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".into(),
+                slug: "p".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
+        let task = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "T".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
 
-        let run = db.create_claude_run(&CreateClaudeRun {
-            task_id: task.id.clone(),
-            action: ClaudeAction::Build,
-            required_capability: None,
-        }).await.unwrap();
+        let run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task.id.clone(),
+                action: ClaudeAction::Build,
+                required_capability: None,
+            })
+            .await
+            .unwrap();
 
         let fetched = db.get_claude_run(&run.id).await.unwrap();
         assert_eq!(fetched.id, run.id);
@@ -281,35 +335,52 @@ mod tests {
         let runs = db.list_claude_runs_for_task(&task.id).await.unwrap();
         assert_eq!(runs.len(), 1);
 
-        db.update_claude_run_progress(&run.id, "doing stuff").await.unwrap();
+        db.update_claude_run_progress(&run.id, "doing stuff")
+            .await
+            .unwrap();
         db.set_claude_run_runner(&run.id, "runner-1").await.unwrap();
 
-        let updated = db.update_claude_run_pr(
-            &run.id, Some("https://pr"), Some(42), Some("feature-branch"),
-        ).await.unwrap();
+        let updated = db
+            .update_claude_run_pr(
+                &run.id,
+                Some("https://pr"),
+                Some(42),
+                Some("feature-branch"),
+            )
+            .await
+            .unwrap();
         assert_eq!(updated.pr_url.as_deref(), Some("https://pr"));
 
-        let completed = db.update_claude_run_status(
-            &run.id, ClaudeRunStatus::Completed, None, Some(0),
-        ).await.unwrap();
+        let completed = db
+            .update_claude_run_status(&run.id, ClaudeRunStatus::Completed, None, Some(0))
+            .await
+            .unwrap();
         assert_eq!(completed.status, ClaudeRunStatus::Completed);
     }
 
     #[tokio::test]
     async fn async_sprint_crud() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "P".into(), slug: "p".into(),
-            description: String::new(), repo_url: String::new(),
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".into(),
+                slug: "p".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
 
-        let sprint = db.create_sprint(&CreateSprint {
-            project_id: project.id.clone(),
-            name: "Sprint 1".into(),
-            goal: "goal".into(),
-            starts_at: None,
-            ends_at: None,
-        }).await.unwrap();
+        let sprint = db
+            .create_sprint(&CreateSprint {
+                project_id: project.id.clone(),
+                name: "Sprint 1".into(),
+                goal: "goal".into(),
+                starts_at: None,
+                ends_at: None,
+            })
+            .await
+            .unwrap();
         assert_eq!(sprint.name, "Sprint 1");
 
         let fetched = db.get_sprint(&sprint.id).await.unwrap();
@@ -318,10 +389,16 @@ mod tests {
         let sprints = db.list_sprints(&project.id).await.unwrap();
         assert_eq!(sprints.len(), 1);
 
-        let updated = db.update_sprint(&sprint.id, &flowstate_core::sprint::UpdateSprint {
-            name: Some("Updated".into()),
-            ..Default::default()
-        }).await.unwrap();
+        let updated = db
+            .update_sprint(
+                &sprint.id,
+                &flowstate_core::sprint::UpdateSprint {
+                    name: Some("Updated".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
         assert_eq!(updated.name, "Updated");
 
         db.delete_sprint(&sprint.id).await.unwrap();
@@ -332,28 +409,58 @@ mod tests {
     #[tokio::test]
     async fn async_task_link_crud() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "P".into(), slug: "p".into(),
-            description: String::new(), repo_url: String::new(),
-        }).await.unwrap();
-        let t1 = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "T1".into(), description: String::new(),
-            status: Status::Todo, priority: Priority::Medium,
-            parent_id: None, reviewer: String::new(),
-        }).await.unwrap();
-        let t2 = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "T2".into(), description: String::new(),
-            status: Status::Todo, priority: Priority::Medium,
-            parent_id: None, reviewer: String::new(),
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".into(),
+                slug: "p".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
+        let t1 = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "T1".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
+        let t2 = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "T2".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
 
-        let link = db.create_task_link(&CreateTaskLink {
-            source_task_id: t1.id.clone(),
-            target_task_id: t2.id.clone(),
-            link_type: LinkType::Blocks,
-        }).await.unwrap();
+        let link = db
+            .create_task_link(&CreateTaskLink {
+                source_task_id: t1.id.clone(),
+                target_task_id: t2.id.clone(),
+                link_type: LinkType::Blocks,
+            })
+            .await
+            .unwrap();
 
         let links = db.list_task_links(&t1.id).await.unwrap();
         assert_eq!(links.len(), 1);
@@ -366,29 +473,51 @@ mod tests {
     #[tokio::test]
     async fn async_task_pr_crud() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "P".into(), slug: "p".into(),
-            description: String::new(), repo_url: String::new(),
-        }).await.unwrap();
-        let task = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "T".into(), description: String::new(),
-            status: Status::Todo, priority: Priority::Medium,
-            parent_id: None, reviewer: String::new(),
-        }).await.unwrap();
-        let run = db.create_claude_run(&CreateClaudeRun {
-            task_id: task.id.clone(),
-            action: ClaudeAction::Build,
-            required_capability: None,
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".into(),
+                slug: "p".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
+        let task = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "T".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
+        let run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task.id.clone(),
+                action: ClaudeAction::Build,
+                required_capability: None,
+            })
+            .await
+            .unwrap();
 
-        let pr = db.create_task_pr(&CreateTaskPr {
-            task_id: task.id.clone(),
-            claude_run_id: Some(run.id.clone()),
-            pr_url: "https://pr/1".into(),
-            pr_number: 1,
-            branch_name: "feature".into(),
-        }).await.unwrap();
+        let pr = db
+            .create_task_pr(&CreateTaskPr {
+                task_id: task.id.clone(),
+                claude_run_id: Some(run.id.clone()),
+                pr_url: "https://pr/1".into(),
+                pr_number: 1,
+                branch_name: "feature".into(),
+            })
+            .await
+            .unwrap();
         assert_eq!(pr.pr_number, 1);
 
         let prs = db.list_task_prs(&task.id).await.unwrap();
@@ -423,18 +552,37 @@ mod tests {
     #[tokio::test]
     async fn async_attachment_crud() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "P".into(), slug: "p".into(),
-            description: String::new(), repo_url: String::new(),
-        }).await.unwrap();
-        let task = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "T".into(), description: String::new(),
-            status: Status::Todo, priority: Priority::Medium,
-            parent_id: None, reviewer: String::new(),
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".into(),
+                slug: "p".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
+        let task = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "T".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
 
-        let att = db.create_attachment(&task.id, "readme.md", "store/key", 1024).await.unwrap();
+        let att = db
+            .create_attachment(&task.id, "readme.md", "store/key", 1024)
+            .await
+            .unwrap();
         assert_eq!(att.filename, "readme.md");
 
         let fetched = db.get_attachment(&att.id).await.unwrap();
@@ -453,27 +601,46 @@ mod tests {
     #[tokio::test]
     async fn async_claim_next_claude_run() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "P".into(), slug: "p".into(),
-            description: String::new(), repo_url: String::new(),
-        }).await.unwrap();
-        let task = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "T".into(), description: String::new(),
-            status: Status::Todo, priority: Priority::Medium,
-            parent_id: None, reviewer: String::new(),
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".into(),
+                slug: "p".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
+        let task = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "T".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
 
         // No pending runs -> None
         let claimed = db.claim_next_claude_run(&["heavy"]).await.unwrap();
         assert!(claimed.is_none());
 
         // Create a pending run
-        let _run = db.create_claude_run(&CreateClaudeRun {
-            task_id: task.id.clone(),
-            action: ClaudeAction::Build,
-            required_capability: None,
-        }).await.unwrap();
+        let _run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task.id.clone(),
+                action: ClaudeAction::Build,
+                required_capability: None,
+            })
+            .await
+            .unwrap();
 
         // Claim it
         let claimed = db.claim_next_claude_run(&["heavy"]).await.unwrap();
@@ -484,30 +651,55 @@ mod tests {
     async fn async_stale_run_queries() {
         let db = SqliteDatabase::open_in_memory().unwrap();
         // No runs -> empty results
-        let stale = db.find_stale_running_runs(chrono::Utc::now()).await.unwrap();
+        let stale = db
+            .find_stale_running_runs(chrono::Utc::now())
+            .await
+            .unwrap();
         assert!(stale.is_empty());
-        let stale = db.find_stale_salvaging_runs(chrono::Utc::now()).await.unwrap();
+        let stale = db
+            .find_stale_salvaging_runs(chrono::Utc::now())
+            .await
+            .unwrap();
         assert!(stale.is_empty());
     }
 
     #[tokio::test]
     async fn async_timeout_claude_run() {
         let db = SqliteDatabase::open_in_memory().unwrap();
-        let project = db.create_project(&CreateProject {
-            name: "P".into(), slug: "p".into(),
-            description: String::new(), repo_url: String::new(),
-        }).await.unwrap();
-        let task = db.create_task(&CreateTask {
-            project_id: project.id.clone(),
-            title: "T".into(), description: String::new(),
-            status: Status::Todo, priority: Priority::Medium,
-            parent_id: None, reviewer: String::new(),
-        }).await.unwrap();
-        let run = db.create_claude_run(&CreateClaudeRun {
-            task_id: task.id.clone(),
-            action: ClaudeAction::Build,
-            required_capability: None,
-        }).await.unwrap();
+        let project = db
+            .create_project(&CreateProject {
+                name: "P".into(),
+                slug: "p".into(),
+                description: String::new(),
+                repo_url: String::new(),
+            })
+            .await
+            .unwrap();
+        let task = db
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "T".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
+            })
+            .await
+            .unwrap();
+        let run = db
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task.id.clone(),
+                action: ClaudeAction::Build,
+                required_capability: None,
+            })
+            .await
+            .unwrap();
 
         // Claim it first so it's in Running state
         let _ = db.claim_next_claude_run(&["heavy"]).await.unwrap();
@@ -550,11 +742,7 @@ impl Database for SqliteDatabase {
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn update_project(
-        &self,
-        id: &str,
-        update: &UpdateProject,
-    ) -> Result<Project, DbError> {
+    async fn update_project(&self, id: &str, update: &UpdateProject) -> Result<Project, DbError> {
         let db = self.clone();
         let id = id.to_string();
         let update = update.clone();
@@ -599,11 +787,7 @@ impl Database for SqliteDatabase {
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn update_task(
-        &self,
-        id: &str,
-        update: &UpdateTask,
-    ) -> Result<Task, DbError> {
+    async fn update_task(&self, id: &str, update: &UpdateTask) -> Result<Task, DbError> {
         let db = self.clone();
         let id = id.to_string();
         let update = update.clone();
@@ -618,10 +802,7 @@ impl Database for SqliteDatabase {
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn count_tasks_by_status(
-        &self,
-        project_id: &str,
-    ) -> Result<Vec<(String, i64)>, DbError> {
+    async fn count_tasks_by_status(&self, project_id: &str) -> Result<Vec<(String, i64)>, DbError> {
         let db = self.clone();
         let project_id = project_id.to_string();
         tokio::task::spawn_blocking(move || db.count_tasks_by_status_sync(&project_id))
@@ -630,10 +811,7 @@ impl Database for SqliteDatabase {
     }
 
     // -- Claude Runs --
-    async fn create_claude_run(
-        &self,
-        input: &CreateClaudeRun,
-    ) -> Result<ClaudeRun, DbError> {
+    async fn create_claude_run(&self, input: &CreateClaudeRun) -> Result<ClaudeRun, DbError> {
         let db = self.clone();
         let input = input.clone();
         tokio::task::spawn_blocking(move || db.create_claude_run_sync(&input))
@@ -647,10 +825,7 @@ impl Database for SqliteDatabase {
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn list_claude_runs_for_task(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<ClaudeRun>, DbError> {
+    async fn list_claude_runs_for_task(&self, task_id: &str) -> Result<Vec<ClaudeRun>, DbError> {
         let db = self.clone();
         let task_id = task_id.to_string();
         tokio::task::spawn_blocking(move || db.list_claude_runs_for_task_sync(&task_id))
@@ -668,12 +843,7 @@ impl Database for SqliteDatabase {
         let id = id.to_string();
         let error_message = error_message.map(|s| s.to_string());
         tokio::task::spawn_blocking(move || {
-            db.update_claude_run_status_sync(
-                &id,
-                status,
-                error_message.as_deref(),
-                exit_code,
-            )
+            db.update_claude_run_status_sync(&id, status, error_message.as_deref(), exit_code)
         })
         .await
         .map_err(|e| DbError::Internal(e.to_string()))?
@@ -691,19 +861,13 @@ impl Database for SqliteDatabase {
         .await
         .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn update_claude_run_progress(
-        &self,
-        id: &str,
-        message: &str,
-    ) -> Result<(), DbError> {
+    async fn update_claude_run_progress(&self, id: &str, message: &str) -> Result<(), DbError> {
         let db = self.clone();
         let id = id.to_string();
         let message = message.to_string();
-        tokio::task::spawn_blocking(move || {
-            db.update_claude_run_progress_sync(&id, &message)
-        })
-        .await
-        .map_err(|e| DbError::Internal(e.to_string()))?
+        tokio::task::spawn_blocking(move || db.update_claude_run_progress_sync(&id, &message))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
     }
     async fn update_claude_run_pr(
         &self,
@@ -717,12 +881,7 @@ impl Database for SqliteDatabase {
         let pr_url = pr_url.map(|s| s.to_string());
         let branch_name = branch_name.map(|s| s.to_string());
         tokio::task::spawn_blocking(move || {
-            db.update_claude_run_pr_sync(
-                &id,
-                pr_url.as_deref(),
-                pr_number,
-                branch_name.as_deref(),
-            )
+            db.update_claude_run_pr_sync(&id, pr_url.as_deref(), pr_number, branch_name.as_deref())
         })
         .await
         .map_err(|e| DbError::Internal(e.to_string()))?
@@ -741,11 +900,9 @@ impl Database for SqliteDatabase {
         older_than: DateTime<Utc>,
     ) -> Result<Vec<ClaudeRun>, DbError> {
         let db = self.clone();
-        tokio::task::spawn_blocking(move || {
-            db.find_stale_salvaging_runs_sync(older_than)
-        })
-        .await
-        .map_err(|e| DbError::Internal(e.to_string()))?
+        tokio::task::spawn_blocking(move || db.find_stale_salvaging_runs_sync(older_than))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
     }
     async fn timeout_claude_run(
         &self,
@@ -755,25 +912,17 @@ impl Database for SqliteDatabase {
         let db = self.clone();
         let id = id.to_string();
         let error_message = error_message.to_string();
-        tokio::task::spawn_blocking(move || {
-            db.timeout_claude_run_sync(&id, &error_message)
-        })
-        .await
-        .map_err(|e| DbError::Internal(e.to_string()))?
+        tokio::task::spawn_blocking(move || db.timeout_claude_run_sync(&id, &error_message))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn set_claude_run_runner(
-        &self,
-        id: &str,
-        runner_id: &str,
-    ) -> Result<(), DbError> {
+    async fn set_claude_run_runner(&self, id: &str, runner_id: &str) -> Result<(), DbError> {
         let db = self.clone();
         let id = id.to_string();
         let runner_id = runner_id.to_string();
-        tokio::task::spawn_blocking(move || {
-            db.set_claude_run_runner_sync(&id, &runner_id)
-        })
-        .await
-        .map_err(|e| DbError::Internal(e.to_string()))?
+        tokio::task::spawn_blocking(move || db.set_claude_run_runner_sync(&id, &runner_id))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
     }
 
     // -- Sprints --
@@ -815,10 +964,7 @@ impl Database for SqliteDatabase {
     }
 
     // -- Task Links --
-    async fn create_task_link(
-        &self,
-        input: &CreateTaskLink,
-    ) -> Result<TaskLink, DbError> {
+    async fn create_task_link(&self, input: &CreateTaskLink) -> Result<TaskLink, DbError> {
         let db = self.clone();
         let input = input.clone();
         tokio::task::spawn_blocking(move || db.create_task_link_sync(&input))
@@ -841,10 +987,7 @@ impl Database for SqliteDatabase {
     }
 
     // -- Task PRs --
-    async fn create_task_pr(
-        &self,
-        input: &CreateTaskPr,
-    ) -> Result<TaskPr, DbError> {
+    async fn create_task_pr(&self, input: &CreateTaskPr) -> Result<TaskPr, DbError> {
         let db = self.clone();
         let input = input.clone();
         tokio::task::spawn_blocking(move || db.create_task_pr_sync(&input))
@@ -877,10 +1020,7 @@ impl Database for SqliteDatabase {
         .await
         .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn list_attachments(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<Attachment>, DbError> {
+    async fn list_attachments(&self, task_id: &str) -> Result<Vec<Attachment>, DbError> {
         let db = self.clone();
         let task_id = task_id.to_string();
         tokio::task::spawn_blocking(move || db.list_attachments_sync(&task_id))
@@ -903,11 +1043,7 @@ impl Database for SqliteDatabase {
     }
 
     // -- API Keys --
-    async fn insert_api_key(
-        &self,
-        name: &str,
-        key_hash: &str,
-    ) -> Result<ApiKey, DbError> {
+    async fn insert_api_key(&self, name: &str, key_hash: &str) -> Result<ApiKey, DbError> {
         let db = self.clone();
         let name = name.to_string();
         let key_hash = key_hash.to_string();
@@ -915,10 +1051,7 @@ impl Database for SqliteDatabase {
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?
     }
-    async fn find_api_key_by_hash(
-        &self,
-        key_hash: &str,
-    ) -> Result<Option<ApiKey>, DbError> {
+    async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, DbError> {
         let db = self.clone();
         let key_hash = key_hash.to_string();
         tokio::task::spawn_blocking(move || db.find_api_key_by_hash_sync(&key_hash))

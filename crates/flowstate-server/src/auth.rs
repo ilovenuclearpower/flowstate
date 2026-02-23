@@ -7,8 +7,8 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use sha2::{Digest, Sha256};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 use flowstate_db::Database;
 
@@ -134,9 +134,7 @@ pub async fn build_auth_config_with_key(
     db: Arc<dyn Database>,
     env_key: Option<&str>,
 ) -> Option<Arc<AuthConfig>> {
-    let env_key_hash = env_key
-        .filter(|k| !k.is_empty())
-        .map(sha256_hex);
+    let env_key_hash = env_key.filter(|k| !k.is_empty()).map(sha256_hex);
 
     let has_db_keys = db.has_api_keys().await.unwrap_or(false);
 
@@ -144,10 +142,7 @@ pub async fn build_auth_config_with_key(
         return None;
     }
 
-    Some(Arc::new(AuthConfig {
-        env_key_hash,
-        db,
-    }))
+    Some(Arc::new(AuthConfig { env_key_hash, db }))
 }
 
 #[cfg(test)]

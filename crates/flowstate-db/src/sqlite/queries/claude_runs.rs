@@ -3,8 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
 
-use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
+use crate::DbError;
 
 fn row_to_claude_run(row: &Row) -> rusqlite::Result<ClaudeRun> {
     let action_str: String = row.get("action")?;
@@ -28,10 +28,7 @@ fn row_to_claude_run(row: &Row) -> rusqlite::Result<ClaudeRun> {
 }
 
 impl SqliteDatabase {
-    pub fn create_claude_run_sync(
-        &self,
-        input: &CreateClaudeRun,
-    ) -> Result<ClaudeRun, DbError> {
+    pub fn create_claude_run_sync(&self, input: &CreateClaudeRun) -> Result<ClaudeRun, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
@@ -66,15 +63,10 @@ impl SqliteDatabase {
         })
     }
 
-    pub fn list_claude_runs_for_task_sync(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<ClaudeRun>, DbError> {
+    pub fn list_claude_runs_for_task_sync(&self, task_id: &str) -> Result<Vec<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn
-                .prepare(
-                    "SELECT * FROM claude_runs WHERE task_id = ?1 ORDER BY started_at DESC",
-                )
+                .prepare("SELECT * FROM claude_runs WHERE task_id = ?1 ORDER BY started_at DESC")
                 .to_db()?;
             let runs = stmt
                 .query_map(params![task_id], row_to_claude_run)
@@ -197,11 +189,7 @@ impl SqliteDatabase {
     }
 
     /// Update the progress message on a claude run.
-    pub fn update_claude_run_progress_sync(
-        &self,
-        id: &str,
-        message: &str,
-    ) -> Result<(), DbError> {
+    pub fn update_claude_run_progress_sync(&self, id: &str, message: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             conn.execute(
                 "UPDATE claude_runs SET progress_message = ?1 WHERE id = ?2",
@@ -245,9 +233,7 @@ impl SqliteDatabase {
     ) -> Result<Vec<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn
-                .prepare(
-                    "SELECT * FROM claude_runs WHERE status = 'running' AND started_at < ?1",
-                )
+                .prepare("SELECT * FROM claude_runs WHERE status = 'running' AND started_at < ?1")
                 .to_db()?;
             let runs = stmt
                 .query_map(params![older_than], row_to_claude_run)
@@ -266,9 +252,7 @@ impl SqliteDatabase {
     ) -> Result<Vec<ClaudeRun>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn
-                .prepare(
-                    "SELECT * FROM claude_runs WHERE status = 'salvaging' AND started_at < ?1",
-                )
+                .prepare("SELECT * FROM claude_runs WHERE status = 'salvaging' AND started_at < ?1")
                 .to_db()?;
             let runs = stmt
                 .query_map(params![older_than], row_to_claude_run)
@@ -311,11 +295,7 @@ impl SqliteDatabase {
     }
 
     /// Set runner_id on a claude run (at claim time).
-    pub fn set_claude_run_runner_sync(
-        &self,
-        id: &str,
-        runner_id: &str,
-    ) -> Result<(), DbError> {
+    pub fn set_claude_run_runner_sync(&self, id: &str, runner_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
             conn.execute(
                 "UPDATE claude_runs SET runner_id = ?1 WHERE id = ?2",
@@ -353,6 +333,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
         (db, task.id)
@@ -520,12 +505,8 @@ mod tests {
         assert!(stale.is_empty());
 
         // Completed runs should not be returned
-        let _ = db.update_claude_run_status_sync(
-            &run.id,
-            ClaudeRunStatus::Completed,
-            None,
-            Some(0),
-        );
+        let _ =
+            db.update_claude_run_status_sync(&run.id, ClaudeRunStatus::Completed, None, Some(0));
         let stale = db.find_stale_running_runs_sync(future).unwrap();
         assert!(stale.is_empty());
     }

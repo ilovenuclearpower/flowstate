@@ -85,9 +85,7 @@ fn key_file_path() -> PathBuf {
 
 fn key_file_path_from(xdg_config_home: Option<String>, home: Option<PathBuf>) -> PathBuf {
     if let Some(xdg) = xdg_config_home {
-        PathBuf::from(xdg)
-            .join("flowstate")
-            .join("server.key")
+        PathBuf::from(xdg).join("flowstate").join("server.key")
     } else if let Some(home) = home {
         home.join(".config/flowstate").join("server.key")
     } else {
@@ -118,7 +116,10 @@ mod tests {
         let key = test_key();
         let a = encrypt(&key, "same text").unwrap();
         let b = encrypt(&key, "same text").unwrap();
-        assert_ne!(a, b, "two encryptions should produce different ciphertext due to unique nonces");
+        assert_ne!(
+            a, b,
+            "two encryptions should produce different ciphertext due to unique nonces"
+        );
     }
 
     #[test]
@@ -198,10 +199,7 @@ mod tests {
     #[test]
     fn test_key_file_path_no_env() {
         let path = key_file_path_from(None, None);
-        assert_eq!(
-            path,
-            std::path::PathBuf::from("flowstate/server.key")
-        );
+        assert_eq!(path, std::path::PathBuf::from("flowstate/server.key"));
     }
 
     #[test]
@@ -313,10 +311,7 @@ mod tests {
 
     #[test]
     fn key_file_path_xdg_takes_precedence() {
-        let path = key_file_path_from(
-            Some("/xdg".into()),
-            Some(PathBuf::from("/home/user")),
-        );
+        let path = key_file_path_from(Some("/xdg".into()), Some(PathBuf::from("/home/user")));
         assert_eq!(path, PathBuf::from("/xdg/flowstate/server.key"));
     }
 }

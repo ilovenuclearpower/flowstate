@@ -12,7 +12,9 @@ use flowstate_core::project::Project;
 use flowstate_core::task::Task;
 use flowstate_runner::backend::AgentBackend;
 use flowstate_runner::config::RunnerConfig;
-use flowstate_runner::run_tracker::{ActiveRun, ActiveRunSnapshot, RunOutcome, RunResult, RunTracker};
+use flowstate_runner::run_tracker::{
+    ActiveRun, ActiveRunSnapshot, RunOutcome, RunResult, RunTracker,
+};
 use flowstate_runner::{executor, preflight, salvage};
 use flowstate_service::{HttpService, TaskService};
 use serde::Serialize;
@@ -113,10 +115,7 @@ async fn main() -> Result<()> {
     });
 
     info!("health endpoint: http://127.0.0.1:{health_port}/health");
-    info!(
-        "entering poll loop (interval: {}s)",
-        config.poll_interval
-    );
+    info!("entering poll loop (interval: {}s)", config.poll_interval);
 
     // JoinSet for concurrent run tasks
     let mut join_set: JoinSet<RunResult> = JoinSet::new();
@@ -220,18 +219,16 @@ async fn main() -> Result<()> {
             config.shutdown_timeout, active_count
         );
 
-        let drain_result = tokio::time::timeout(
-            Duration::from_secs(config.shutdown_timeout),
-            async {
+        let drain_result =
+            tokio::time::timeout(Duration::from_secs(config.shutdown_timeout), async {
                 while let Some(result) = join_set.join_next().await {
                     match result {
                         Ok(run_result) => log_run_outcome(&run_result),
                         Err(join_err) => error!("run task error during shutdown: {join_err}"),
                     }
                 }
-            },
-        )
-        .await;
+            })
+            .await;
 
         if drain_result.is_err() {
             warn!(
@@ -338,14 +335,10 @@ async fn execute_run(
 
                 // Attempt salvage for Build actions (under the same build permit)
                 if RunnerConfig::is_build_action(action) {
-                    let ws_dir = executor::resolve_workspace_dir(
-                        &config.workspace_root,
-                        &run_id,
-                    );
-                    let outcome = salvage::attempt_salvage(
-                        &service, &run, &task, &project, &ws_dir, &config,
-                    )
-                    .await;
+                    let ws_dir = executor::resolve_workspace_dir(&config.workspace_root, &run_id);
+                    let outcome =
+                        salvage::attempt_salvage(&service, &run, &task, &project, &ws_dir, &config)
+                            .await;
 
                     match &outcome {
                         salvage::SalvageOutcome::PrCut { pr_url, pr_number } => {
@@ -423,7 +416,9 @@ async fn heartbeat_loop(service: &HttpService, run_id: &str) {
     let mut interval = tokio::time::interval(Duration::from_secs(30));
     loop {
         interval.tick().await;
-        let _ = service.update_claude_run_progress(run_id, "heartbeat").await;
+        let _ = service
+            .update_claude_run_progress(run_id, "heartbeat")
+            .await;
     }
 }
 
