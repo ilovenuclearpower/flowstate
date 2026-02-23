@@ -87,6 +87,7 @@ impl AgentBackend for ClaudeCliBackend {
         work_dir: &Path,
         timeout: Duration,
         kill_grace: Duration,
+        repo_token: Option<&str>,
     ) -> Result<AgentOutput> {
         let mut cmd = Command::new("claude");
         cmd.arg("-p")
@@ -102,6 +103,9 @@ impl AgentBackend for ClaudeCliBackend {
         }
         if let Some(ref token) = self.anthropic_auth_token {
             cmd.env("ANTHROPIC_AUTH_TOKEN", token);
+        }
+        if let Some(token) = repo_token {
+            cmd.env("GITHUB_TOKEN", token);
         }
 
         process::run_managed_with_timeout(&mut cmd, work_dir, timeout, kill_grace).await

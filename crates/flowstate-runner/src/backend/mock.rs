@@ -68,6 +68,7 @@ impl AgentBackend for MockBackend {
         work_dir: &Path,
         _timeout: Duration,
         _kill_grace: Duration,
+        _repo_token: Option<&str>,
     ) -> Result<AgentOutput> {
         // Write configured files into workspace
         for (path, content) in &self.files {
