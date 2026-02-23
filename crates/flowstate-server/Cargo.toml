@@ -12,7 +12,6 @@ path = "src/main.rs"
 path = "src/lib.rs"
 
 [dependencies]
-cargo-llvm-cov = { workspace = true }
 flowstate-core = { path = "../flowstate-core" }
 flowstate-db = { path = "../flowstate-db", default-features = false }
 flowstate-service = { path = "../flowstate-service" }
