@@ -60,5 +60,12 @@ async fn run_inner(pool: &PgPool) -> Result<(), DbError> {
             .map_err(|e| DbError::Internal(e.to_string()))?;
     }
 
+    if current < 3 {
+        sqlx::raw_sql(include_str!("sql/V3__add_provider_type.sql"))
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?;
+    }
+
     Ok(())
 }

@@ -56,8 +56,18 @@ pub async fn execute(
 
     // 3. Resolve repo provider and check auth
     progress(service, &run.id, "Checking repo auth...").await;
-    let provider = repo_provider::provider_for_url(&project.repo_url, token.clone())
-        .map_err(|e| anyhow::anyhow!("unsupported repo provider: {e}"))?;
+    let provider = repo_provider::provider_for_url(
+        &project.repo_url,
+        token.clone(),
+        project.provider_type,
+        project.skip_tls_verify,
+    )
+    .map_err(|e| anyhow::anyhow!("unsupported repo provider: {e}"))?;
+
+    provider
+        .preflight()
+        .await
+        .map_err(|e| anyhow::anyhow!("provider preflight: {e}"))?;
 
     provider.check_auth(&project.repo_url).await.map_err(|e| {
         anyhow::anyhow!("repo auth check failed: {e}")
@@ -65,7 +75,8 @@ pub async fn execute(
 
     // 4. Clone repo to fresh workspace
     progress(service, &run.id, "Cloning repository...").await;
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify)
+        .await?;
 
     // 5. Detect default branch (fresh clone is already on it)
     let default_branch = workspace::detect_default_branch(ws_dir).await?;

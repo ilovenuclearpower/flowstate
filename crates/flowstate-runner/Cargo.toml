@@ -30,6 +30,8 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 nix = { workspace = true }
 libc = { workspace = true }
+reqwest = { workspace = true }
+url = "2"
 
 [dev-dependencies]
 flowstate-server = { path = "../flowstate-server", features = ["test-helpers"] }
