@@ -89,6 +89,10 @@ fn test_config(workspace_root: PathBuf) -> RunnerConfig {
         opencode_model: None,
         opencode_api_key: None,
         opencode_base_url: None,
+        gemini_api_key: None,
+        gemini_model: None,
+        gemini_gcp_project: None,
+        gemini_gcp_location: None,
     }
 }
 

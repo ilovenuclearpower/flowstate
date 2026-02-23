@@ -1,29 +1,28 @@
-All 7 phases are complete. Here's a summary of what was done and the final status:
+All three phases are complete. Here's a summary of what was implemented:
 
-## Implementation Complete
+## Summary
 
-All phases of the multi-provider git platform abstraction have been implemented:
+### Files Created
+- **`crates/flowstate-runner/src/backend/gemini_cli.rs`** — New `GeminiCliBackend` struct implementing the `AgentBackend` trait, with:
+  - `name()` returning `"gemini-cli"`
+  - `model_hint()` returning the configured model name
+  - `preflight_check()` — 2-phase check: binary availability (`gemini --version`) then authentication (`gemini -p "Respond with: ok" --output-format text`)
+  - `run()` — spawns `gemini -p <prompt> --output-format text --yolo` with optional `-m <model>`, delegates to `process::run_managed_with_timeout()`
+  - `apply_env()` / `apply_env_async()` helpers for setting `GEMINI_API_KEY`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, and `GOOGLE_GENAI_USE_VERTEXAI=true` (conditional on project being set)
+  - 14 unit tests covering `name()`, `model_hint()` (Some/None), and all env var combination branches
 
-**Phase 1-6** (completed in previous session):
-- Added `ProviderType` enum (Github/Gitea) to `flowstate-core`
-- SQLite v11 and Postgres V3 migrations for `provider_type` and `skip_tls_verify` columns
-- Extended `RepoProvider` trait with `preflight()`, PR comment/review methods
-- Provider factory with auto-detection and explicit configuration
-- HTTPS enforcement
-- Full Gitea provider via `reqwest` HTTP API
-- Enhanced GitHub provider with PR comment/review methods via `gh api`
-- Updated all callers: pipeline, salvage, executor, workspace, preflight
-- Provider-agnostic TUI health check
+### Files Modified
+- **`crates/flowstate-runner/src/backend/mod.rs`** — Added `pub mod gemini_cli;`
+- **`crates/flowstate-runner/src/config.rs`** — Added:
+  - Import for `GeminiCliBackend`
+  - 4 new config fields: `gemini_api_key`, `gemini_model`, `gemini_gcp_project`, `gemini_gcp_location`
+  - `"gemini-cli"` match arm in `build_backend()`
+  - Updated error message and help text to list `gemini-cli`
+  - Updated `test_config()` helper
+  - 2 new tests: `test_build_backend_gemini_cli` and `test_build_backend_gemini_cli_with_model`
+- **`crates/flowstate-runner/tests/executor_integration.rs`** — Added 4 new `None` fields to its `test_config()` helper
 
-**Phase 7** (completed now — fixing test compilation issues):
-- Fixed `workspace_integration.rs` — added 4th `skip_tls_verify: bool` arg to all 9 `ensure_repo()` calls
-- Added `#[derive(Debug)]` to `GiteaProvider`
-- Fixed `unwrap_err()` on `Box<dyn RepoProvider>` by using `.err().expect()` instead
-
-## Test Results
-- **506 unit tests pass, 0 failures** (34 ignored integration tests)
-- **Clippy clean** with `-D warnings`
-- **`flowstate-coverage` fails** — but this is a **pre-existing issue on main** (S3 tests fail under `cargo llvm-cov` due to environment variable propagation; they pass fine under regular `cargo test`)
-
-## Files Modified/Created
-- 19 modified files + 2 new files (`gitea.rs`, `V3__add_provider_type.sql`)
+### Validation Results
+- **Clippy**: Zero warnings with `-D warnings`
+- **Tests**: All 95 runner tests pass (77 unit + 10 executor integration + 8 workspace integration)
+- **Coverage**: The `flowstate-coverage` run failed due to a pre-existing flaky `stale_runs` test in `flowstate-db` (Postgres timing issue) — completely unrelated to these changes

@@ -7,6 +7,7 @@ use flowstate_core::claude_run::ClaudeAction;
 use flowstate_core::runner::RunnerCapability;
 
 use crate::backend::claude_cli::ClaudeCliBackend;
+use crate::backend::gemini_cli::GeminiCliBackend;
 use crate::backend::opencode::OpenCodeBackend;
 use crate::backend::AgentBackend;
 
@@ -63,7 +64,7 @@ pub struct RunnerConfig {
     #[arg(long, env = "FLOWSTATE_SHUTDOWN_TIMEOUT", default_value = "120")]
     pub shutdown_timeout: u64,
 
-    /// Which agentic backend to use: "claude-cli" (default) or "opencode"
+    /// Which agentic backend to use: "claude-cli" (default), "gemini-cli", or "opencode"
     #[arg(long, env = "FLOWSTATE_AGENT_BACKEND", default_value = "claude-cli")]
     pub agent_backend: String,
 
@@ -100,6 +101,22 @@ pub struct RunnerConfig {
     /// For opencode backend: base URL override
     #[arg(long, env = "FLOWSTATE_OPENCODE_BASE_URL")]
     pub opencode_base_url: Option<String>,
+
+    /// For gemini-cli backend: Gemini API key
+    #[arg(long, env = "FLOWSTATE_GEMINI_API_KEY")]
+    pub gemini_api_key: Option<String>,
+
+    /// For gemini-cli backend: model name (e.g., "gemini-2.5-pro", "gemini-2.5-flash")
+    #[arg(long, env = "FLOWSTATE_GEMINI_MODEL")]
+    pub gemini_model: Option<String>,
+
+    /// For gemini-cli backend: Google Cloud project ID (for Vertex AI)
+    #[arg(long, env = "FLOWSTATE_GEMINI_GCP_PROJECT")]
+    pub gemini_gcp_project: Option<String>,
+
+    /// For gemini-cli backend: Google Cloud location (for Vertex AI)
+    #[arg(long, env = "FLOWSTATE_GEMINI_GCP_LOCATION")]
+    pub gemini_gcp_location: Option<String>,
 }
 
 impl RunnerConfig {
@@ -143,6 +160,12 @@ impl RunnerConfig {
                 anthropic_auth_token: self.anthropic_auth_token.clone(),
                 model: self.anthropic_model.clone(),
             })),
+            "gemini-cli" => Ok(Box::new(GeminiCliBackend {
+                gemini_api_key: self.gemini_api_key.clone(),
+                model: self.gemini_model.clone(),
+                google_cloud_project: self.gemini_gcp_project.clone(),
+                google_cloud_location: self.gemini_gcp_location.clone(),
+            })),
             "opencode" => Ok(Box::new(OpenCodeBackend {
                 provider: self
                     .opencode_provider
@@ -156,7 +179,7 @@ impl RunnerConfig {
                 api_base_url: self.opencode_base_url.clone(),
             })),
             other => bail!(
-                "unknown agent backend: {other}. Supported: claude-cli, opencode"
+                "unknown agent backend: {other}. Supported: claude-cli, gemini-cli, opencode"
             ),
         }
     }
@@ -199,6 +222,10 @@ mod tests {
             opencode_model: None,
             opencode_api_key: None,
             opencode_base_url: None,
+            gemini_api_key: None,
+            gemini_model: None,
+            gemini_gcp_project: None,
+            gemini_gcp_location: None,
         }
     }
 
@@ -312,6 +339,25 @@ mod tests {
         cfg.agent_backend = "opencode".into();
         let backend = cfg.build_backend().unwrap();
         assert_eq!(backend.name(), "opencode");
+    }
+
+    #[test]
+    fn test_build_backend_gemini_cli() {
+        let mut cfg = test_config();
+        cfg.agent_backend = "gemini-cli".into();
+        let backend = cfg.build_backend().unwrap();
+        assert_eq!(backend.name(), "gemini-cli");
+        assert_eq!(backend.model_hint(), None);
+    }
+
+    #[test]
+    fn test_build_backend_gemini_cli_with_model() {
+        let mut cfg = test_config();
+        cfg.agent_backend = "gemini-cli".into();
+        cfg.gemini_model = Some("gemini-2.5-pro".into());
+        let backend = cfg.build_backend().unwrap();
+        assert_eq!(backend.name(), "gemini-cli");
+        assert_eq!(backend.model_hint(), Some("gemini-2.5-pro"));
     }
 
     #[test]
