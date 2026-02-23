@@ -1,18 +1,19 @@
-I have completed the implementation of the associated model capabilities for tasks and phases per the specification. 
+All four phases are complete. Here's a summary of the changes made:
 
-Here is a summary of what has been accomplished:
+### Changes Summary
 
-### Phase 1: Core Domain Update
-* Modified `Task`, `CreateTask`, and `UpdateTask` structures in `crates/flowstate-core/src/task.rs` to include five optional capability fields: `research_capability`, `design_capability`, `plan_capability`, `build_capability`, and `verify_capability`.
-* Implemented `Task::capability_for_action` mapping `ClaudeAction` execution phases (like `Research` and `Build`) to their respective required tier constraints, properly inheriting parent phase parameters for `Distill` phases.
-* Added corresponding unit tests verifying phase priority resolution mapping.
+**3 files modified:**
 
-### Phase 2: Database Schema & Queries
-* Updated the SQLite database instance appending version 12 migrations in `crates/flowstate-db/src/sqlite/migrations.rs` and mapped the parameters via `row_to_task` mapping logic and API methods spanning creation and updating statements in `crates/flowstate-db/src/sqlite/queries/tasks.rs`.
-* Created PostgreSQL migration script `V4__add_task_capabilities.sql` expanding the `tasks` schema and implemented binding configurations mapping standard operations throughout `crates/flowstate-db/src/postgres/queries/tasks.rs`.
-* Successfully utilized `RunnerCapability::parse_str` enum conversion mapping DB text representations into domain types avoiding trait warnings.
-* Expanded the agnostic integration tests covering `Task` structural constraints (including unsetting states testing serialization correctness) within `crates/flowstate-db/tests/common/mod.rs`.
+1. **`crates/flowstate-core/src/task.rs`** — Added `attention_required()` method to `Task` that returns `Option<(Status, ApprovalStatus)>` indicating the earliest workflow phase needing human attention (Pending or Rejected). Added 8 unit tests covering all edge cases.
 
-### Phase 3: Run Scheduling & API Integration
-* Updated the `trigger_claude_run` route in `crates/flowstate-server/src/routes/claude_runs.rs` evaluating the execution logic properly overriding requested task attributes dynamically based on model capabilities rather than forcing unconditional system defaults. Added standard test harness parameters across existing client testing endpoints adapting to the larger payload structures.
-* Ran automated quality gate assurances executing `flowstate-coverage` maintaining > 90% codebase parity mapping along with standard integration unit tests passing cleanly using the latest schema implementations.
+2. **`crates/flowstate-tui/src/components/task_board.rs`** — Three additions:
+   - `phase_attention_indicator()` helper that maps phases to Nerd Font symbols (󰒆 Research, 󰚎 Design, 󰏗 Plan, 󰗠 Verify) with Yellow for Pending and Red for Rejected
+   - Updated `render_column` to prepend the phase indicator to task titles
+   - Added `select_next_attention()` method that scans all columns with wrap-around to find the next task needing attention
+   - 6 unit tests for the navigation logic
+
+3. **`crates/flowstate-tui/src/app.rs`** — Wired `N` (shift-n) key in `handle_normal()` to call `select_next_attention()`, with a status message when no tasks need attention.
+
+### Validation
+- `cargo clippy -- -D warnings` — clean, no warnings
+- `cargo test --workspace --all-features` — all 28 test suites pass (0 failures)

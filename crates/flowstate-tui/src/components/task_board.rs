@@ -1,5 +1,5 @@
 use crossterm::event::{KeyCode, KeyEvent};
-use flowstate_core::task::{Priority, Status, Task};
+use flowstate_core::task::{ApprovalStatus, Priority, Status, Task};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState};
 
@@ -64,6 +64,81 @@ impl TaskBoard {
             .get(self.active_column)
             .map(|c| c.status)
             .unwrap_or(Status::Todo)
+    }
+
+    /// Scans the board for the next task requiring attention (Pending or Rejected phase).
+    /// Starts from the position after the current cursor and wraps around.
+    /// Returns `true` if a task was found and selected, `false` otherwise.
+    pub fn select_next_attention(&mut self) -> bool {
+        if self.columns.is_empty() {
+            return false;
+        }
+
+        let num_cols = self.columns.len();
+        let start_col = self.active_column;
+        let start_row = self.columns[start_col]
+            .list_state
+            .selected()
+            .unwrap_or(0);
+
+        // Total tasks across all columns
+        let total_tasks: usize = self.columns.iter().map(|c| c.tasks.len()).sum();
+        if total_tasks == 0 {
+            return false;
+        }
+
+        // Scan starting from (start_col, start_row + 1), wrapping around
+        let mut col = start_col;
+        let mut row = start_row + 1;
+
+        for _ in 0..total_tasks {
+            // Advance to next valid position
+            while col < num_cols && row >= self.columns[col].tasks.len() {
+                col += 1;
+                row = 0;
+            }
+            if col >= num_cols {
+                col = 0;
+                row = 0;
+                // Re-advance past empty leading columns
+                while col < num_cols && row >= self.columns[col].tasks.len() {
+                    col += 1;
+                    row = 0;
+                }
+            }
+            if col >= num_cols {
+                break;
+            }
+
+            // Check if we've wrapped back to start
+            if col == start_col && row == start_row {
+                // Check the start position itself
+                if self.columns[col].tasks[row].attention_required().is_some() {
+                    return true; // Already selected
+                }
+                return false;
+            }
+
+            if self.columns[col].tasks[row].attention_required().is_some() {
+                self.active_column = col;
+                self.columns[col].list_state.select(Some(row));
+                return true;
+            }
+
+            row += 1;
+        }
+
+        // Check the starting position itself (in case it's the only attention task)
+        if start_row < self.columns[start_col].tasks.len()
+            && self.columns[start_col].tasks[start_row]
+                .attention_required()
+                .is_some()
+        {
+            // Already selected at this position
+            return true;
+        }
+
+        false
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -157,8 +232,12 @@ impl TaskBoard {
                     format!("{} ", task.priority.symbol()),
                     priority_color(task.priority),
                 );
-                let title_span = Span::raw(&task.title);
-                ListItem::new(Line::from(vec![priority_span, title_span]))
+                let mut spans = vec![priority_span];
+                if let Some(indicator) = phase_attention_indicator(task) {
+                    spans.push(indicator);
+                }
+                spans.push(Span::raw(&task.title));
+                ListItem::new(Line::from(spans))
             })
             .collect();
 
@@ -170,6 +249,23 @@ impl TaskBoard {
         let mut state = col.list_state.clone();
         frame.render_stateful_widget(list, area, &mut state);
     }
+}
+
+fn phase_attention_indicator(task: &Task) -> Option<Span<'_>> {
+    let (phase, approval_status) = task.attention_required()?;
+    let symbol = match phase {
+        Status::Research => "󰒆 ",
+        Status::Design => "󰚎 ",
+        Status::Plan => "󰏗 ",
+        Status::Verify => "󰗠 ",
+        _ => return None,
+    };
+    let style = match approval_status {
+        ApprovalStatus::Pending => Style::default().fg(Color::Yellow),
+        ApprovalStatus::Rejected => Style::default().fg(Color::Red),
+        _ => Style::default(),
+    };
+    Some(Span::styled(symbol, style))
 }
 
 fn priority_color(priority: Priority) -> Style {
@@ -442,5 +538,144 @@ mod tests {
         board.handle_key(key(KeyCode::Char('l'))); // -> column 2 (empty)
         assert_eq!(board.active_column, 2);
         assert!(board.selected_task().is_none());
+    }
+
+    // --- Attention navigation tests ---
+
+    fn make_task_with_approval(
+        id: &str,
+        status: Status,
+        plan_status: ApprovalStatus,
+    ) -> Task {
+        let mut t = make_task(id, status);
+        t.plan_status = plan_status;
+        t
+    }
+
+    fn make_task_with_verify_rejected(
+        id: &str,
+        status: Status,
+    ) -> Task {
+        let mut t = make_task(id, status);
+        t.verify_status = ApprovalStatus::Rejected;
+        t
+    }
+
+    fn make_attention_board() -> TaskBoard {
+        // Column 0: Todo — no attention tasks
+        // Column 1: Research — one task with pending plan
+        // Column 2: Design — empty
+        // Column 3: Plan — task p2 has pending plan
+        // Column 4: Build — no attention
+        // Column 5: Verify — no attention
+        // Column 6: Done — no attention
+        TaskBoard::new(vec![
+            (
+                Status::Todo,
+                vec![make_task("t1", Status::Todo), make_task("t2", Status::Todo)],
+            ),
+            (
+                Status::Research,
+                vec![make_task_with_approval("r1", Status::Research, ApprovalStatus::Pending)],
+            ),
+            (Status::Design, vec![]),
+            (
+                Status::Plan,
+                vec![
+                    make_task("p1", Status::Plan),
+                    make_task_with_approval("p2", Status::Plan, ApprovalStatus::Pending),
+                    make_task("p3", Status::Plan),
+                ],
+            ),
+            (Status::Build, vec![]),
+            (Status::Verify, vec![]),
+            (Status::Done, vec![make_task("d1", Status::Done)]),
+        ])
+    }
+
+    #[test]
+    fn select_next_attention_finds_pending_task() {
+        let mut board = make_attention_board();
+        // Cursor starts at column 0, task t1 (no attention)
+        assert_eq!(board.active_column, 0);
+        assert_eq!(board.selected_task().unwrap().id, "t1");
+
+        assert!(board.select_next_attention());
+        // Should jump to r1 in column 1 (first attention task)
+        assert_eq!(board.active_column, 1);
+        assert_eq!(board.selected_task().unwrap().id, "r1");
+    }
+
+    #[test]
+    fn select_next_attention_skips_non_pending() {
+        let mut board = make_attention_board();
+        // Move cursor to r1 (which is an attention task)
+        board.select_task_by_id("r1");
+        assert_eq!(board.selected_task().unwrap().id, "r1");
+
+        // Next attention should skip p1 and go to p2
+        assert!(board.select_next_attention());
+        assert_eq!(board.active_column, 3);
+        assert_eq!(board.selected_task().unwrap().id, "p2");
+    }
+
+    #[test]
+    fn select_next_attention_wraps_around() {
+        let mut board = make_attention_board();
+        // Move cursor to p2 (which is an attention task in column 3)
+        board.select_task_by_id("p2");
+        assert_eq!(board.selected_task().unwrap().id, "p2");
+
+        // Next attention should wrap around to r1 in column 1
+        assert!(board.select_next_attention());
+        assert_eq!(board.active_column, 1);
+        assert_eq!(board.selected_task().unwrap().id, "r1");
+    }
+
+    #[test]
+    fn select_next_attention_returns_false_when_none() {
+        // Board with no attention tasks
+        let mut board = make_board();
+        let original_col = board.active_column;
+        let original_task = board.selected_task().unwrap().id.clone();
+
+        assert!(!board.select_next_attention());
+        // Cursor should remain unchanged
+        assert_eq!(board.active_column, original_col);
+        assert_eq!(board.selected_task().unwrap().id, original_task);
+    }
+
+    #[test]
+    fn select_next_attention_advances_from_current() {
+        let mut board = make_attention_board();
+        // Start at r1 (attention task)
+        board.select_task_by_id("r1");
+
+        // Should advance to p2, not stay on r1
+        assert!(board.select_next_attention());
+        assert_eq!(board.selected_task().unwrap().id, "p2");
+
+        // From p2, should wrap to r1
+        assert!(board.select_next_attention());
+        assert_eq!(board.selected_task().unwrap().id, "r1");
+    }
+
+    #[test]
+    fn select_next_attention_handles_rejected() {
+        let mut board = TaskBoard::new(vec![
+            (
+                Status::Todo,
+                vec![make_task("t1", Status::Todo)],
+            ),
+            (
+                Status::Verify,
+                vec![make_task_with_verify_rejected("v1", Status::Verify)],
+            ),
+        ]);
+
+        assert_eq!(board.active_column, 0);
+        assert!(board.select_next_attention());
+        assert_eq!(board.active_column, 1);
+        assert_eq!(board.selected_task().unwrap().id, "v1");
     }
 }
