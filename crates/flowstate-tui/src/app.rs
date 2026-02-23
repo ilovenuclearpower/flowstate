@@ -501,6 +501,12 @@ impl App {
                 self.refresh();
                 self.status_message = Some("Sprint filter cleared".into());
             }
+            // Jump to next task needing attention
+            KeyCode::Char('N') => {
+                if !self.board.select_next_attention() {
+                    self.status_message = Some("No tasks need attention".into());
+                }
+            }
             _ => self.board.handle_key(key),
         }
     }

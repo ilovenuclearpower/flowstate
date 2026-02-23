@@ -313,6 +313,24 @@ impl Task {
         self.parent_id.is_some()
     }
 
+    /// Returns the workflow phase and its ApprovalStatus if the task requires human attention
+    /// (i.e., if any phase is Pending or Rejected). Checks in sequential workflow order.
+    pub fn attention_required(&self) -> Option<(Status, ApprovalStatus)> {
+        let phases = [
+            (Status::Research, self.research_status),
+            (Status::Design, self.spec_status),
+            (Status::Plan, self.plan_status),
+            (Status::Verify, self.verify_status),
+        ];
+
+        for (phase, status) in phases {
+            if status == ApprovalStatus::Pending || status == ApprovalStatus::Rejected {
+                return Some((phase, status));
+            }
+        }
+        None
+    }
+
     pub fn capability_for_action(&self, action: ClaudeAction) -> Option<RunnerCapability> {
         match action {
             ClaudeAction::Research | ClaudeAction::ResearchDistill => self.research_capability,
@@ -686,5 +704,148 @@ mod tests {
             Some(RunnerCapability::Heavy)
         );
         assert_eq!(t.capability_for_action(ClaudeAction::VerifyDistill), None);
+    }
+
+    fn make_attention_task(
+        research: ApprovalStatus,
+        spec: ApprovalStatus,
+        plan: ApprovalStatus,
+        verify: ApprovalStatus,
+    ) -> Task {
+        Task {
+            id: "t1".into(),
+            project_id: "p1".into(),
+            sprint_id: None,
+            parent_id: None,
+            title: "Test".into(),
+            description: String::new(),
+            reviewer: String::new(),
+            research_status: research,
+            spec_status: spec,
+            plan_status: plan,
+            verify_status: verify,
+            spec_approved_hash: String::new(),
+            research_approved_hash: String::new(),
+            research_feedback: String::new(),
+            spec_feedback: String::new(),
+            plan_feedback: String::new(),
+            verify_feedback: String::new(),
+            status: Status::Todo,
+            priority: Priority::None,
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
+            sort_order: 0.0,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn attention_required_none_when_all_none() {
+        let t = make_attention_task(
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+        );
+        assert_eq!(t.attention_required(), None);
+    }
+
+    #[test]
+    fn attention_required_none_when_all_approved() {
+        let t = make_attention_task(
+            ApprovalStatus::Approved,
+            ApprovalStatus::Approved,
+            ApprovalStatus::Approved,
+            ApprovalStatus::Approved,
+        );
+        assert_eq!(t.attention_required(), None);
+    }
+
+    #[test]
+    fn attention_required_pending_research() {
+        let t = make_attention_task(
+            ApprovalStatus::Pending,
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+        );
+        assert_eq!(
+            t.attention_required(),
+            Some((Status::Research, ApprovalStatus::Pending))
+        );
+    }
+
+    #[test]
+    fn attention_required_pending_plan() {
+        let t = make_attention_task(
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+            ApprovalStatus::Pending,
+            ApprovalStatus::None,
+        );
+        assert_eq!(
+            t.attention_required(),
+            Some((Status::Plan, ApprovalStatus::Pending))
+        );
+    }
+
+    #[test]
+    fn attention_required_rejected_spec() {
+        let t = make_attention_task(
+            ApprovalStatus::None,
+            ApprovalStatus::Rejected,
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+        );
+        assert_eq!(
+            t.attention_required(),
+            Some((Status::Design, ApprovalStatus::Rejected))
+        );
+    }
+
+    #[test]
+    fn attention_required_rejected_verify() {
+        let t = make_attention_task(
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+            ApprovalStatus::None,
+            ApprovalStatus::Rejected,
+        );
+        assert_eq!(
+            t.attention_required(),
+            Some((Status::Verify, ApprovalStatus::Rejected))
+        );
+    }
+
+    #[test]
+    fn attention_required_earliest_wins() {
+        let t = make_attention_task(
+            ApprovalStatus::Approved,
+            ApprovalStatus::Pending,
+            ApprovalStatus::Rejected,
+            ApprovalStatus::None,
+        );
+        assert_eq!(
+            t.attention_required(),
+            Some((Status::Design, ApprovalStatus::Pending))
+        );
+    }
+
+    #[test]
+    fn attention_required_mixed_approved_and_pending() {
+        let t = make_attention_task(
+            ApprovalStatus::Approved,
+            ApprovalStatus::Approved,
+            ApprovalStatus::Approved,
+            ApprovalStatus::Pending,
+        );
+        assert_eq!(
+            t.attention_required(),
+            Some((Status::Verify, ApprovalStatus::Pending))
+        );
     }
 }
