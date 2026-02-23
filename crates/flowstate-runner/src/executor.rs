@@ -33,23 +33,34 @@ pub async fn dispatch(
 
     let result = match run.action {
         ClaudeAction::Research | ClaudeAction::ResearchDistill => {
-            execute_research(service, run, task, project, &ws_dir, timeout, kill_grace, backend)
-                .await
+            execute_research(
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+            )
+            .await
         }
         ClaudeAction::Design | ClaudeAction::DesignDistill => {
-            execute_design(service, run, task, project, &ws_dir, timeout, kill_grace, backend)
-                .await
+            execute_design(
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+            )
+            .await
         }
         ClaudeAction::Plan | ClaudeAction::PlanDistill => {
-            execute_plan(service, run, task, project, &ws_dir, timeout, kill_grace, backend).await
+            execute_plan(
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+            )
+            .await
         }
         ClaudeAction::Build => {
-            pipeline::execute(service, run, task, project, &ws_dir, timeout, kill_grace, backend)
-                .await
+            pipeline::execute(
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+            )
+            .await
         }
         ClaudeAction::Verify | ClaudeAction::VerifyDistill => {
-            execute_verify(service, run, task, project, &ws_dir, timeout, kill_grace, backend)
-                .await
+            execute_verify(
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+            )
+            .await
         }
     };
 
@@ -84,12 +95,9 @@ pub fn resolve_workspace_dir_from(
                     .join("workspaces")
                     .join(run_id)
             } else if let Some(home) = home {
-                home.join(".local/share/flowstate/workspaces")
-                    .join(run_id)
+                home.join(".local/share/flowstate/workspaces").join(run_id)
             } else {
-                PathBuf::from(".")
-                    .join("flowstate/workspaces")
-                    .join(run_id)
+                PathBuf::from(".").join("flowstate/workspaces").join(run_id)
             }
         }
     }
@@ -118,7 +126,13 @@ async fn execute_research(
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify).await?;
+    workspace::ensure_repo(
+        ws_dir,
+        &project.repo_url,
+        token.as_deref(),
+        project.skip_tls_verify,
+    )
+    .await?;
 
     progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, run.action).await;
@@ -132,8 +146,8 @@ async fn execute_research(
     if output.success {
         progress(service, &run.id, "Reading output...").await;
         let research_file = ws_dir.join("RESEARCH.md");
-        let content = std::fs::read_to_string(&research_file)
-            .unwrap_or_else(|_| output.stdout.clone());
+        let content =
+            std::fs::read_to_string(&research_file).unwrap_or_else(|_| output.stdout.clone());
 
         progress(service, &run.id, "Writing research to server...").await;
         service
@@ -173,7 +187,13 @@ async fn execute_design(
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify).await?;
+    workspace::ensure_repo(
+        ws_dir,
+        &project.repo_url,
+        token.as_deref(),
+        project.skip_tls_verify,
+    )
+    .await?;
 
     progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, run.action).await;
@@ -187,8 +207,7 @@ async fn execute_design(
     if output.success {
         progress(service, &run.id, "Reading output...").await;
         let spec_file = ws_dir.join("SPECIFICATION.md");
-        let content = std::fs::read_to_string(&spec_file)
-            .unwrap_or_else(|_| output.stdout.clone());
+        let content = std::fs::read_to_string(&spec_file).unwrap_or_else(|_| output.stdout.clone());
 
         progress(service, &run.id, "Writing spec to server...").await;
         service
@@ -228,7 +247,13 @@ async fn execute_plan(
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify).await?;
+    workspace::ensure_repo(
+        ws_dir,
+        &project.repo_url,
+        token.as_deref(),
+        project.skip_tls_verify,
+    )
+    .await?;
 
     progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, run.action).await;
@@ -242,8 +267,7 @@ async fn execute_plan(
     if output.success {
         progress(service, &run.id, "Reading output...").await;
         let plan_file = ws_dir.join("PLAN.md");
-        let content = std::fs::read_to_string(&plan_file)
-            .unwrap_or_else(|_| output.stdout.clone());
+        let content = std::fs::read_to_string(&plan_file).unwrap_or_else(|_| output.stdout.clone());
 
         progress(service, &run.id, "Writing plan to server...").await;
         service
@@ -283,7 +307,13 @@ async fn execute_verify(
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify).await?;
+    workspace::ensure_repo(
+        ws_dir,
+        &project.repo_url,
+        token.as_deref(),
+        project.skip_tls_verify,
+    )
+    .await?;
 
     // Checkout the feature branch from the most recent completed build run
     let runs = service.list_claude_runs(&task.id).await.unwrap_or_default();
@@ -318,8 +348,8 @@ async fn execute_verify(
     if output.success {
         progress(service, &run.id, "Reading output...").await;
         let verification_file = ws_dir.join("VERIFICATION.md");
-        let content = std::fs::read_to_string(&verification_file)
-            .unwrap_or_else(|_| output.stdout.clone());
+        let content =
+            std::fs::read_to_string(&verification_file).unwrap_or_else(|_| output.stdout.clone());
 
         progress(service, &run.id, "Writing verification to server...").await;
         service
@@ -539,12 +569,8 @@ mod tests {
 
     #[test]
     fn resolve_workspace_dir_from_home_fallback() {
-        let dir = resolve_workspace_dir_from(
-            &None,
-            "run-7",
-            None,
-            Some(PathBuf::from("/home/testuser")),
-        );
+        let dir =
+            resolve_workspace_dir_from(&None, "run-7", None, Some(PathBuf::from("/home/testuser")));
         assert_eq!(
             dir,
             PathBuf::from("/home/testuser/.local/share/flowstate/workspaces/run-7")
@@ -646,7 +672,10 @@ mod tests {
         let expected_path = tmp
             .path()
             .join("flowstate/claude_runs/test-run-xdg/prompt.md");
-        assert!(expected_path.exists(), "prompt file should exist at {expected_path:?}");
+        assert!(
+            expected_path.exists(),
+            "prompt file should exist at {expected_path:?}"
+        );
         let content = std::fs::read_to_string(&expected_path).unwrap();
         assert_eq!(content, "Hello from XDG test");
     }
@@ -678,7 +707,10 @@ mod tests {
         let expected_path = tmp
             .path()
             .join(".local/share/flowstate/claude_runs/test-run-home/prompt.md");
-        assert!(expected_path.exists(), "prompt file should exist at {expected_path:?}");
+        assert!(
+            expected_path.exists(),
+            "prompt file should exist at {expected_path:?}"
+        );
         let content = std::fs::read_to_string(&expected_path).unwrap();
         assert_eq!(content, "Hello from HOME test");
     }

@@ -45,7 +45,9 @@ fn main() -> Result<()> {
             .clone()
             .into()
     } else {
-        std::env::var("FLOWSTATE_API_KEY").ok().filter(|k| !k.is_empty())
+        std::env::var("FLOWSTATE_API_KEY")
+            .ok()
+            .filter(|k| !k.is_empty())
     };
 
     // Wait for server to be ready
@@ -168,9 +170,7 @@ fn event_loop(
             }
         } else if let Event::Key(key) = event::read()? {
             // Ctrl+C always quits
-            if key.code == KeyCode::Char('c')
-                && key.modifiers.contains(KeyModifiers::CONTROL)
-            {
+            if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
                 break;
             }
             // q quits unless we're in an input mode

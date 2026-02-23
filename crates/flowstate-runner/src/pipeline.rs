@@ -69,14 +69,20 @@ pub async fn execute(
         .await
         .map_err(|e| anyhow::anyhow!("provider preflight: {e}"))?;
 
-    provider.check_auth(&project.repo_url).await.map_err(|e| {
-        anyhow::anyhow!("repo auth check failed: {e}")
-    })?;
+    provider
+        .check_auth(&project.repo_url)
+        .await
+        .map_err(|e| anyhow::anyhow!("repo auth check failed: {e}"))?;
 
     // 4. Clone repo to fresh workspace
     progress(service, &run.id, "Cloning repository...").await;
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify)
-        .await?;
+    workspace::ensure_repo(
+        ws_dir,
+        &project.repo_url,
+        token.as_deref(),
+        project.skip_tls_verify,
+    )
+    .await?;
 
     // 5. Detect default branch (fresh clone is already on it)
     let default_branch = workspace::detect_default_branch(ws_dir).await?;
@@ -87,14 +93,8 @@ pub async fn execute(
     workspace::create_branch(ws_dir, &branch_name).await?;
 
     // 7. Read spec + plan from server
-    let spec_content = service
-        .read_task_spec(&task.id)
-        .await
-        .ok();
-    let plan_content = service
-        .read_task_plan(&task.id)
-        .await
-        .ok();
+    let spec_content = service.read_task_spec(&task.id).await.ok();
+    let plan_content = service.read_task_plan(&task.id).await.ok();
 
     // 8. Assemble build prompt
     progress(service, &run.id, "Assembling build prompt...").await;
@@ -148,7 +148,11 @@ pub async fn execute(
 
     // 10. Run agent in workspace
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
-    info!("running {} for build in {}", backend.name(), ws_dir.display());
+    info!(
+        "running {} for build in {}",
+        backend.name(),
+        ws_dir.display()
+    );
     let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
 
     if !output.success {
@@ -188,7 +192,8 @@ pub async fn execute(
                         error_msg.push_str(&format!(
                             "\n--- {} (exit {}) ---\n{}\n{}\n",
                             step.step_name,
-                            step.exit_code.map_or("timeout".to_string(), |c| c.to_string()),
+                            step.exit_code
+                                .map_or("timeout".to_string(), |c| c.to_string()),
                             step.stdout,
                             step.stderr,
                         ));
@@ -211,9 +216,10 @@ pub async fn execute(
 
     // 15. Push branch
     progress(service, &run.id, "Pushing branch...").await;
-    provider.push_branch(ws_dir, &branch_name).await.map_err(|e| {
-        anyhow::anyhow!("push failed: {e}")
-    })?;
+    provider
+        .push_branch(ws_dir, &branch_name)
+        .await
+        .map_err(|e| anyhow::anyhow!("push failed: {e}"))?;
 
     // 16. Open PR
     progress(service, &run.id, "Opening pull request...").await;
@@ -260,10 +266,7 @@ pub async fn execute(
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    info!(
-        "build pipeline complete: PR #{} at {}",
-        pr.number, pr.url
-    );
+    info!("build pipeline complete: PR #{} at {}", pr.number, pr.url);
 
     Ok(())
 }

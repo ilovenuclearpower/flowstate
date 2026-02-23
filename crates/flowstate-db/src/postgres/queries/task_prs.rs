@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 
 use flowstate_core::task_pr::{CreateTaskPr, TaskPr};
 
-use crate::DbError;
 use super::super::{pg_err, PostgresDatabase};
+use crate::DbError;
 
 #[derive(sqlx::FromRow)]
 struct TaskPrRow {
@@ -31,10 +31,7 @@ impl From<TaskPrRow> for TaskPr {
 }
 
 impl PostgresDatabase {
-    pub(crate) async fn pg_create_task_pr(
-        &self,
-        input: &CreateTaskPr,
-    ) -> Result<TaskPr, DbError> {
+    pub(crate) async fn pg_create_task_pr(&self, input: &CreateTaskPr) -> Result<TaskPr, DbError> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
 
@@ -56,21 +53,16 @@ impl PostgresDatabase {
         .map_err(pg_err)?;
 
         // Fetch by pr_url (which is unique) to handle both insert and conflict cases
-        let row = sqlx::query_as::<_, TaskPrRow>(
-            "SELECT * FROM task_prs WHERE pr_url = $1",
-        )
-        .bind(&input.pr_url)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let row = sqlx::query_as::<_, TaskPrRow>("SELECT * FROM task_prs WHERE pr_url = $1")
+            .bind(&input.pr_url)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(row.into())
     }
 
-    pub(crate) async fn pg_list_task_prs(
-        &self,
-        task_id: &str,
-    ) -> Result<Vec<TaskPr>, DbError> {
+    pub(crate) async fn pg_list_task_prs(&self, task_id: &str) -> Result<Vec<TaskPr>, DbError> {
         let rows = sqlx::query_as::<_, TaskPrRow>(
             "SELECT * FROM task_prs WHERE task_id = $1 ORDER BY created_at DESC",
         )

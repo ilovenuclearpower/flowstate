@@ -3,8 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::task_link::{CreateTaskLink, LinkType, TaskLink};
 
-use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
+use crate::DbError;
 
 fn row_to_task_link(row: &Row) -> rusqlite::Result<TaskLink> {
     let link_type_str: String = row.get("link_type")?;
@@ -18,10 +18,7 @@ fn row_to_task_link(row: &Row) -> rusqlite::Result<TaskLink> {
 }
 
 impl SqliteDatabase {
-    pub fn create_task_link_sync(
-        &self,
-        input: &CreateTaskLink,
-    ) -> Result<TaskLink, DbError> {
+    pub fn create_task_link_sync(&self, input: &CreateTaskLink) -> Result<TaskLink, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now();
@@ -105,6 +102,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
         let t2 = db
@@ -116,6 +118,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
 

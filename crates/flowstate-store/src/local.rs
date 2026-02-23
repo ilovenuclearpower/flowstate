@@ -187,14 +187,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = test_store(tmp.path());
 
-        store
-            .put("key", Bytes::from("first"))
-            .await
-            .unwrap();
-        store
-            .put("key", Bytes::from("second"))
-            .await
-            .unwrap();
+        store.put("key", Bytes::from("first")).await.unwrap();
+        store.put("key", Bytes::from("second")).await.unwrap();
 
         let data = store.get("key").await.unwrap();
         assert_eq!(data.as_ref(), b"second");
@@ -276,7 +270,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let store = test_store(tmp.path());
 
-        let content = "# Spécification 🚀\n\nCeci est un test avec des caractères spéciaux: é, ñ, ü, 日本語";
+        let content =
+            "# Spécification 🚀\n\nCeci est un test avec des caractères spéciaux: é, ñ, ü, 日本語";
         store
             .put("tasks/unicode/specification.md", Bytes::from(content))
             .await

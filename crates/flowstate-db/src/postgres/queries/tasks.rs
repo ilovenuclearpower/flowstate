@@ -1,12 +1,13 @@
 use chrono::{DateTime, Utc};
 use sqlx::Row;
 
+use flowstate_core::runner::RunnerCapability;
 use flowstate_core::task::{
     ApprovalStatus, CreateTask, Priority, Status, Task, TaskFilter, UpdateTask,
 };
 
-use crate::DbError;
 use super::super::{pg_err, pg_not_found, PostgresDatabase};
+use crate::DbError;
 
 #[derive(sqlx::FromRow)]
 struct TaskRow {
@@ -30,6 +31,11 @@ struct TaskRow {
     spec_feedback: String,
     plan_feedback: String,
     verify_feedback: String,
+    research_capability: Option<String>,
+    design_capability: Option<String>,
+    plan_capability: Option<String>,
+    build_capability: Option<String>,
+    verify_capability: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -46,10 +52,8 @@ impl From<TaskRow> for Task {
             reviewer: r.reviewer,
             research_status: ApprovalStatus::parse_str(&r.research_status)
                 .unwrap_or(ApprovalStatus::None),
-            spec_status: ApprovalStatus::parse_str(&r.spec_status)
-                .unwrap_or(ApprovalStatus::None),
-            plan_status: ApprovalStatus::parse_str(&r.plan_status)
-                .unwrap_or(ApprovalStatus::None),
+            spec_status: ApprovalStatus::parse_str(&r.spec_status).unwrap_or(ApprovalStatus::None),
+            plan_status: ApprovalStatus::parse_str(&r.plan_status).unwrap_or(ApprovalStatus::None),
             verify_status: ApprovalStatus::parse_str(&r.verify_status)
                 .unwrap_or(ApprovalStatus::None),
             spec_approved_hash: r.spec_approved_hash,
@@ -60,6 +64,21 @@ impl From<TaskRow> for Task {
             verify_feedback: r.verify_feedback,
             status: Status::parse_str(&r.status).unwrap_or(Status::Todo),
             priority: Priority::parse_str(&r.priority).unwrap_or(Priority::Medium),
+            research_capability: r
+                .research_capability
+                .and_then(|s| RunnerCapability::parse_str(&s)),
+            design_capability: r
+                .design_capability
+                .and_then(|s| RunnerCapability::parse_str(&s)),
+            plan_capability: r
+                .plan_capability
+                .and_then(|s| RunnerCapability::parse_str(&s)),
+            build_capability: r
+                .build_capability
+                .and_then(|s| RunnerCapability::parse_str(&s)),
+            verify_capability: r
+                .verify_capability
+                .and_then(|s| RunnerCapability::parse_str(&s)),
             sort_order: r.sort_order,
             created_at: r.created_at,
             updated_at: r.updated_at,
@@ -68,10 +87,7 @@ impl From<TaskRow> for Task {
 }
 
 impl PostgresDatabase {
-    pub(crate) async fn pg_create_task(
-        &self,
-        input: &CreateTask,
-    ) -> Result<Task, DbError> {
+    pub(crate) async fn pg_create_task(&self, input: &CreateTask) -> Result<Task, DbError> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
 
@@ -86,8 +102,11 @@ impl PostgresDatabase {
         .unwrap_or(0.0);
 
         sqlx::query(
-            "INSERT INTO tasks (id, project_id, parent_id, title, description, reviewer, status, priority, sort_order, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+            "INSERT INTO tasks (
+                 id, project_id, parent_id, title, description, reviewer, status, priority, sort_order, created_at, updated_at,
+                 research_capability, design_capability, plan_capability, build_capability, verify_capability
+             )
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)",
         )
         .bind(&id)
         .bind(&input.project_id)
@@ -100,6 +119,11 @@ impl PostgresDatabase {
         .bind(max_order + 1.0)
         .bind(now)
         .bind(now)
+        .bind(input.research_capability.map(|c| c.as_str().to_string()))
+        .bind(input.design_capability.map(|c| c.as_str().to_string()))
+        .bind(input.plan_capability.map(|c| c.as_str().to_string()))
+        .bind(input.build_capability.map(|c| c.as_str().to_string()))
+        .bind(input.verify_capability.map(|c| c.as_str().to_string()))
         .execute(&self.pool)
         .await
         .map_err(pg_err)?;
@@ -124,10 +148,7 @@ impl PostgresDatabase {
         Ok(row.into())
     }
 
-    pub(crate) async fn pg_list_tasks(
-        &self,
-        filter: &TaskFilter,
-    ) -> Result<Vec<Task>, DbError> {
+    pub(crate) async fn pg_list_tasks(&self, filter: &TaskFilter) -> Result<Vec<Task>, DbError> {
         let mut sql = String::from("SELECT * FROM tasks WHERE 1=1");
         let mut param_idx = 1usize;
 
@@ -195,10 +216,7 @@ impl PostgresDatabase {
         Ok(rows.into_iter().map(|r| r.into()).collect())
     }
 
-    pub(crate) async fn pg_list_child_tasks(
-        &self,
-        parent_id: &str,
-    ) -> Result<Vec<Task>, DbError> {
+    pub(crate) async fn pg_list_child_tasks(&self, parent_id: &str) -> Result<Vec<Task>, DbError> {
         let rows = sqlx::query_as::<_, TaskRow>(
             "SELECT * FROM tasks WHERE parent_id = $1 ORDER BY sort_order ASC",
         )
@@ -321,6 +339,31 @@ impl PostgresDatabase {
         if let Some(ref feedback) = update.verify_feedback {
             sets.push(format!("verify_feedback = ${param_idx}"));
             params.push(ParamValue::Str(feedback.clone()));
+            param_idx += 1;
+        }
+        if let Some(cap) = &update.research_capability {
+            sets.push(format!("research_capability = ${param_idx}"));
+            params.push(ParamValue::OptStr(cap.map(|c| c.as_str().to_string())));
+            param_idx += 1;
+        }
+        if let Some(cap) = &update.design_capability {
+            sets.push(format!("design_capability = ${param_idx}"));
+            params.push(ParamValue::OptStr(cap.map(|c| c.as_str().to_string())));
+            param_idx += 1;
+        }
+        if let Some(cap) = &update.plan_capability {
+            sets.push(format!("plan_capability = ${param_idx}"));
+            params.push(ParamValue::OptStr(cap.map(|c| c.as_str().to_string())));
+            param_idx += 1;
+        }
+        if let Some(cap) = &update.build_capability {
+            sets.push(format!("build_capability = ${param_idx}"));
+            params.push(ParamValue::OptStr(cap.map(|c| c.as_str().to_string())));
+            param_idx += 1;
+        }
+        if let Some(cap) = &update.verify_capability {
+            sets.push(format!("verify_capability = ${param_idx}"));
+            params.push(ParamValue::OptStr(cap.map(|c| c.as_str().to_string())));
             param_idx += 1;
         }
 

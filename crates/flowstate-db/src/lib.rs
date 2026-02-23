@@ -192,7 +192,9 @@ pub async fn open_database(config: &DbConfig) -> Result<Arc<dyn Database>, DbErr
                 ))
             }
         }
-        other => Err(DbError::Internal(format!("unknown database backend: {other}"))),
+        other => Err(DbError::Internal(format!(
+            "unknown database backend: {other}"
+        ))),
     }
 }
 
@@ -346,10 +348,9 @@ mod tests {
     #[test]
     fn db_config_from_getter_database_url_fallback() {
         use std::collections::HashMap;
-        let vars: HashMap<&str, &str> =
-            [("DATABASE_URL", "postgres://fallback/db")]
-                .into_iter()
-                .collect();
+        let vars: HashMap<&str, &str> = [("DATABASE_URL", "postgres://fallback/db")]
+            .into_iter()
+            .collect();
 
         let config = DbConfig::from_getter(|key| vars.get(key).map(|v| v.to_string()));
         assert_eq!(

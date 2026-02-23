@@ -20,10 +20,7 @@ impl std::fmt::Debug for S3Store {
 impl S3Store {
     pub fn new(config: &StoreConfig) -> Result<Self, StoreError> {
         let region = Region::Custom {
-            region: config
-                .region
-                .clone()
-                .unwrap_or_else(|| "us-east-1".into()),
+            region: config.region.clone().unwrap_or_else(|| "us-east-1".into()),
             endpoint: config.endpoint_url.clone().unwrap_or_default(),
         };
 
@@ -90,10 +87,7 @@ impl ObjectStore for S3Store {
     }
 
     async fn delete(&self, key: &str) -> Result<(), StoreError> {
-        self.bucket
-            .delete_object(key)
-            .await
-            .map_err(map_s3_error)?;
+        self.bucket.delete_object(key).await.map_err(map_s3_error)?;
         Ok(())
     }
 
@@ -154,9 +148,18 @@ mod tests {
 
     #[test]
     fn content_type_detection() {
-        assert_eq!(content_type_for_key("tasks/a/specification.md"), "text/markdown");
-        assert_eq!(content_type_for_key("claude_runs/r/output.txt"), "text/plain");
-        assert_eq!(content_type_for_key("some/file.png"), "application/octet-stream");
+        assert_eq!(
+            content_type_for_key("tasks/a/specification.md"),
+            "text/markdown"
+        );
+        assert_eq!(
+            content_type_for_key("claude_runs/r/output.txt"),
+            "text/plain"
+        );
+        assert_eq!(
+            content_type_for_key("some/file.png"),
+            "application/octet-stream"
+        );
     }
 
     // -- S3 integration tests (require running Garage/MinIO) --
@@ -178,10 +181,7 @@ mod tests {
         let key = "integration-test/crud-roundtrip.txt";
 
         // put
-        store
-            .put(key, Bytes::from("hello s3"))
-            .await
-            .unwrap();
+        store.put(key, Bytes::from("hello s3")).await.unwrap();
 
         // get
         let data = store.get(key).await.unwrap();
@@ -326,7 +326,10 @@ mod tests {
         let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
         // Deleting a key that doesn't exist should not error
-        store.delete("integration-test/nonexistent-delete-target").await.unwrap();
+        store
+            .delete("integration-test/nonexistent-delete-target")
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -334,7 +337,10 @@ mod tests {
     async fn s3_list_empty_prefix() {
         let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
-        let keys = store.list("integration-test/guaranteed-empty-prefix-xyz").await.unwrap();
+        let keys = store
+            .list("integration-test/guaranteed-empty-prefix-xyz")
+            .await
+            .unwrap();
         assert!(keys.is_empty());
     }
 
@@ -361,7 +367,10 @@ mod tests {
     async fn s3_get_opt_returns_none_for_missing() {
         let config = s3_config().expect("S3 not configured — skipped via #[ignore]");
         let store = S3Store::new(&config).unwrap();
-        let result = store.get_opt("integration-test/nonexistent-opt").await.unwrap();
+        let result = store
+            .get_opt("integration-test/nonexistent-opt")
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 

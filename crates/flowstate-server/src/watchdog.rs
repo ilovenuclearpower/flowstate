@@ -44,7 +44,8 @@ async fn check_stale_runs(db: &dyn Database) -> Result<(), Box<dyn std::error::E
                 "server watchdog: no runner activity for >{}min",
                 running_timeout.num_minutes()
             ),
-        ).await?;
+        )
+        .await?;
     }
 
     // Hard timeout for runs stuck in Salvaging: 30 minutes
@@ -57,10 +58,8 @@ async fn check_stale_runs(db: &dyn Database) -> Result<(), Box<dyn std::error::E
             "watchdog: timing out stale salvage run {} (action={}, started_at={})",
             run.id, run.action, run.started_at
         );
-        db.timeout_claude_run(
-            &run.id,
-            "server watchdog: salvage agent timed out",
-        ).await?;
+        db.timeout_claude_run(&run.id, "server watchdog: salvage agent timed out")
+            .await?;
     }
 
     Ok(())
@@ -80,9 +79,9 @@ mod tests {
 
     #[tokio::test]
     async fn check_recent_runs_untouched() {
-        use flowstate_core::claude_run::{ClaudeRunStatus, CreateClaudeRun, ClaudeAction};
+        use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
         use flowstate_core::project::CreateProject;
-        use flowstate_core::task::{CreateTask, Status, Priority};
+        use flowstate_core::task::{CreateTask, Priority, Status};
 
         let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
 
@@ -105,6 +104,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .await
             .unwrap();
@@ -131,9 +135,9 @@ mod tests {
 
     #[tokio::test]
     async fn check_stale_running_run_timed_out() {
-        use flowstate_core::claude_run::{ClaudeRunStatus, CreateClaudeRun, ClaudeAction};
+        use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
         use flowstate_core::project::CreateProject;
-        use flowstate_core::task::{CreateTask, Status, Priority};
+        use flowstate_core::task::{CreateTask, Priority, Status};
 
         let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
 
@@ -156,6 +160,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .await
             .unwrap();
@@ -180,23 +189,24 @@ mod tests {
 
         // Now time it out via check_stale_runs — but that uses Utc::now() - 90min,
         // so instead call timeout_claude_run directly to exercise that path
-        db.timeout_claude_run(
-            &run.id,
-            "server watchdog: no runner activity for >90min",
-        )
-        .await
-        .unwrap();
+        db.timeout_claude_run(&run.id, "server watchdog: no runner activity for >90min")
+            .await
+            .unwrap();
 
         let updated = db.get_claude_run(&run.id).await.unwrap();
         assert_eq!(updated.status, ClaudeRunStatus::TimedOut);
-        assert!(updated.error_message.as_deref().unwrap().contains("watchdog"));
+        assert!(updated
+            .error_message
+            .as_deref()
+            .unwrap()
+            .contains("watchdog"));
     }
 
     #[tokio::test]
     async fn check_stale_salvaging_run_timed_out() {
-        use flowstate_core::claude_run::{ClaudeRunStatus, CreateClaudeRun, ClaudeAction};
+        use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
         use flowstate_core::project::CreateProject;
-        use flowstate_core::task::{CreateTask, Status, Priority};
+        use flowstate_core::task::{CreateTask, Priority, Status};
 
         let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
 
@@ -219,6 +229,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .await
             .unwrap();
@@ -236,39 +251,38 @@ mod tests {
         let _ = db.claim_next_claude_run(&[]).await.unwrap();
 
         // Transition to Salvaging — started_at remains from claim
-        db.update_claude_run_status(
-            &run.id,
-            ClaudeRunStatus::Salvaging,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+        db.update_claude_run_status(&run.id, ClaudeRunStatus::Salvaging, None, None)
+            .await
+            .unwrap();
 
         // Future threshold so any run is considered stale
         let future_threshold = Utc::now() + chrono::Duration::minutes(10);
-        let stale = db.find_stale_salvaging_runs(future_threshold).await.unwrap();
+        let stale = db
+            .find_stale_salvaging_runs(future_threshold)
+            .await
+            .unwrap();
         assert_eq!(stale.len(), 1);
         assert_eq!(stale[0].id, run.id);
 
         // Time it out
-        db.timeout_claude_run(
-            &run.id,
-            "server watchdog: salvage agent timed out",
-        )
-        .await
-        .unwrap();
+        db.timeout_claude_run(&run.id, "server watchdog: salvage agent timed out")
+            .await
+            .unwrap();
 
         let updated = db.get_claude_run(&run.id).await.unwrap();
         assert_eq!(updated.status, ClaudeRunStatus::TimedOut);
-        assert!(updated.error_message.as_deref().unwrap().contains("salvage"));
+        assert!(updated
+            .error_message
+            .as_deref()
+            .unwrap()
+            .contains("salvage"));
     }
 
     #[tokio::test]
     async fn check_stale_runs_times_out_old_running_and_salvaging() {
-        use flowstate_core::claude_run::{ClaudeRunStatus, CreateClaudeRun, ClaudeAction};
+        use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
         use flowstate_core::project::CreateProject;
-        use flowstate_core::task::{CreateTask, Status, Priority};
+        use flowstate_core::task::{CreateTask, Priority, Status};
         use flowstate_db::Database;
 
         let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
@@ -293,6 +307,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .await
             .unwrap();
@@ -318,14 +337,9 @@ mod tests {
             .await
             .unwrap();
         let _ = db.claim_next_claude_run(&[]).await.unwrap();
-        db.update_claude_run_status(
-            &run2.id,
-            ClaudeRunStatus::Salvaging,
-            None,
-            None,
-        )
-        .await
-        .unwrap();
+        db.update_claude_run_status(&run2.id, ClaudeRunStatus::Salvaging, None, None)
+            .await
+            .unwrap();
 
         // Backdate started_at for both runs so they look stale to check_stale_runs
         // Use raw SQL via the pool. The SqliteDatabase stores pool internally;
@@ -337,11 +351,17 @@ mod tests {
         // Actually, we verified the individual methods above. The full
         // check_stale_runs integration test against recent runs is already covered.
         // This test verifies the end-to-end with timeout_claude_run for both statuses.
-        let timed1 = db.timeout_claude_run(&run1.id, "stale running").await.unwrap();
+        let timed1 = db
+            .timeout_claude_run(&run1.id, "stale running")
+            .await
+            .unwrap();
         assert!(timed1.is_some());
         assert_eq!(timed1.unwrap().status, ClaudeRunStatus::TimedOut);
 
-        let timed2 = db.timeout_claude_run(&run2.id, "stale salvage").await.unwrap();
+        let timed2 = db
+            .timeout_claude_run(&run2.id, "stale salvage")
+            .await
+            .unwrap();
         assert!(timed2.is_some());
         assert_eq!(timed2.unwrap().status, ClaudeRunStatus::TimedOut);
 
@@ -354,9 +374,9 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_already_timed_out_run_returns_none() {
-        use flowstate_core::claude_run::{CreateClaudeRun, ClaudeAction};
+        use flowstate_core::claude_run::{ClaudeAction, CreateClaudeRun};
         use flowstate_core::project::CreateProject;
-        use flowstate_core::task::{CreateTask, Status, Priority};
+        use flowstate_core::task::{CreateTask, Priority, Status};
 
         let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
 
@@ -379,6 +399,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .await
             .unwrap();
@@ -398,15 +423,18 @@ mod tests {
         assert!(first.is_some());
 
         // Second timeout returns None (already timed out, not in Running/Salvaging)
-        let second = db.timeout_claude_run(&run.id, "timed out again").await.unwrap();
+        let second = db
+            .timeout_claude_run(&run.id, "timed out again")
+            .await
+            .unwrap();
         assert!(second.is_none());
     }
 
     #[tokio::test]
     async fn check_stale_runs_finds_no_stale() {
-        use flowstate_core::claude_run::{CreateClaudeRun, ClaudeAction};
+        use flowstate_core::claude_run::{ClaudeAction, CreateClaudeRun};
         use flowstate_core::project::CreateProject;
-        use flowstate_core::task::{CreateTask, Status, Priority};
+        use flowstate_core::task::{CreateTask, Priority, Status};
 
         let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
 
@@ -429,6 +457,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .await
             .unwrap();

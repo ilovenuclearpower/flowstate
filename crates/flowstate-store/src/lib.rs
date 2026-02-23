@@ -117,8 +117,7 @@ impl StoreConfig {
             endpoint_url: get("FLOWSTATE_S3_ENDPOINT").or_else(|| get("AWS_ENDPOINT_URL")),
             region: get("FLOWSTATE_S3_REGION").or_else(|| get("AWS_REGION")),
             bucket: get("FLOWSTATE_S3_BUCKET").or_else(|| get("GARAGE_BUCKET")),
-            access_key_id: get("FLOWSTATE_S3_ACCESS_KEY_ID")
-                .or_else(|| get("AWS_ACCESS_KEY_ID")),
+            access_key_id: get("FLOWSTATE_S3_ACCESS_KEY_ID").or_else(|| get("AWS_ACCESS_KEY_ID")),
             secret_access_key: get("FLOWSTATE_S3_SECRET_ACCESS_KEY")
                 .or_else(|| get("AWS_SECRET_ACCESS_KEY")),
             local_data_dir: None,
@@ -159,10 +158,7 @@ mod tests {
 
     #[test]
     fn key_helpers_produce_expected_paths() {
-        assert_eq!(
-            task_spec_key("abc-123"),
-            "tasks/abc-123/specification.md"
-        );
+        assert_eq!(task_spec_key("abc-123"), "tasks/abc-123/specification.md");
         assert_eq!(task_plan_key("abc-123"), "tasks/abc-123/plan.md");
         assert_eq!(
             task_attachment_key("abc-123", "att-1", "image.png"),
@@ -176,10 +172,7 @@ mod tests {
             claude_run_output_key("run-1"),
             "claude_runs/run-1/output.txt"
         );
-        assert_eq!(
-            task_research_key("abc-123"),
-            "tasks/abc-123/research.md"
-        );
+        assert_eq!(task_research_key("abc-123"), "tasks/abc-123/research.md");
         assert_eq!(
             task_verification_key("abc-123"),
             "tasks/abc-123/verification.md"
@@ -287,7 +280,10 @@ mod tests {
         .collect();
 
         let config = StoreConfig::from_getter(|key| vars.get(key).map(|v| v.to_string()));
-        assert_eq!(config.endpoint_url.as_deref(), Some("http://aws-endpoint:443"));
+        assert_eq!(
+            config.endpoint_url.as_deref(),
+            Some("http://aws-endpoint:443")
+        );
         assert_eq!(config.region.as_deref(), Some("us-west-2"));
         assert_eq!(config.bucket.as_deref(), Some("my-bucket"));
         assert_eq!(config.access_key_id.as_deref(), Some("aws-key"));
@@ -310,7 +306,10 @@ mod tests {
         .collect();
 
         let config = StoreConfig::from_getter(|key| vars.get(key).map(|v| v.to_string()));
-        assert_eq!(config.endpoint_url.as_deref(), Some("http://flowstate:3900"));
+        assert_eq!(
+            config.endpoint_url.as_deref(),
+            Some("http://flowstate:3900")
+        );
         assert_eq!(config.region.as_deref(), Some("garage"));
         assert_eq!(config.bucket.as_deref(), Some("fs-bucket"));
         assert_eq!(config.access_key_id.as_deref(), Some("fs-key"));

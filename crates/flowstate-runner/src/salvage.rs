@@ -4,7 +4,7 @@ use flowstate_core::claude_run::ClaudeRun;
 use flowstate_core::project::Project;
 use flowstate_core::task::Task;
 use flowstate_service::{HttpService, TaskService};
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 use crate::config::RunnerConfig;
 use crate::plan_parser;
@@ -89,9 +89,13 @@ pub async fn attempt_salvage(
         .unwrap_or_default();
 
     // Check untracked files
-    let untracked = run_git_command(ws_dir, &["ls-files", "--others", "--exclude-standard"], false)
-        .await
-        .unwrap_or_default();
+    let untracked = run_git_command(
+        ws_dir,
+        &["ls-files", "--others", "--exclude-standard"],
+        false,
+    )
+    .await
+    .unwrap_or_default();
 
     if diff_stat.trim().is_empty() && diff_staged.trim().is_empty() && untracked.trim().is_empty() {
         info!("salvage: no changes found in workspace");
@@ -265,10 +269,7 @@ pub async fn attempt_salvage(
         .await
     {
         Ok(pr) => {
-            info!(
-                "salvage: PR #{} created at {}",
-                pr.number, pr.url
-            );
+            info!("salvage: PR #{} created at {}", pr.number, pr.url);
 
             // Update run with PR info
             let _ = service
@@ -332,19 +333,13 @@ async fn run_git_command(
         cmd.env("GIT_SSL_NO_VERIFY", "true");
     }
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("spawn git: {e}"))?;
+    let output = cmd.output().await.map_err(|e| format!("spawn git: {e}"))?;
 
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!(
-            "git {} failed: {stderr}",
-            args.join(" ")
-        ))
+        Err(format!("git {} failed: {stderr}", args.join(" ")))
     }
 }
 
@@ -402,7 +397,9 @@ mod tests {
             .expect("git config name failed");
 
         // create a file and commit so HEAD exists
-        tokio::fs::write(dir.join("README.md"), "hello").await.unwrap();
+        tokio::fs::write(dir.join("README.md"), "hello")
+            .await
+            .unwrap();
 
         tokio::process::Command::new("git")
             .args(["add", "."])
@@ -460,7 +457,10 @@ mod tests {
         let (_tmp, dir) = init_git_repo().await;
         // With skip_tls_verify=true, the command should still succeed for local ops
         let result = run_git_command(&dir, &["status"], true).await;
-        assert!(result.is_ok(), "expected Ok with skip_tls_verify, got: {result:?}");
+        assert!(
+            result.is_ok(),
+            "expected Ok with skip_tls_verify, got: {result:?}"
+        );
     }
 
     #[tokio::test]
@@ -476,7 +476,9 @@ mod tests {
     async fn test_run_git_command_diff_stat_with_changes() {
         let (_tmp, dir) = init_git_repo().await;
         // Modify the file so diff --stat has output
-        tokio::fs::write(dir.join("README.md"), "modified content").await.unwrap();
+        tokio::fs::write(dir.join("README.md"), "modified content")
+            .await
+            .unwrap();
         let result = run_git_command(&dir, &["diff", "--stat"], false).await;
         assert!(result.is_ok());
         let output = result.unwrap();
@@ -537,7 +539,10 @@ mod tests {
             pr_url: "https://github.com/org/repo/pull/42".to_string(),
             pr_number: 42,
         };
-        assert!(matches!(outcome, SalvageOutcome::PrCut { pr_number: 42, .. }));
+        assert!(matches!(
+            outcome,
+            SalvageOutcome::PrCut { pr_number: 42, .. }
+        ));
     }
 
     #[test]

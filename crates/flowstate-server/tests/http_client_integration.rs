@@ -90,6 +90,11 @@ async fn task_crud_via_http() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -156,6 +161,11 @@ async fn task_list_with_filters_via_http() {
         priority: flowstate_core::task::Priority::High,
         parent_id: None,
         reviewer: String::new(),
+        research_capability: None,
+        design_capability: None,
+        plan_capability: None,
+        build_capability: None,
+        verify_capability: None,
     })
     .await
     .unwrap();
@@ -168,6 +178,11 @@ async fn task_list_with_filters_via_http() {
         priority: flowstate_core::task::Priority::Low,
         parent_id: None,
         reviewer: String::new(),
+        research_capability: None,
+        design_capability: None,
+        plan_capability: None,
+        build_capability: None,
+        verify_capability: None,
     })
     .await
     .unwrap();
@@ -268,6 +283,11 @@ async fn task_links_via_http() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -281,6 +301,11 @@ async fn task_links_via_http() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -321,6 +346,11 @@ async fn task_prs_via_http() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -359,17 +389,22 @@ async fn claude_run_lifecycle_via_http() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
 
     // Trigger a research run (no prerequisites)
-    let run = svc
-        .trigger_claude_run(&task.id, "research")
-        .await
-        .unwrap();
+    let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
     assert_eq!(run.task_id, task.id);
-    assert_eq!(run.action, flowstate_core::claude_run::ClaudeAction::Research);
+    assert_eq!(
+        run.action,
+        flowstate_core::claude_run::ClaudeAction::Research
+    );
 
     // Get run
     let fetched = svc.get_claude_run(&run.id).await.unwrap();
@@ -395,27 +430,40 @@ async fn spec_plan_research_verification_roundtrip() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
 
     // Spec
-    svc.write_task_spec(&task.id, "# Spec Content").await.unwrap();
+    svc.write_task_spec(&task.id, "# Spec Content")
+        .await
+        .unwrap();
     let spec = svc.read_task_spec(&task.id).await.unwrap();
     assert_eq!(spec, "# Spec Content");
 
     // Plan
-    svc.write_task_plan(&task.id, "# Plan Content").await.unwrap();
+    svc.write_task_plan(&task.id, "# Plan Content")
+        .await
+        .unwrap();
     let plan = svc.read_task_plan(&task.id).await.unwrap();
     assert_eq!(plan, "# Plan Content");
 
     // Research
-    svc.write_task_research(&task.id, "# Research Content").await.unwrap();
+    svc.write_task_research(&task.id, "# Research Content")
+        .await
+        .unwrap();
     let research = svc.read_task_research(&task.id).await.unwrap();
     assert_eq!(research, "# Research Content");
 
     // Verification
-    svc.write_task_verification(&task.id, "# Verification Content").await.unwrap();
+    svc.write_task_verification(&task.id, "# Verification Content")
+        .await
+        .unwrap();
     let verification = svc.read_task_verification(&task.id).await.unwrap();
     assert_eq!(verification, "# Verification Content");
 }
@@ -436,6 +484,11 @@ async fn runner_registration_and_claim() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -450,10 +503,7 @@ async fn runner_registration_and_claim() {
     assert!(claimed.is_none());
 
     // Trigger a run, then claim it
-    let run = svc
-        .trigger_claude_run(&task.id, "research")
-        .await
-        .unwrap();
+    let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
     let claimed = svc.claim_claude_run().await.unwrap();
     assert!(claimed.is_some());
     assert_eq!(claimed.unwrap().id, run.id);
@@ -469,10 +519,7 @@ async fn runner_registration_and_claim() {
     );
 
     // Update progress on a new run
-    let run2 = svc
-        .trigger_claude_run(&task.id, "research")
-        .await
-        .unwrap();
+    let run2 = svc.trigger_claude_run(&task.id, "research").await.unwrap();
     let claimed2 = svc.claim_claude_run().await.unwrap().unwrap();
     svc.update_claude_run_progress(&claimed2.id, "Working on it...")
         .await
@@ -520,14 +567,16 @@ async fn update_claude_run_pr_via_http() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
 
-    let run = svc
-        .trigger_claude_run(&task.id, "research")
-        .await
-        .unwrap();
+    let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
 
     // Claim the run first (sets it to running)
     let mut claiming_svc = HttpService::new(&url);
@@ -587,6 +636,11 @@ async fn error_responses_via_http() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -633,6 +687,11 @@ async fn list_attachments_via_http() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -717,6 +776,11 @@ fn blocking_task_crud() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 
@@ -804,6 +868,11 @@ fn blocking_task_links_and_prs() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 
@@ -816,6 +885,11 @@ fn blocking_task_links_and_prs() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 
@@ -864,6 +938,11 @@ fn blocking_claude_run_and_content() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 
@@ -882,15 +961,27 @@ fn blocking_claude_run_and_content() {
     svc.write_task_plan(&task.id, "blocking plan").unwrap();
     assert_eq!(svc.read_task_plan(&task.id).unwrap(), "blocking plan");
 
-    svc.write_task_research(&task.id, "blocking research").unwrap();
-    assert_eq!(svc.read_task_research(&task.id).unwrap(), "blocking research");
+    svc.write_task_research(&task.id, "blocking research")
+        .unwrap();
+    assert_eq!(
+        svc.read_task_research(&task.id).unwrap(),
+        "blocking research"
+    );
 
-    svc.write_task_verification(&task.id, "blocking verify").unwrap();
-    assert_eq!(svc.read_task_verification(&task.id).unwrap(), "blocking verify");
+    svc.write_task_verification(&task.id, "blocking verify")
+        .unwrap();
+    assert_eq!(
+        svc.read_task_verification(&task.id).unwrap(),
+        "blocking verify"
+    );
 
     // Repo token
-    svc.set_repo_token(&project.id, "ghp_blocking_token").unwrap();
-    assert_eq!(svc.get_repo_token(&project.id).unwrap(), "ghp_blocking_token");
+    svc.set_repo_token(&project.id, "ghp_blocking_token")
+        .unwrap();
+    assert_eq!(
+        svc.get_repo_token(&project.id).unwrap(),
+        "ghp_blocking_token"
+    );
 
     // System status
     let status = svc.system_status().unwrap();
@@ -924,6 +1015,11 @@ fn blocking_claude_run_output_not_found() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 

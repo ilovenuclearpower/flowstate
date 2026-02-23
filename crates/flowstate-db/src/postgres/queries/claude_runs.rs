@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
 
-use crate::DbError;
 use super::super::{pg_err, pg_not_found, PostgresDatabase};
+use crate::DbError;
 
 #[derive(sqlx::FromRow)]
 struct ClaudeRunRow {
@@ -65,26 +65,22 @@ impl PostgresDatabase {
         .await
         .map_err(pg_err)?;
 
-        let row = sqlx::query_as::<_, ClaudeRunRow>(
-            "SELECT * FROM claude_runs WHERE id = $1",
-        )
-        .bind(&id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let row = sqlx::query_as::<_, ClaudeRunRow>("SELECT * FROM claude_runs WHERE id = $1")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(row.into())
     }
 
     pub(crate) async fn pg_get_claude_run(&self, id: &str) -> Result<ClaudeRun, DbError> {
-        let row = sqlx::query_as::<_, ClaudeRunRow>(
-            "SELECT * FROM claude_runs WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(pg_err)?
-        .ok_or_else(|| pg_not_found(&format!("claude_run {id}")))?;
+        let row = sqlx::query_as::<_, ClaudeRunRow>("SELECT * FROM claude_runs WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(pg_err)?
+            .ok_or_else(|| pg_not_found(&format!("claude_run {id}")))?;
 
         Ok(row.into())
     }
@@ -178,22 +174,18 @@ impl PostgresDatabase {
             }
         };
 
-        sqlx::query(
-            "UPDATE claude_runs SET status = 'running', started_at = $1 WHERE id = $2",
-        )
-        .bind(now)
-        .bind(&row.id)
-        .execute(&mut *tx)
-        .await
-        .map_err(pg_err)?;
+        sqlx::query("UPDATE claude_runs SET status = 'running', started_at = $1 WHERE id = $2")
+            .bind(now)
+            .bind(&row.id)
+            .execute(&mut *tx)
+            .await
+            .map_err(pg_err)?;
 
-        let updated = sqlx::query_as::<_, ClaudeRunRow>(
-            "SELECT * FROM claude_runs WHERE id = $1",
-        )
-        .bind(&row.id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(pg_err)?;
+        let updated = sqlx::query_as::<_, ClaudeRunRow>("SELECT * FROM claude_runs WHERE id = $1")
+            .bind(&row.id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(pg_err)?;
 
         tx.commit().await.map_err(pg_err)?;
 

@@ -3,8 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::attachment::Attachment;
 
-use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
+use crate::DbError;
 
 fn row_to_attachment(row: &Row) -> rusqlite::Result<Attachment> {
     Ok(Attachment {
@@ -46,9 +46,7 @@ impl SqliteDatabase {
     pub fn list_attachments_sync(&self, task_id: &str) -> Result<Vec<Attachment>, DbError> {
         self.with_conn(|conn| {
             let mut stmt = conn
-                .prepare(
-                    "SELECT * FROM attachments WHERE task_id = ?1 ORDER BY created_at DESC",
-                )
+                .prepare("SELECT * FROM attachments WHERE task_id = ?1 ORDER BY created_at DESC")
                 .to_db()?;
             let attachments = stmt
                 .query_map(params![task_id], row_to_attachment)

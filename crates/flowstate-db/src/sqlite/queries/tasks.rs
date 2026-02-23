@@ -1,12 +1,13 @@
 use chrono::Utc;
 use rusqlite::{params, Row};
 
+use flowstate_core::runner::RunnerCapability;
 use flowstate_core::task::{
     ApprovalStatus, CreateTask, Priority, Status, Task, TaskFilter, UpdateTask,
 };
 
-use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
+use crate::DbError;
 
 fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
     let status_str: String = row.get("status")?;
@@ -15,6 +16,11 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
     let plan_status_str: String = row.get("plan_status")?;
     let research_status_str: String = row.get("research_status")?;
     let verify_status_str: String = row.get("verify_status")?;
+    let research_cap_str: Option<String> = row.get("research_capability")?;
+    let design_cap_str: Option<String> = row.get("design_capability")?;
+    let plan_cap_str: Option<String> = row.get("plan_capability")?;
+    let build_cap_str: Option<String> = row.get("build_capability")?;
+    let verify_cap_str: Option<String> = row.get("verify_capability")?;
     Ok(Task {
         id: row.get("id")?,
         project_id: row.get("project_id")?,
@@ -37,6 +43,11 @@ fn row_to_task(row: &Row) -> rusqlite::Result<Task> {
         verify_feedback: row.get("verify_feedback")?,
         status: Status::parse_str(&status_str).unwrap_or(Status::Todo),
         priority: Priority::parse_str(&priority_str).unwrap_or(Priority::Medium),
+        research_capability: research_cap_str.and_then(|s| RunnerCapability::parse_str(&s)),
+        design_capability: design_cap_str.and_then(|s| RunnerCapability::parse_str(&s)),
+        plan_capability: plan_cap_str.and_then(|s| RunnerCapability::parse_str(&s)),
+        build_capability: build_cap_str.and_then(|s| RunnerCapability::parse_str(&s)),
+        verify_capability: verify_cap_str.and_then(|s| RunnerCapability::parse_str(&s)),
         sort_order: row.get("sort_order")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
@@ -60,8 +71,11 @@ impl SqliteDatabase {
                 .unwrap_or(0.0);
 
             conn.execute(
-                "INSERT INTO tasks (id, project_id, parent_id, title, description, reviewer, status, priority, sort_order, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                "INSERT INTO tasks (
+                    id, project_id, parent_id, title, description, reviewer, status, priority, sort_order, created_at, updated_at,
+                    research_capability, design_capability, plan_capability, build_capability, verify_capability
+                 )
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     id,
                     input.project_id,
@@ -74,6 +88,11 @@ impl SqliteDatabase {
                     max_order + 1.0,
                     now,
                     now,
+                    input.research_capability.map(|c| c.as_str().to_string()),
+                    input.design_capability.map(|c| c.as_str().to_string()),
+                    input.plan_capability.map(|c| c.as_str().to_string()),
+                    input.build_capability.map(|c| c.as_str().to_string()),
+                    input.verify_capability.map(|c| c.as_str().to_string()),
                 ],
             )
             .to_db()?;
@@ -91,13 +110,15 @@ impl SqliteDatabase {
 
     pub fn get_task_sync(&self, id: &str) -> Result<Task, DbError> {
         self.with_conn(|conn| {
-            conn.query_row("SELECT * FROM tasks WHERE id = ?1", params![id], row_to_task)
-                .map_err(|e| match e {
-                    rusqlite::Error::QueryReturnedNoRows => {
-                        DbError::NotFound(format!("task {id}"))
-                    }
-                    other => DbError::Internal(other.to_string()),
-                })
+            conn.query_row(
+                "SELECT * FROM tasks WHERE id = ?1",
+                params![id],
+                row_to_task,
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("task {id}")),
+                other => DbError::Internal(other.to_string()),
+            })
         })
     }
 
@@ -246,6 +267,26 @@ impl SqliteDatabase {
                 param_values.push(Box::new(feedback.clone()));
                 sets.push(format!("verify_feedback = ?{}", param_values.len()));
             }
+            if let Some(cap) = &update.research_capability {
+                param_values.push(Box::new(cap.map(|c| c.as_str().to_string())));
+                sets.push(format!("research_capability = ?{}", param_values.len()));
+            }
+            if let Some(cap) = &update.design_capability {
+                param_values.push(Box::new(cap.map(|c| c.as_str().to_string())));
+                sets.push(format!("design_capability = ?{}", param_values.len()));
+            }
+            if let Some(cap) = &update.plan_capability {
+                param_values.push(Box::new(cap.map(|c| c.as_str().to_string())));
+                sets.push(format!("plan_capability = ?{}", param_values.len()));
+            }
+            if let Some(cap) = &update.build_capability {
+                param_values.push(Box::new(cap.map(|c| c.as_str().to_string())));
+                sets.push(format!("build_capability = ?{}", param_values.len()));
+            }
+            if let Some(cap) = &update.verify_capability {
+                param_values.push(Box::new(cap.map(|c| c.as_str().to_string())));
+                sets.push(format!("verify_capability = ?{}", param_values.len()));
+            }
 
             param_values.push(Box::new(id.to_string()));
             let id_param = param_values.len();
@@ -264,15 +305,20 @@ impl SqliteDatabase {
                 return Err(DbError::NotFound(format!("task {id}")));
             }
 
-            conn.query_row("SELECT * FROM tasks WHERE id = ?1", params![id], row_to_task)
-                .map_err(|e| DbError::Internal(e.to_string()))
+            conn.query_row(
+                "SELECT * FROM tasks WHERE id = ?1",
+                params![id],
+                row_to_task,
+            )
+            .map_err(|e| DbError::Internal(e.to_string()))
         })
     }
 
     pub fn delete_task_sync(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
-            let changed =
-                conn.execute("DELETE FROM tasks WHERE id = ?1", params![id]).to_db()?;
+            let changed = conn
+                .execute("DELETE FROM tasks WHERE id = ?1", params![id])
+                .to_db()?;
             if changed == 0 {
                 return Err(DbError::NotFound(format!("task {id}")));
             }
@@ -336,6 +382,11 @@ mod tests {
                 priority: Priority::High,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
 
@@ -374,6 +425,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
         }
@@ -418,6 +474,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
 
@@ -430,6 +491,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
 
@@ -448,6 +514,11 @@ mod tests {
             priority: Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
         db.create_task_sync(&CreateTask {
@@ -458,6 +529,11 @@ mod tests {
             priority: Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
         db.create_task_sync(&CreateTask {
@@ -468,6 +544,11 @@ mod tests {
             priority: Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 

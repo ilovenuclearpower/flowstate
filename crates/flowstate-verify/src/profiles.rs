@@ -114,7 +114,10 @@ mod tests {
     fn profile_names() {
         let profiles = builtin_profiles();
         let names: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, vec!["Rust TUI", "Rust Backend", "Vite Frontend", "NixOS"]);
+        assert_eq!(
+            names,
+            vec!["Rust TUI", "Rust Backend", "Vite Frontend", "NixOS"]
+        );
     }
 
     #[test]
@@ -162,7 +165,12 @@ mod tests {
     fn all_steps_have_timeouts() {
         for profile in builtin_profiles() {
             for step in &profile.steps {
-                assert!(step.timeout_s > 0, "Step '{}' in '{}' has timeout_s <= 0", step.name, profile.name);
+                assert!(
+                    step.timeout_s > 0,
+                    "Step '{}' in '{}' has timeout_s <= 0",
+                    step.name,
+                    profile.name
+                );
             }
         }
     }

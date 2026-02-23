@@ -3,8 +3,8 @@ use rusqlite::{params, Row};
 
 use flowstate_core::api_key::ApiKey;
 
-use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
+use crate::DbError;
 
 fn row_to_api_key(row: &Row) -> rusqlite::Result<ApiKey> {
     Ok(ApiKey {
@@ -17,11 +17,7 @@ fn row_to_api_key(row: &Row) -> rusqlite::Result<ApiKey> {
 }
 
 impl SqliteDatabase {
-    pub fn insert_api_key_sync(
-        &self,
-        name: &str,
-        key_hash: &str,
-    ) -> Result<ApiKey, DbError> {
+    pub fn insert_api_key_sync(&self, name: &str, key_hash: &str) -> Result<ApiKey, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now().to_rfc3339();
@@ -39,10 +35,7 @@ impl SqliteDatabase {
         })
     }
 
-    pub fn find_api_key_by_hash_sync(
-        &self,
-        key_hash: &str,
-    ) -> Result<Option<ApiKey>, DbError> {
+    pub fn find_api_key_by_hash_sync(&self, key_hash: &str) -> Result<Option<ApiKey>, DbError> {
         self.with_conn(|conn| {
             let result = conn.query_row(
                 "SELECT * FROM api_keys WHERE key_hash = ?1",

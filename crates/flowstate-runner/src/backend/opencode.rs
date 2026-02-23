@@ -72,7 +72,10 @@ mod tests {
 
     #[test]
     fn model_hint_returns_model() {
-        assert_eq!(make_backend().model_hint(), Some("claude-sonnet-4-5-20250929"));
+        assert_eq!(
+            make_backend().model_hint(),
+            Some("claude-sonnet-4-5-20250929")
+        );
         assert_eq!(make_backend_no_optionals().model_hint(), Some("gpt-4"));
     }
 
@@ -88,7 +91,12 @@ mod tests {
         let backend = make_backend();
         let tmp = tempfile::tempdir().unwrap();
         let err = backend
-            .run("prompt", tmp.path(), Duration::from_secs(60), Duration::from_secs(5))
+            .run(
+                "prompt",
+                tmp.path(),
+                Duration::from_secs(60),
+                Duration::from_secs(5),
+            )
             .await
             .unwrap_err();
         assert!(err.to_string().contains("not yet implemented"));

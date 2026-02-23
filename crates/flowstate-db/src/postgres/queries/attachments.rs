@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 
 use flowstate_core::attachment::Attachment;
 
-use crate::DbError;
 use super::super::{pg_err, pg_not_found, PostgresDatabase};
+use crate::DbError;
 
 #[derive(sqlx::FromRow)]
 struct AttachmentRow {
@@ -53,13 +53,11 @@ impl PostgresDatabase {
         .await
         .map_err(pg_err)?;
 
-        let row = sqlx::query_as::<_, AttachmentRow>(
-            "SELECT * FROM attachments WHERE id = $1",
-        )
-        .bind(&id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let row = sqlx::query_as::<_, AttachmentRow>("SELECT * FROM attachments WHERE id = $1")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(row.into())
     }
@@ -80,22 +78,17 @@ impl PostgresDatabase {
     }
 
     pub(crate) async fn pg_get_attachment(&self, id: &str) -> Result<Attachment, DbError> {
-        let row = sqlx::query_as::<_, AttachmentRow>(
-            "SELECT * FROM attachments WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(pg_err)?
-        .ok_or_else(|| pg_not_found(&format!("attachment {id}")))?;
+        let row = sqlx::query_as::<_, AttachmentRow>("SELECT * FROM attachments WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(pg_err)?
+            .ok_or_else(|| pg_not_found(&format!("attachment {id}")))?;
 
         Ok(row.into())
     }
 
-    pub(crate) async fn pg_delete_attachment(
-        &self,
-        id: &str,
-    ) -> Result<Attachment, DbError> {
+    pub(crate) async fn pg_delete_attachment(&self, id: &str) -> Result<Attachment, DbError> {
         // Fetch before deleting so we can return the deleted attachment
         let attachment = self.pg_get_attachment(id).await?;
 

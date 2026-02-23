@@ -111,11 +111,7 @@ impl BlockingHttpService {
         self.rt.block_on(self.inner.list_sprints(project_id))
     }
 
-    pub fn update_sprint(
-        &self,
-        id: &str,
-        update: &UpdateSprint,
-    ) -> Result<Sprint, ServiceError> {
+    pub fn update_sprint(&self, id: &str, update: &UpdateSprint) -> Result<Sprint, ServiceError> {
         self.rt.block_on(self.inner.update_sprint(id, update))
     }
 
@@ -171,8 +167,7 @@ impl BlockingHttpService {
     }
 
     pub fn get_claude_run_output(&self, run_id: &str) -> Result<String, ServiceError> {
-        self.rt
-            .block_on(self.inner.get_claude_run_output(run_id))
+        self.rt.block_on(self.inner.get_claude_run_output(run_id))
     }
 
     pub fn read_task_spec(&self, task_id: &str) -> Result<String, ServiceError> {
@@ -198,19 +193,26 @@ impl BlockingHttpService {
     }
 
     pub fn write_task_research(&self, task_id: &str, content: &str) -> Result<(), ServiceError> {
-        self.rt.block_on(self.inner.write_task_research(task_id, content))
+        self.rt
+            .block_on(self.inner.write_task_research(task_id, content))
     }
 
     pub fn read_task_verification(&self, task_id: &str) -> Result<String, ServiceError> {
         self.rt.block_on(self.inner.read_task_verification(task_id))
     }
 
-    pub fn write_task_verification(&self, task_id: &str, content: &str) -> Result<(), ServiceError> {
-        self.rt.block_on(self.inner.write_task_verification(task_id, content))
+    pub fn write_task_verification(
+        &self,
+        task_id: &str,
+        content: &str,
+    ) -> Result<(), ServiceError> {
+        self.rt
+            .block_on(self.inner.write_task_verification(task_id, content))
     }
 
     pub fn set_repo_token(&self, project_id: &str, token: &str) -> Result<(), ServiceError> {
-        self.rt.block_on(self.inner.set_repo_token(project_id, token))
+        self.rt
+            .block_on(self.inner.set_repo_token(project_id, token))
     }
 
     pub fn get_repo_token(&self, project_id: &str) -> Result<String, ServiceError> {
@@ -240,8 +242,7 @@ mod tests {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                let server =
-                    flowstate_server::test_helpers::spawn_test_server().await;
+                let server = flowstate_server::test_helpers::spawn_test_server().await;
                 tx.send(server.base_url.clone()).unwrap();
                 // Keep the server alive for the duration of the test
                 std::future::pending::<()>().await;
@@ -268,6 +269,11 @@ mod tests {
             priority: Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         }
     }
 
@@ -423,6 +429,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .unwrap();
 

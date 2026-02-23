@@ -110,10 +110,8 @@ fn looks_like_command(s: &str) -> bool {
     let s = s.strip_prefix("# ").unwrap_or(s);
 
     let cmd_prefixes = [
-        "cargo ", "npm ", "npx ", "yarn ", "pnpm ",
-        "make", "pytest", "go ", "python ", "ruby ",
-        "mix ", "dotnet ", "mvn ", "gradle ",
-        "sh ", "bash ", "./", "docker ",
+        "cargo ", "npm ", "npx ", "yarn ", "pnpm ", "make", "pytest", "go ", "python ", "ruby ",
+        "mix ", "dotnet ", "mvn ", "gradle ", "sh ", "bash ", "./", "docker ",
     ];
 
     cmd_prefixes.iter().any(|p| s.starts_with(p))
@@ -236,6 +234,9 @@ cargo test
 ### 5. Done
 "#;
         let steps = extract_validation_commands(plan);
-        assert!(steps.is_empty(), "non-command backtick content should be skipped");
+        assert!(
+            steps.is_empty(),
+            "non-command backtick content should be skipped"
+        );
     }
 }

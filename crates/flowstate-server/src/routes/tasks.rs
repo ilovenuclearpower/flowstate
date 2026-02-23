@@ -7,7 +7,9 @@ use axum::{
     Json, Router,
 };
 use bytes::Bytes;
-use flowstate_core::task::{self, ApprovalStatus, CreateTask, Priority, Status, TaskFilter, UpdateTask};
+use flowstate_core::task::{
+    self, ApprovalStatus, CreateTask, Priority, Status, TaskFilter, UpdateTask,
+};
 use flowstate_service::TaskService;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -26,9 +28,18 @@ pub fn routes() -> Router<AppState> {
         .route("/api/tasks/{id}/children", get(list_children))
         .route("/api/tasks/{id}/spec", get(read_spec).put(write_spec))
         .route("/api/tasks/{id}/plan", get(read_plan).put(write_plan))
-        .route("/api/tasks/{id}/research", get(read_research).put(write_research))
-        .route("/api/tasks/{id}/verification", get(read_verification).put(write_verification))
-        .route("/api/tasks/{id}/feedback", axum::routing::put(write_feedback))
+        .route(
+            "/api/tasks/{id}/research",
+            get(read_research).put(write_research),
+        )
+        .route(
+            "/api/tasks/{id}/verification",
+            get(read_verification).put(write_verification),
+        )
+        .route(
+            "/api/tasks/{id}/feedback",
+            axum::routing::put(write_feedback),
+        )
         .route("/api/tasks/{id}/attachments", get(list_attachments))
 }
 
@@ -53,7 +64,10 @@ async fn list_tasks(
         parent_id: None,
         limit: q.limit,
     };
-    state.service.list_tasks(&filter).await
+    state
+        .service
+        .list_tasks(&filter)
+        .await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
 }
@@ -62,7 +76,10 @@ async fn get_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.get_task(&id).await
+    state
+        .service
+        .get_task(&id)
+        .await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
 }
@@ -71,7 +88,10 @@ async fn create_task(
     State(state): State<AppState>,
     Json(input): Json<CreateTask>,
 ) -> Result<(StatusCode, Json<Value>), (StatusCode, Json<Value>)> {
-    state.service.create_task(&input).await
+    state
+        .service
+        .create_task(&input)
+        .await
         .map(|t| (StatusCode::CREATED, Json(json!(t))))
         .map_err(to_error)
 }
@@ -122,7 +142,10 @@ async fn update_task(
         }
     }
 
-    state.service.update_task(&id, &input).await
+    state
+        .service
+        .update_task(&id, &input)
+        .await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
 }
@@ -131,7 +154,10 @@ async fn delete_task(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
-    state.service.delete_task(&id).await
+    state
+        .service
+        .delete_task(&id)
+        .await
         .map(|_| StatusCode::NO_CONTENT)
         .map_err(to_error)
 }
@@ -145,7 +171,10 @@ async fn count_by_status(
     State(state): State<AppState>,
     Query(q): Query<CountQuery>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.count_tasks_by_status(&q.project_id).await
+    state
+        .service
+        .count_tasks_by_status(&q.project_id)
+        .await
         .map(|c| Json(json!(c)))
         .map_err(to_error)
 }
@@ -154,7 +183,10 @@ async fn list_children(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.list_child_tasks(&id).await
+    state
+        .service
+        .list_child_tasks(&id)
+        .await
         .map(|t| Json(json!(t)))
         .map_err(to_error)
 }
@@ -191,8 +223,15 @@ async fn write_spec(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let task = state.service.get_task(&id).await.map_err(to_error)?;
     let key = flowstate_store::task_spec_key(&id);
-    state.store.put(&key, Bytes::from(body.clone())).await
-        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
+    state
+        .store
+        .put(&key, Bytes::from(body.clone()))
+        .await
+        .map_err(|e| {
+            to_error(flowstate_service::ServiceError::Internal(format!(
+                "write: {e}"
+            )))
+        })?;
 
     // Server-side status management
     if task.spec_status == ApprovalStatus::Approved && !task.spec_approved_hash.is_empty() {
@@ -249,8 +288,15 @@ async fn write_plan(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let task = state.service.get_task(&id).await.map_err(to_error)?;
     let key = flowstate_store::task_plan_key(&id);
-    state.store.put(&key, Bytes::from(body.clone())).await
-        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
+    state
+        .store
+        .put(&key, Bytes::from(body.clone()))
+        .await
+        .map_err(|e| {
+            to_error(flowstate_service::ServiceError::Internal(format!(
+                "write: {e}"
+            )))
+        })?;
 
     // Auto-set plan_status to Pending if currently None and content is non-empty
     if task.plan_status == ApprovalStatus::None && !body.trim().is_empty() {
@@ -295,8 +341,15 @@ async fn write_research(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let task = state.service.get_task(&id).await.map_err(to_error)?;
     let key = flowstate_store::task_research_key(&id);
-    state.store.put(&key, Bytes::from(body.clone())).await
-        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
+    state
+        .store
+        .put(&key, Bytes::from(body.clone()))
+        .await
+        .map_err(|e| {
+            to_error(flowstate_service::ServiceError::Internal(format!(
+                "write: {e}"
+            )))
+        })?;
 
     // Server-side status management
     if task.research_status == ApprovalStatus::Approved && !task.research_approved_hash.is_empty() {
@@ -353,8 +406,15 @@ async fn write_verification(
 ) -> Result<StatusCode, (StatusCode, Json<Value>)> {
     let task = state.service.get_task(&id).await.map_err(to_error)?;
     let key = flowstate_store::task_verification_key(&id);
-    state.store.put(&key, Bytes::from(body.clone())).await
-        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(format!("write: {e}"))))?;
+    state
+        .store
+        .put(&key, Bytes::from(body.clone()))
+        .await
+        .map_err(|e| {
+            to_error(flowstate_service::ServiceError::Internal(format!(
+                "write: {e}"
+            )))
+        })?;
 
     // Auto-set verify_status to Pending if currently None and content is non-empty
     if task.verify_status == ApprovalStatus::None && !body.trim().is_empty() {
@@ -397,11 +457,17 @@ async fn write_feedback(
             verify_feedback: Some(input.feedback),
             ..Default::default()
         },
-        _ => return Err(to_error(flowstate_service::ServiceError::InvalidInput(
-            format!("invalid phase: {}", input.phase),
-        ))),
+        _ => {
+            return Err(to_error(flowstate_service::ServiceError::InvalidInput(
+                format!("invalid phase: {}", input.phase),
+            )))
+        }
     };
-    state.service.update_task(&id, &update).await.map_err(to_error)?;
+    state
+        .service
+        .update_task(&id, &update)
+        .await
+        .map_err(to_error)?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -409,7 +475,10 @@ async fn list_attachments(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    state.service.list_attachments(&id).await
+    state
+        .service
+        .list_attachments(&id)
+        .await
         .map(|a| Json(json!(a)))
         .map_err(to_error)
 }
@@ -614,9 +683,7 @@ mod tests {
             .clone()
             .oneshot(
                 Request::builder()
-                    .uri(format!(
-                        "/api/tasks?project_id={project_id}&status=todo"
-                    ))
+                    .uri(format!("/api/tasks?project_id={project_id}&status=todo"))
                     .body(Body::empty())
                     .unwrap(),
             )

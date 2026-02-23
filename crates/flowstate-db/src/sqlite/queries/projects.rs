@@ -3,12 +3,14 @@ use rusqlite::{params, Row};
 
 use flowstate_core::project::{CreateProject, Project, ProviderType, UpdateProject};
 
-use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
+use crate::DbError;
 
 fn row_to_project(row: &Row) -> rusqlite::Result<Project> {
     let provider_type_str: Option<String> = row.get("provider_type")?;
-    let provider_type = provider_type_str.as_deref().and_then(ProviderType::parse_str);
+    let provider_type = provider_type_str
+        .as_deref()
+        .and_then(ProviderType::parse_str);
     let skip_tls_verify: i32 = row.get("skip_tls_verify")?;
     Ok(Project {
         id: row.get("id")?,
@@ -54,9 +56,7 @@ impl SqliteDatabase {
                 row_to_project,
             )
             .map_err(|e| match e {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    DbError::NotFound(format!("project {id}"))
-                }
+                rusqlite::Error::QueryReturnedNoRows => DbError::NotFound(format!("project {id}")),
                 other => DbError::Internal(other.to_string()),
             })
         })
@@ -80,7 +80,9 @@ impl SqliteDatabase {
 
     pub fn list_projects_sync(&self) -> Result<Vec<Project>, DbError> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare("SELECT * FROM projects ORDER BY name").to_db()?;
+            let mut stmt = conn
+                .prepare("SELECT * FROM projects ORDER BY name")
+                .to_db()?;
             let projects = stmt
                 .query_map([], row_to_project)
                 .to_db()?
@@ -125,29 +127,26 @@ impl SqliteDatabase {
             }
 
             if sets.is_empty() {
-                return conn.query_row(
-                    "SELECT * FROM projects WHERE id = ?1",
-                    params![id],
-                    row_to_project,
-                )
-                .map_err(|e| match e {
-                    rusqlite::Error::QueryReturnedNoRows => {
-                        DbError::NotFound(format!("project {id}"))
-                    }
-                    other => DbError::Internal(other.to_string()),
-                });
+                return conn
+                    .query_row(
+                        "SELECT * FROM projects WHERE id = ?1",
+                        params![id],
+                        row_to_project,
+                    )
+                    .map_err(|e| match e {
+                        rusqlite::Error::QueryReturnedNoRows => {
+                            DbError::NotFound(format!("project {id}"))
+                        }
+                        other => DbError::Internal(other.to_string()),
+                    });
             }
 
             sets.push("updated_at = ?");
             values.push(Box::new(Utc::now()));
             values.push(Box::new(id.to_string()));
 
-            let sql = format!(
-                "UPDATE projects SET {} WHERE id = ?",
-                sets.join(", ")
-            );
-            let params: Vec<&dyn rusqlite::ToSql> =
-                values.iter().map(|v| v.as_ref()).collect();
+            let sql = format!("UPDATE projects SET {} WHERE id = ?", sets.join(", "));
+            let params: Vec<&dyn rusqlite::ToSql> = values.iter().map(|v| v.as_ref()).collect();
             let changed = conn.execute(&sql, params.as_slice()).to_db()?;
             if changed == 0 {
                 return Err(DbError::NotFound(format!("project {id}")));
@@ -164,8 +163,9 @@ impl SqliteDatabase {
 
     pub fn delete_project_sync(&self, id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
-            let changed =
-                conn.execute("DELETE FROM projects WHERE id = ?1", params![id]).to_db()?;
+            let changed = conn
+                .execute("DELETE FROM projects WHERE id = ?1", params![id])
+                .to_db()?;
             if changed == 0 {
                 return Err(DbError::NotFound(format!("project {id}")));
             }

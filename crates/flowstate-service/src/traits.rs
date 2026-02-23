@@ -55,11 +55,7 @@ pub trait TaskService: Send + Sync {
     async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, ServiceError>;
     async fn get_sprint(&self, id: &str) -> Result<Sprint, ServiceError>;
     async fn list_sprints(&self, project_id: &str) -> Result<Vec<Sprint>, ServiceError>;
-    async fn update_sprint(
-        &self,
-        id: &str,
-        update: &UpdateSprint,
-    ) -> Result<Sprint, ServiceError>;
+    async fn update_sprint(&self, id: &str, update: &UpdateSprint) -> Result<Sprint, ServiceError>;
     async fn delete_sprint(&self, id: &str) -> Result<(), ServiceError>;
 
     // -- Task Links --

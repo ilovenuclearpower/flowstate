@@ -17,12 +17,13 @@ pub fn routes() -> Router<AppState> {
         .route("/api/projects", get(list_projects).post(create_project))
         .route(
             "/api/projects/{id}",
-            get(get_project)
-                .put(update_project)
-                .delete(delete_project),
+            get(get_project).put(update_project).delete(delete_project),
         )
         .route("/api/projects/by-slug/{slug}", get(get_project_by_slug))
-        .route("/api/projects/{id}/repo-token", put(set_repo_token).get(get_repo_token))
+        .route(
+            "/api/projects/{id}/repo-token",
+            put(set_repo_token).get(get_repo_token),
+        )
 }
 
 /// Strip the encrypted token from project responses, replace with a boolean flag.

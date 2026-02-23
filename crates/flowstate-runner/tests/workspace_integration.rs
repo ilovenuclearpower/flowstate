@@ -127,8 +127,7 @@ async fn ensure_repo_fetches_existing_clone() {
 #[tokio::test]
 async fn ensure_repo_empty_url_fails() {
     let ws = tempfile::tempdir().unwrap();
-    let result =
-        flowstate_runner::workspace::ensure_repo(ws.path(), "", None, false).await;
+    let result = flowstate_runner::workspace::ensure_repo(ws.path(), "", None, false).await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("no repo_url"));

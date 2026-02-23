@@ -2,8 +2,8 @@ use chrono::{DateTime, Utc};
 
 use flowstate_core::sprint::{CreateSprint, Sprint, SprintStatus, UpdateSprint};
 
-use crate::DbError;
 use super::super::{pg_err, pg_not_found, PostgresDatabase};
+use crate::DbError;
 
 #[derive(sqlx::FromRow)]
 struct SprintRow {
@@ -35,10 +35,7 @@ impl From<SprintRow> for Sprint {
 }
 
 impl PostgresDatabase {
-    pub(crate) async fn pg_create_sprint(
-        &self,
-        input: &CreateSprint,
-    ) -> Result<Sprint, DbError> {
+    pub(crate) async fn pg_create_sprint(&self, input: &CreateSprint) -> Result<Sprint, DbError> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now();
 
@@ -59,26 +56,22 @@ impl PostgresDatabase {
         .await
         .map_err(pg_err)?;
 
-        let row = sqlx::query_as::<_, SprintRow>(
-            "SELECT * FROM sprints WHERE id = $1",
-        )
-        .bind(&id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(pg_err)?;
+        let row = sqlx::query_as::<_, SprintRow>("SELECT * FROM sprints WHERE id = $1")
+            .bind(&id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(pg_err)?;
 
         Ok(row.into())
     }
 
     pub(crate) async fn pg_get_sprint(&self, id: &str) -> Result<Sprint, DbError> {
-        let row = sqlx::query_as::<_, SprintRow>(
-            "SELECT * FROM sprints WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(pg_err)?
-        .ok_or_else(|| pg_not_found(&format!("sprint {id}")))?;
+        let row = sqlx::query_as::<_, SprintRow>("SELECT * FROM sprints WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(pg_err)?
+            .ok_or_else(|| pg_not_found(&format!("sprint {id}")))?;
 
         Ok(row.into())
     }
@@ -100,8 +93,11 @@ impl PostgresDatabase {
         id: &str,
         update: &UpdateSprint,
     ) -> Result<Sprint, DbError> {
-        if update.name.is_none() && update.goal.is_none() && update.status.is_none()
-            && update.starts_at.is_none() && update.ends_at.is_none()
+        if update.name.is_none()
+            && update.goal.is_none()
+            && update.status.is_none()
+            && update.starts_at.is_none()
+            && update.ends_at.is_none()
         {
             return self.pg_get_sprint(id).await;
         }
@@ -159,9 +155,15 @@ impl PostgresDatabase {
         let mut query = sqlx::query(&sql);
         for bind in &binds {
             match bind {
-                BindValue::Str(s) => { query = query.bind(s); }
-                BindValue::OptDateTime(dt) => { query = query.bind(dt); }
-                BindValue::DateTime(dt) => { query = query.bind(dt); }
+                BindValue::Str(s) => {
+                    query = query.bind(s);
+                }
+                BindValue::OptDateTime(dt) => {
+                    query = query.bind(dt);
+                }
+                BindValue::DateTime(dt) => {
+                    query = query.bind(dt);
+                }
             }
         }
 

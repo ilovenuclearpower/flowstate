@@ -65,6 +65,11 @@ fn make_app_with_task() -> (App, String) {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 
@@ -586,7 +591,7 @@ fn claude_action_research_triggers_run() {
     app.handle_key(key(KeyCode::Enter)); // TaskDetail
     app.handle_key(char_key('c')); // ClaudeActionPick
     app.handle_key(char_key('r')); // research
-    // Should be ClaudeRunning (server created the run)
+                                   // Should be ClaudeRunning (server created the run)
     assert!(matches!(app.mode(), Mode::ClaudeRunning { .. }));
 }
 
@@ -596,7 +601,7 @@ fn claude_action_build_needs_approved_spec_plan() {
     app.handle_key(key(KeyCode::Enter));
     app.handle_key(char_key('c'));
     app.handle_key(char_key('b')); // build — needs approved spec+plan
-    // Server validation fails, returns to TaskDetail with error
+                                   // Server validation fails, returns to TaskDetail with error
     assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
 }
 
@@ -624,7 +629,7 @@ fn claude_action_plan_needs_approved_spec() {
     app.handle_key(key(KeyCode::Enter));
     app.handle_key(char_key('c'));
     app.handle_key(char_key('p')); // plan — spec not approved yet
-    // Should return to TaskDetail with error status message
+                                   // Should return to TaskDetail with error status message
     assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
 }
 
@@ -634,7 +639,7 @@ fn claude_action_distill_research_needs_artifact() {
     app.handle_key(key(KeyCode::Enter));
     app.handle_key(char_key('c'));
     app.handle_key(char_key('R')); // research_distill — needs research artifact
-    // Server validation fails: no research artifact yet
+                                   // Server validation fails: no research artifact yet
     assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
 }
 
@@ -672,14 +677,14 @@ fn new_project_submit_creates_project() {
     let mut app = make_app();
     app.handle_key(char_key('P')); // ProjectList
     app.handle_key(char_key('n')); // NewProject (name field)
-    // Type name "Foo"
+                                   // Type name "Foo"
     app.handle_key(char_key('F'));
     app.handle_key(char_key('o'));
     app.handle_key(char_key('o'));
     app.handle_key(key(KeyCode::Enter)); // auto-slug, move to Slug field
     assert!(matches!(app.mode(), Mode::NewProject { .. }));
     app.handle_key(key(KeyCode::Enter)); // submit slug field
-    // Should be in Normal mode with new project
+                                         // Should be in Normal mode with new project
     assert!(matches!(app.mode(), Mode::Normal));
 }
 
@@ -703,7 +708,7 @@ fn new_project_auto_slug() {
     app.handle_key(char_key('M'));
     app.handle_key(char_key('y'));
     app.handle_key(key(KeyCode::Enter)); // slug auto-populated from "My"
-    // Should be in NewProject on Slug field with auto-generated slug
+                                         // Should be in NewProject on Slug field with auto-generated slug
     assert!(matches!(app.mode(), Mode::NewProject { .. }));
 }
 
@@ -770,7 +775,7 @@ fn project_list_d_cannot_delete_active() {
     let mut app = make_app();
     app.handle_key(char_key('P')); // ProjectList — active project selected
     app.handle_key(char_key('d')); // try to delete active
-    // Should stay in ProjectList with error message (Cannot delete active project)
+                                   // Should stay in ProjectList with error message (Cannot delete active project)
     assert!(matches!(app.mode(), Mode::ProjectList { .. }));
 }
 
@@ -803,6 +808,11 @@ fn make_app_with_pending_approval() -> (App, String) {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 
@@ -1165,7 +1175,7 @@ fn project_list_t_needs_repo_url() {
     let mut app = make_app();
     app.handle_key(char_key('P'));
     app.handle_key(char_key('T')); // needs repo_url
-    // Should stay in ProjectList with error message
+                                   // Should stay in ProjectList with error message
     assert!(matches!(app.mode(), Mode::ProjectList { .. }));
 }
 
@@ -1176,7 +1186,7 @@ fn edit_repo_url_submit() {
     let mut app = make_app();
     app.handle_key(char_key('P'));
     app.handle_key(char_key('r')); // EditRepoUrl
-    // Type a URL
+                                   // Type a URL
     for c in "https://github.com/test/repo".chars() {
         app.handle_key(char_key(c));
     }
@@ -1384,10 +1394,7 @@ fn edit_description_ctrl_s_saves() {
     app.handle_key(char_key('H'));
     app.handle_key(char_key('i'));
     // Ctrl+S to save
-    app.handle_key(KeyEvent::new(
-        KeyCode::Char('s'),
-        KeyModifiers::CONTROL,
-    ));
+    app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL));
     assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
 }
 
@@ -1398,7 +1405,7 @@ fn edit_description_enter_adds_newline() {
     app.handle_key(char_key('e')); // EditDescription
     app.handle_key(char_key('A'));
     app.handle_key(key(KeyCode::Enter)); // adds newline
-    // Should still be in EditDescription
+                                         // Should still be in EditDescription
     assert!(matches!(app.mode(), Mode::EditDescription { .. }));
 }
 
@@ -1427,7 +1434,7 @@ fn edit_description_esc_returns_to_detail() {
 fn detail_m_upper_regresses_status() {
     let (mut app, _) = make_app_with_task();
     app.handle_key(key(KeyCode::Enter)); // TaskDetail
-    // Advance first
+                                         // Advance first
     app.handle_key(char_key('m'));
     assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
     // Now regress
@@ -1467,6 +1474,11 @@ fn subtask_claude_action_restricts_non_build_verify() {
             priority: flowstate_core::task::Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .unwrap();
 
@@ -1479,6 +1491,11 @@ fn subtask_claude_action_restricts_non_build_verify() {
         priority: flowstate_core::task::Priority::Medium,
         parent_id: Some(parent.id.clone()),
         reviewer: String::new(),
+        research_capability: None,
+        design_capability: None,
+        plan_capability: None,
+        build_capability: None,
+        verify_capability: None,
     })
     .unwrap();
 
@@ -1502,7 +1519,7 @@ fn edit_title_empty_submit_returns_to_detail() {
     let (mut app, _) = make_app_with_task();
     app.handle_key(key(KeyCode::Enter)); // TaskDetail
     app.handle_key(char_key('t')); // EditTitle
-    // Clear all text
+                                   // Clear all text
     for _ in 0..30 {
         app.handle_key(key(KeyCode::Backspace));
     }
@@ -1526,12 +1543,7 @@ fn new_task_empty_submit() {
 
 #[test]
 fn priority_pick_all_levels() {
-    for (num, _label) in [
-        ('2', "High"),
-        ('3', "Medium"),
-        ('4', "Low"),
-        ('5', "None"),
-    ] {
+    for (num, _label) in [('2', "High"), ('3', "Medium"), ('4', "Low"), ('5', "None")] {
         let (mut app, _) = make_app_with_task();
         app.handle_key(key(KeyCode::Enter));
         app.handle_key(char_key('p'));
@@ -1652,7 +1664,7 @@ fn render_feedback_input_mode() {
     let (mut app, _) = make_app_with_pending_approval();
     app.handle_key(key(KeyCode::Enter));
     app.handle_key(char_key('a')); // ApprovalPick (research pending)
-    // Verify ApprovalPick renders correctly as proxy coverage.
+                                   // Verify ApprovalPick renders correctly as proxy coverage.
     let backend = ratatui::backend::TestBackend::new(120, 40);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
     terminal.draw(|f| app.render(f)).unwrap();

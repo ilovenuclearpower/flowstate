@@ -185,7 +185,10 @@ mod tests {
     fn test_inject_token_https_url() {
         let url = "https://github.com/user/repo.git";
         let result = inject_token(url, Some("mytoken"));
-        assert_eq!(result, "https://x-access-token:mytoken@github.com/user/repo.git");
+        assert_eq!(
+            result,
+            "https://x-access-token:mytoken@github.com/user/repo.git"
+        );
     }
 
     #[test]
@@ -230,7 +233,9 @@ mod tests {
             .output()
             .await
             .unwrap();
-        tokio::fs::write(dir.join("README.md"), "init").await.unwrap();
+        tokio::fs::write(dir.join("README.md"), "init")
+            .await
+            .unwrap();
         tokio::process::Command::new("git")
             .args(["add", "."])
             .current_dir(&dir)
@@ -296,7 +301,9 @@ mod tests {
         let (_tmp, dir) = init_test_repo().await;
 
         // Modify a file so there is something to commit
-        tokio::fs::write(dir.join("README.md"), "modified").await.unwrap();
+        tokio::fs::write(dir.join("README.md"), "modified")
+            .await
+            .unwrap();
 
         add_and_commit(&dir, "test commit").await.unwrap();
 
@@ -308,7 +315,10 @@ mod tests {
             .await
             .unwrap();
         let log = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        assert!(log.contains("test commit"), "expected 'test commit' in log: {log}");
+        assert!(
+            log.contains("test commit"),
+            "expected 'test commit' in log: {log}"
+        );
     }
 
     #[tokio::test]
@@ -317,7 +327,10 @@ mod tests {
 
         // No modifications — working tree is clean
         let result = add_and_commit(&dir, "empty").await;
-        assert!(result.is_ok(), "add_and_commit with no changes should succeed");
+        assert!(
+            result.is_ok(),
+            "add_and_commit with no changes should succeed"
+        );
     }
 
     #[tokio::test]

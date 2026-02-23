@@ -73,10 +73,10 @@ fn to_error(e: flowstate_service::ServiceError) -> (StatusCode, Json<Value>) {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_helpers::test_router;
     use axum::body::Body;
     use axum::http::{Method, Request, StatusCode};
     use tower::ServiceExt;
-    use crate::test_helpers::test_router;
 
     #[tokio::test]
     async fn task_pr_create_and_list() {

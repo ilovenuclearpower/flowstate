@@ -137,15 +137,36 @@ mod tests {
 
     #[test]
     fn claude_action_parse_str_all() {
-        assert_eq!(ClaudeAction::parse_str("research"), Some(ClaudeAction::Research));
-        assert_eq!(ClaudeAction::parse_str("design"), Some(ClaudeAction::Design));
+        assert_eq!(
+            ClaudeAction::parse_str("research"),
+            Some(ClaudeAction::Research)
+        );
+        assert_eq!(
+            ClaudeAction::parse_str("design"),
+            Some(ClaudeAction::Design)
+        );
         assert_eq!(ClaudeAction::parse_str("plan"), Some(ClaudeAction::Plan));
         assert_eq!(ClaudeAction::parse_str("build"), Some(ClaudeAction::Build));
-        assert_eq!(ClaudeAction::parse_str("verify"), Some(ClaudeAction::Verify));
-        assert_eq!(ClaudeAction::parse_str("research_distill"), Some(ClaudeAction::ResearchDistill));
-        assert_eq!(ClaudeAction::parse_str("design_distill"), Some(ClaudeAction::DesignDistill));
-        assert_eq!(ClaudeAction::parse_str("plan_distill"), Some(ClaudeAction::PlanDistill));
-        assert_eq!(ClaudeAction::parse_str("verify_distill"), Some(ClaudeAction::VerifyDistill));
+        assert_eq!(
+            ClaudeAction::parse_str("verify"),
+            Some(ClaudeAction::Verify)
+        );
+        assert_eq!(
+            ClaudeAction::parse_str("research_distill"),
+            Some(ClaudeAction::ResearchDistill)
+        );
+        assert_eq!(
+            ClaudeAction::parse_str("design_distill"),
+            Some(ClaudeAction::DesignDistill)
+        );
+        assert_eq!(
+            ClaudeAction::parse_str("plan_distill"),
+            Some(ClaudeAction::PlanDistill)
+        );
+        assert_eq!(
+            ClaudeAction::parse_str("verify_distill"),
+            Some(ClaudeAction::VerifyDistill)
+        );
         assert_eq!(ClaudeAction::parse_str("invalid"), None);
         assert_eq!(ClaudeAction::parse_str("compile"), None);
         assert_eq!(ClaudeAction::parse_str(""), None);
@@ -189,13 +210,34 @@ mod tests {
 
     #[test]
     fn claude_run_status_parse_str_all() {
-        assert_eq!(ClaudeRunStatus::parse_str("queued"), Some(ClaudeRunStatus::Queued));
-        assert_eq!(ClaudeRunStatus::parse_str("running"), Some(ClaudeRunStatus::Running));
-        assert_eq!(ClaudeRunStatus::parse_str("completed"), Some(ClaudeRunStatus::Completed));
-        assert_eq!(ClaudeRunStatus::parse_str("failed"), Some(ClaudeRunStatus::Failed));
-        assert_eq!(ClaudeRunStatus::parse_str("cancelled"), Some(ClaudeRunStatus::Cancelled));
-        assert_eq!(ClaudeRunStatus::parse_str("timed_out"), Some(ClaudeRunStatus::TimedOut));
-        assert_eq!(ClaudeRunStatus::parse_str("salvaging"), Some(ClaudeRunStatus::Salvaging));
+        assert_eq!(
+            ClaudeRunStatus::parse_str("queued"),
+            Some(ClaudeRunStatus::Queued)
+        );
+        assert_eq!(
+            ClaudeRunStatus::parse_str("running"),
+            Some(ClaudeRunStatus::Running)
+        );
+        assert_eq!(
+            ClaudeRunStatus::parse_str("completed"),
+            Some(ClaudeRunStatus::Completed)
+        );
+        assert_eq!(
+            ClaudeRunStatus::parse_str("failed"),
+            Some(ClaudeRunStatus::Failed)
+        );
+        assert_eq!(
+            ClaudeRunStatus::parse_str("cancelled"),
+            Some(ClaudeRunStatus::Cancelled)
+        );
+        assert_eq!(
+            ClaudeRunStatus::parse_str("timed_out"),
+            Some(ClaudeRunStatus::TimedOut)
+        );
+        assert_eq!(
+            ClaudeRunStatus::parse_str("salvaging"),
+            Some(ClaudeRunStatus::Salvaging)
+        );
         assert_eq!(ClaudeRunStatus::parse_str("invalid"), None);
         assert_eq!(ClaudeRunStatus::parse_str("pending"), None);
         assert_eq!(ClaudeRunStatus::parse_str(""), None);

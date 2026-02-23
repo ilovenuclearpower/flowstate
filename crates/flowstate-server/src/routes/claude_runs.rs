@@ -21,7 +21,10 @@ pub fn routes() -> Router<AppState> {
         )
         .route("/api/claude-runs/claim", post(claim_claude_run))
         .route("/api/claude-runs/{id}", get(get_claude_run))
-        .route("/api/claude-runs/{id}/status", put(update_claude_run_status))
+        .route(
+            "/api/claude-runs/{id}/status",
+            put(update_claude_run_status),
+        )
         .route(
             "/api/claude-runs/{id}/progress",
             put(update_claude_run_progress),
@@ -33,6 +36,8 @@ pub fn routes() -> Router<AppState> {
 #[derive(Debug, Deserialize)]
 struct TriggerInput {
     action: String,
+    #[serde(default)]
+    required_capability: Option<String>,
 }
 
 /// Validate that prerequisites are met for triggering a Claude run
@@ -109,9 +114,7 @@ pub(crate) fn validate_action_prerequisites(
     }
 
     // Verify: build must be completed or a PR must be linked
-    if action == ClaudeAction::Verify
-        && !has_completed_build && !has_prs
-    {
+    if action == ClaudeAction::Verify && !has_completed_build && !has_prs {
         return Err(
             "cannot verify: build must be completed or a PR must be linked first".to_string(),
         );
@@ -145,12 +148,19 @@ async fn trigger_claude_run(
 
     // For Verify, look up build/PR status
     let (has_completed_build, has_prs) = if action == ClaudeAction::Verify {
-        let runs = state.service.list_claude_runs(&task_id).await.map_err(to_error)?;
-        let prs = state.service.list_task_prs(&task_id).await.map_err(to_error)?;
+        let runs = state
+            .service
+            .list_claude_runs(&task_id)
+            .await
+            .map_err(to_error)?;
+        let prs = state
+            .service
+            .list_task_prs(&task_id)
+            .await
+            .map_err(to_error)?;
         (
-            runs.iter().any(|r| {
-                r.action == ClaudeAction::Build && r.status == ClaudeRunStatus::Completed
-            }),
+            runs.iter()
+                .any(|r| r.action == ClaudeAction::Build && r.status == ClaudeRunStatus::Completed),
             !prs.is_empty(),
         )
     } else {
@@ -160,9 +170,12 @@ async fn trigger_claude_run(
     validate_action_prerequisites(action, &task, has_completed_build, has_prs)
         .map_err(|msg| to_error(flowstate_service::ServiceError::InvalidInput(msg)))?;
 
-    let required_capability = Some(
-        RunnerCapability::default_for_action(action).as_str().to_string(),
-    );
+    let cap = input
+        .required_capability
+        .and_then(|c| RunnerCapability::parse_str(&c))
+        .or_else(|| task.capability_for_action(action))
+        .unwrap_or_else(|| RunnerCapability::default_for_action(action));
+    let required_capability = Some(cap.as_str().to_string());
     let create = CreateClaudeRun {
         task_id: task_id.clone(),
         action,
@@ -223,9 +236,7 @@ async fn claim_claude_run(
         .db
         .claim_next_claude_run(&cap_refs)
         .await
-        .map_err(|e| {
-            to_error(flowstate_service::ServiceError::Internal(e.to_string()))
-        })?;
+        .map_err(|e| to_error(flowstate_service::ServiceError::Internal(e.to_string())))?;
 
     match result {
         Some(run) => {
@@ -313,12 +324,7 @@ async fn update_claude_run_status(
 
     let run = state
         .db
-        .update_claude_run_status(
-            &id,
-            status,
-            input.error_message.as_deref(),
-            input.exit_code,
-        )
+        .update_claude_run_status(&id, status, input.error_message.as_deref(), input.exit_code)
         .await
         .map_err(|e| to_error(flowstate_service::ServiceError::Internal(e.to_string())))?;
 
@@ -431,6 +437,11 @@ mod tests {
             title: "Test".into(),
             description: String::new(),
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
             research_status: ApprovalStatus::None,
             spec_status: ApprovalStatus::None,
             plan_status: ApprovalStatus::None,
@@ -458,9 +469,15 @@ mod tests {
     #[test]
     fn test_prerequisites_research_distill_needs_research() {
         let mut task = make_test_task();
-        assert!(validate_action_prerequisites(ClaudeAction::ResearchDistill, &task, false, false).is_err());
+        assert!(
+            validate_action_prerequisites(ClaudeAction::ResearchDistill, &task, false, false)
+                .is_err()
+        );
         task.research_status = ApprovalStatus::Pending;
-        assert!(validate_action_prerequisites(ClaudeAction::ResearchDistill, &task, false, false).is_ok());
+        assert!(
+            validate_action_prerequisites(ClaudeAction::ResearchDistill, &task, false, false)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -475,9 +492,14 @@ mod tests {
     #[test]
     fn test_prerequisites_design_distill_needs_spec() {
         let mut task = make_test_task();
-        assert!(validate_action_prerequisites(ClaudeAction::DesignDistill, &task, false, false).is_err());
+        assert!(
+            validate_action_prerequisites(ClaudeAction::DesignDistill, &task, false, false)
+                .is_err()
+        );
         task.spec_status = ApprovalStatus::Pending;
-        assert!(validate_action_prerequisites(ClaudeAction::DesignDistill, &task, false, false).is_ok());
+        assert!(
+            validate_action_prerequisites(ClaudeAction::DesignDistill, &task, false, false).is_ok()
+        );
     }
 
     #[test]
@@ -492,9 +514,13 @@ mod tests {
     #[test]
     fn test_prerequisites_plan_distill_needs_plan() {
         let mut task = make_test_task();
-        assert!(validate_action_prerequisites(ClaudeAction::PlanDistill, &task, false, false).is_err());
+        assert!(
+            validate_action_prerequisites(ClaudeAction::PlanDistill, &task, false, false).is_err()
+        );
         task.plan_status = ApprovalStatus::Pending;
-        assert!(validate_action_prerequisites(ClaudeAction::PlanDistill, &task, false, false).is_ok());
+        assert!(
+            validate_action_prerequisites(ClaudeAction::PlanDistill, &task, false, false).is_ok()
+        );
     }
 
     #[test]
@@ -526,9 +552,14 @@ mod tests {
     #[test]
     fn test_prerequisites_verify_distill_needs_verification() {
         let mut task = make_test_task();
-        assert!(validate_action_prerequisites(ClaudeAction::VerifyDistill, &task, false, false).is_err());
+        assert!(
+            validate_action_prerequisites(ClaudeAction::VerifyDistill, &task, false, false)
+                .is_err()
+        );
         task.verify_status = ApprovalStatus::Pending;
-        assert!(validate_action_prerequisites(ClaudeAction::VerifyDistill, &task, false, false).is_ok());
+        assert!(
+            validate_action_prerequisites(ClaudeAction::VerifyDistill, &task, false, false).is_ok()
+        );
     }
 
     // ---- Integration tests ----

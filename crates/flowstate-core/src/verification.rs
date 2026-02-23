@@ -104,7 +104,10 @@ mod tests {
         assert_eq!(RunStatus::parse_str("passed"), Some(RunStatus::Passed));
         assert_eq!(RunStatus::parse_str("failed"), Some(RunStatus::Failed));
         assert_eq!(RunStatus::parse_str("error"), Some(RunStatus::Error));
-        assert_eq!(RunStatus::parse_str("cancelled"), Some(RunStatus::Cancelled));
+        assert_eq!(
+            RunStatus::parse_str("cancelled"),
+            Some(RunStatus::Cancelled)
+        );
         assert_eq!(RunStatus::parse_str("invalid"), None);
         assert_eq!(RunStatus::parse_str("timeout"), None);
         assert_eq!(RunStatus::parse_str(""), None);

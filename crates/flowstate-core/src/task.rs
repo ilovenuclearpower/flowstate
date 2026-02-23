@@ -3,6 +3,9 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::claude_run::ClaudeAction;
+use crate::runner::RunnerCapability;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
@@ -38,12 +41,8 @@ impl Status {
         Status::Done,
     ];
 
-    pub const SUBTASK_BOARD_COLUMNS: &[Status] = &[
-        Status::Todo,
-        Status::Build,
-        Status::Verify,
-        Status::Done,
-    ];
+    pub const SUBTASK_BOARD_COLUMNS: &[Status] =
+        &[Status::Todo, Status::Build, Status::Verify, Status::Done];
 
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -210,7 +209,6 @@ impl ApprovalStatus {
     }
 }
 
-
 impl fmt::Display for ApprovalStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.display_name())
@@ -238,6 +236,11 @@ pub struct Task {
     pub verify_feedback: String,
     pub status: Status,
     pub priority: Priority,
+    pub research_capability: Option<RunnerCapability>,
+    pub design_capability: Option<RunnerCapability>,
+    pub plan_capability: Option<RunnerCapability>,
+    pub build_capability: Option<RunnerCapability>,
+    pub verify_capability: Option<RunnerCapability>,
     pub sort_order: f64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -255,6 +258,16 @@ pub struct CreateTask {
     pub parent_id: Option<String>,
     #[serde(default)]
     pub reviewer: String,
+    #[serde(default)]
+    pub research_capability: Option<RunnerCapability>,
+    #[serde(default)]
+    pub design_capability: Option<RunnerCapability>,
+    #[serde(default)]
+    pub plan_capability: Option<RunnerCapability>,
+    #[serde(default)]
+    pub build_capability: Option<RunnerCapability>,
+    #[serde(default)]
+    pub verify_capability: Option<RunnerCapability>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -277,6 +290,11 @@ pub struct UpdateTask {
     pub spec_feedback: Option<String>,
     pub plan_feedback: Option<String>,
     pub verify_feedback: Option<String>,
+    pub research_capability: Option<Option<RunnerCapability>>,
+    pub design_capability: Option<Option<RunnerCapability>>,
+    pub plan_capability: Option<Option<RunnerCapability>>,
+    pub build_capability: Option<Option<RunnerCapability>>,
+    pub verify_capability: Option<Option<RunnerCapability>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -293,6 +311,16 @@ impl Task {
     /// Returns true if this task is a subtask (has a parent).
     pub fn is_subtask(&self) -> bool {
         self.parent_id.is_some()
+    }
+
+    pub fn capability_for_action(&self, action: ClaudeAction) -> Option<RunnerCapability> {
+        match action {
+            ClaudeAction::Research | ClaudeAction::ResearchDistill => self.research_capability,
+            ClaudeAction::Design | ClaudeAction::DesignDistill => self.design_capability,
+            ClaudeAction::Plan | ClaudeAction::PlanDistill => self.plan_capability,
+            ClaudeAction::Build => self.build_capability,
+            ClaudeAction::Verify | ClaudeAction::VerifyDistill => self.verify_capability,
+        }
     }
 }
 
@@ -392,10 +420,22 @@ mod tests {
 
     #[test]
     fn parse_str_roundtrip_approval_status() {
-        assert_eq!(ApprovalStatus::parse_str("none"), Some(ApprovalStatus::None));
-        assert_eq!(ApprovalStatus::parse_str("pending"), Some(ApprovalStatus::Pending));
-        assert_eq!(ApprovalStatus::parse_str("approved"), Some(ApprovalStatus::Approved));
-        assert_eq!(ApprovalStatus::parse_str("rejected"), Some(ApprovalStatus::Rejected));
+        assert_eq!(
+            ApprovalStatus::parse_str("none"),
+            Some(ApprovalStatus::None)
+        );
+        assert_eq!(
+            ApprovalStatus::parse_str("pending"),
+            Some(ApprovalStatus::Pending)
+        );
+        assert_eq!(
+            ApprovalStatus::parse_str("approved"),
+            Some(ApprovalStatus::Approved)
+        );
+        assert_eq!(
+            ApprovalStatus::parse_str("rejected"),
+            Some(ApprovalStatus::Rejected)
+        );
         assert_eq!(ApprovalStatus::parse_str("invalid"), None);
         assert_eq!(ApprovalStatus::parse_str("maybe"), None);
         assert_eq!(ApprovalStatus::parse_str(""), None);
@@ -550,6 +590,11 @@ mod tests {
             verify_feedback: String::new(),
             status: Status::Todo,
             priority: Priority::None,
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
             sort_order: 0.0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -569,5 +614,77 @@ mod tests {
         assert!(u.sort_order.is_none());
         assert!(u.parent_id.is_none());
         assert!(u.reviewer.is_none());
+        assert!(u.research_capability.is_none());
+        assert!(u.design_capability.is_none());
+        assert!(u.plan_capability.is_none());
+        assert!(u.build_capability.is_none());
+        assert!(u.verify_capability.is_none());
+    }
+
+    #[test]
+    fn test_capability_for_action() {
+        let t = Task {
+            id: "t1".into(),
+            project_id: "p1".into(),
+            sprint_id: None,
+            parent_id: None,
+            title: "Test".into(),
+            description: String::new(),
+            reviewer: String::new(),
+            research_status: ApprovalStatus::None,
+            spec_status: ApprovalStatus::None,
+            plan_status: ApprovalStatus::None,
+            verify_status: ApprovalStatus::None,
+            spec_approved_hash: String::new(),
+            research_approved_hash: String::new(),
+            research_feedback: String::new(),
+            spec_feedback: String::new(),
+            plan_feedback: String::new(),
+            verify_feedback: String::new(),
+            status: Status::Todo,
+            priority: Priority::None,
+            research_capability: Some(RunnerCapability::Light),
+            design_capability: Some(RunnerCapability::Standard),
+            plan_capability: Some(RunnerCapability::Heavy),
+            build_capability: Some(RunnerCapability::Light),
+            verify_capability: None,
+            sort_order: 0.0,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        // Explicit matches
+        assert_eq!(
+            t.capability_for_action(ClaudeAction::Research),
+            Some(RunnerCapability::Light)
+        );
+        assert_eq!(
+            t.capability_for_action(ClaudeAction::Design),
+            Some(RunnerCapability::Standard)
+        );
+        assert_eq!(
+            t.capability_for_action(ClaudeAction::Plan),
+            Some(RunnerCapability::Heavy)
+        );
+        assert_eq!(
+            t.capability_for_action(ClaudeAction::Build),
+            Some(RunnerCapability::Light)
+        );
+        assert_eq!(t.capability_for_action(ClaudeAction::Verify), None);
+
+        // Distill phases inherit correctly
+        assert_eq!(
+            t.capability_for_action(ClaudeAction::ResearchDistill),
+            Some(RunnerCapability::Light)
+        );
+        assert_eq!(
+            t.capability_for_action(ClaudeAction::DesignDistill),
+            Some(RunnerCapability::Standard)
+        );
+        assert_eq!(
+            t.capability_for_action(ClaudeAction::PlanDistill),
+            Some(RunnerCapability::Heavy)
+        );
+        assert_eq!(t.capability_for_action(ClaudeAction::VerifyDistill), None);
     }
 }

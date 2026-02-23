@@ -29,9 +29,8 @@ impl GiteaProvider {
         token: Option<String>,
         skip_tls_verify: bool,
     ) -> Result<Self, ProviderError> {
-        let token = token.ok_or_else(|| {
-            ProviderError::AuthFailed("Gitea requires an API token".into())
-        })?;
+        let token =
+            token.ok_or_else(|| ProviderError::AuthFailed("Gitea requires an API token".into()))?;
 
         let (base_url, owner, repo) = parse_gitea_url(repo_url)?;
 
@@ -87,8 +86,8 @@ impl GiteaProvider {
 ///   https://gitea.example.com:3000/owner/repo
 fn parse_gitea_url(url: &str) -> Result<(String, String, String), ProviderError> {
     let url = url.strip_suffix(".git").unwrap_or(url);
-    let parsed = url::Url::parse(url)
-        .map_err(|e| ProviderError::Other(format!("invalid URL: {e}")))?;
+    let parsed =
+        url::Url::parse(url).map_err(|e| ProviderError::Other(format!("invalid URL: {e}")))?;
 
     let segments: Vec<&str> = parsed
         .path_segments()
@@ -102,9 +101,9 @@ fn parse_gitea_url(url: &str) -> Result<(String, String, String), ProviderError>
         ));
     }
 
-    let host = parsed.host_str().ok_or_else(|| {
-        ProviderError::Other("URL has no host".into())
-    })?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| ProviderError::Other("URL has no host".into()))?;
 
     let base = if let Some(port) = parsed.port() {
         format!("{}://{}:{}", parsed.scheme(), host, port)
@@ -239,11 +238,7 @@ impl RepoProvider for GiteaProvider {
         })
     }
 
-    async fn get_pr_diff(
-        &self,
-        _repo_url: &str,
-        pr_number: u64,
-    ) -> Result<String, ProviderError> {
+    async fn get_pr_diff(&self, _repo_url: &str, pr_number: u64) -> Result<String, ProviderError> {
         let resp = self
             .client
             .get(self.api_url(&format!(
@@ -417,7 +412,10 @@ impl RepoProvider for GiteaProvider {
                     "/repos/{}/{}/pulls/{pr_number}/reviews",
                     self.owner, self.repo
                 ),
-                &ReviewBody { body, event: event_str },
+                &ReviewBody {
+                    body,
+                    event: event_str,
+                },
             )
             .await?;
 
@@ -499,8 +497,7 @@ mod tests {
 
     #[test]
     fn parse_gitea_url_with_dot_git() {
-        let (_, _, repo) =
-            parse_gitea_url("https://gitea.example.com/myorg/myrepo.git").unwrap();
+        let (_, _, repo) = parse_gitea_url("https://gitea.example.com/myorg/myrepo.git").unwrap();
         assert_eq!(repo, "myrepo");
     }
 
@@ -520,11 +517,7 @@ mod tests {
 
     #[test]
     fn gitea_requires_token() {
-        let result = GiteaProvider::new(
-            "https://gitea.example.com/user/repo",
-            None,
-            false,
-        );
+        let result = GiteaProvider::new("https://gitea.example.com/user/repo", None, false);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, ProviderError::AuthFailed(_)));
@@ -601,8 +594,7 @@ mod tests {
 
     #[test]
     fn parse_gitea_url_http_scheme() {
-        let (base, owner, repo) =
-            parse_gitea_url("http://gitea.local/myorg/myrepo").unwrap();
+        let (base, owner, repo) = parse_gitea_url("http://gitea.local/myorg/myrepo").unwrap();
         assert_eq!(base, "http://gitea.local");
         assert_eq!(owner, "myorg");
         assert_eq!(repo, "myrepo");

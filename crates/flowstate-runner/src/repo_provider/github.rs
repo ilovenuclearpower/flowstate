@@ -101,7 +101,11 @@ impl RepoProvider for GitHubProvider {
         info!(
             "gh: {} (token={})",
             version.lines().next().unwrap_or("").trim(),
-            if self.token.is_some() { "PAT" } else { "session" }
+            if self.token.is_some() {
+                "PAT"
+            } else {
+                "session"
+            }
         );
         Ok(())
     }
@@ -141,7 +145,11 @@ impl RepoProvider for GitHubProvider {
 
         info!(
             "github: authenticated and repo accessible (token={})",
-            if self.token.is_some() { "PAT" } else { "session" }
+            if self.token.is_some() {
+                "PAT"
+            } else {
+                "session"
+            }
         );
         Ok(())
     }
@@ -177,11 +185,7 @@ impl RepoProvider for GitHubProvider {
     ) -> Result<PullRequest, ProviderError> {
         let mut cmd = Command::new("gh");
         cmd.args([
-            "pr", "create",
-            "--title", title,
-            "--body", body,
-            "--head", branch,
-            "--base", base,
+            "pr", "create", "--title", title, "--body", body, "--head", branch, "--base", base,
         ]);
         cmd.current_dir(work_dir);
         self.apply_token(&mut cmd);
@@ -218,15 +222,12 @@ impl RepoProvider for GitHubProvider {
         })
     }
 
-    async fn get_pr_diff(
-        &self,
-        repo_url: &str,
-        pr_number: u64,
-    ) -> Result<String, ProviderError> {
+    async fn get_pr_diff(&self, repo_url: &str, pr_number: u64) -> Result<String, ProviderError> {
         let (owner, repo) = Self::parse_owner_repo(repo_url)?;
         let mut cmd = Command::new("gh");
         cmd.args([
-            "pr", "diff",
+            "pr",
+            "diff",
             &pr_number.to_string(),
             "--repo",
             &format!("{owner}/{repo}"),
@@ -240,9 +241,7 @@ impl RepoProvider for GitHubProvider {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(ProviderError::Other(format!(
-                "gh pr diff failed: {stderr}"
-            )));
+            return Err(ProviderError::Other(format!("gh pr diff failed: {stderr}")));
         }
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -257,19 +256,14 @@ impl RepoProvider for GitHubProvider {
 
         // Issue-level comments
         let issue_json = self
-            .gh_api(&[&format!(
-                "repos/{owner}/{repo}/issues/{pr_number}/comments"
-            )])
+            .gh_api(&[&format!("repos/{owner}/{repo}/issues/{pr_number}/comments")])
             .await?;
 
-        let issue_comments: Vec<GhComment> =
-            serde_json::from_str(&issue_json).unwrap_or_default();
+        let issue_comments: Vec<GhComment> = serde_json::from_str(&issue_json).unwrap_or_default();
 
         // Inline review comments
         let review_json = self
-            .gh_api(&[&format!(
-                "repos/{owner}/{repo}/pulls/{pr_number}/comments"
-            )])
+            .gh_api(&[&format!("repos/{owner}/{repo}/pulls/{pr_number}/comments")])
             .await?;
 
         let review_comments: Vec<GhReviewComment> =
@@ -337,13 +331,10 @@ impl RepoProvider for GitHubProvider {
     ) -> Result<Vec<PrReview>, ProviderError> {
         let (owner, repo) = Self::parse_owner_repo(repo_url)?;
         let json = self
-            .gh_api(&[&format!(
-                "repos/{owner}/{repo}/pulls/{pr_number}/reviews"
-            )])
+            .gh_api(&[&format!("repos/{owner}/{repo}/pulls/{pr_number}/reviews")])
             .await?;
 
-        let gh_reviews: Vec<GhReview> =
-            serde_json::from_str(&json).unwrap_or_default();
+        let gh_reviews: Vec<GhReview> = serde_json::from_str(&json).unwrap_or_default();
 
         let mut reviews = Vec::new();
         for r in gh_reviews {

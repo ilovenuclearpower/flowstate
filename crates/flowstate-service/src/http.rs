@@ -87,7 +87,10 @@ impl HttpService {
         }
     }
 
-    async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ServiceError> {
+    async fn get_json<T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> Result<T, ServiceError> {
         let builder = self.client.get(format!("{}{path}", self.base_url));
         let resp = self
             .with_auth(builder)
@@ -218,19 +221,31 @@ impl HttpService {
     }
 
     pub async fn read_task_research(&self, task_id: &str) -> Result<String, ServiceError> {
-        self.get_text(&format!("/api/tasks/{task_id}/research")).await
+        self.get_text(&format!("/api/tasks/{task_id}/research"))
+            .await
     }
 
-    pub async fn write_task_research(&self, task_id: &str, content: &str) -> Result<(), ServiceError> {
-        self.put_text(&format!("/api/tasks/{task_id}/research"), content).await
+    pub async fn write_task_research(
+        &self,
+        task_id: &str,
+        content: &str,
+    ) -> Result<(), ServiceError> {
+        self.put_text(&format!("/api/tasks/{task_id}/research"), content)
+            .await
     }
 
     pub async fn read_task_verification(&self, task_id: &str) -> Result<String, ServiceError> {
-        self.get_text(&format!("/api/tasks/{task_id}/verification")).await
+        self.get_text(&format!("/api/tasks/{task_id}/verification"))
+            .await
     }
 
-    pub async fn write_task_verification(&self, task_id: &str, content: &str) -> Result<(), ServiceError> {
-        self.put_text(&format!("/api/tasks/{task_id}/verification"), content).await
+    pub async fn write_task_verification(
+        &self,
+        task_id: &str,
+        content: &str,
+    ) -> Result<(), ServiceError> {
+        self.put_text(&format!("/api/tasks/{task_id}/verification"), content)
+            .await
     }
 
     /// Register this runner with the server, advertising its capabilities.
@@ -405,10 +420,7 @@ async fn parse_error(resp: reqwest::Response) -> ServiceError {
     parse_error_with_status(status, resp).await
 }
 
-async fn parse_error_with_status(
-    status: StatusCode,
-    resp: reqwest::Response,
-) -> ServiceError {
+async fn parse_error_with_status(status: StatusCode, resp: reqwest::Response) -> ServiceError {
     let body = resp.text().await.unwrap_or_default();
     let msg = serde_json::from_str::<serde_json::Value>(&body)
         .ok()
@@ -524,11 +536,7 @@ impl TaskService for HttpService {
             .await
     }
 
-    async fn update_sprint(
-        &self,
-        id: &str,
-        update: &UpdateSprint,
-    ) -> Result<Sprint, ServiceError> {
+    async fn update_sprint(&self, id: &str, update: &UpdateSprint) -> Result<Sprint, ServiceError> {
         self.put_json(&format!("/api/sprints/{id}"), update).await
     }
 
@@ -613,6 +621,11 @@ mod tests {
             priority: Priority::Medium,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         }
     }
 
@@ -758,6 +771,11 @@ mod tests {
             priority: Priority::High,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -770,6 +788,11 @@ mod tests {
             priority: Priority::Low,
             parent_id: None,
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -886,6 +909,11 @@ mod tests {
             priority: Priority::Low,
             parent_id: Some(parent.id.clone()),
             reviewer: String::new(),
+            research_capability: None,
+            design_capability: None,
+            plan_capability: None,
+            build_capability: None,
+            verify_capability: None,
         })
         .await
         .unwrap();
@@ -954,6 +982,11 @@ mod tests {
                 priority: Priority::Medium,
                 parent_id: None,
                 reviewer: String::new(),
+                research_capability: None,
+                design_capability: None,
+                plan_capability: None,
+                build_capability: None,
+                verify_capability: None,
             })
             .await
             .unwrap();
