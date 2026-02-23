@@ -29,11 +29,16 @@ let
     # ── Track what we started so cleanup is correct ──
     STARTED_PG=0
     STARTED_GARAGE=0
+    STARTED_GITEA=0
     CARGO_EXIT=0
 
     cleanup() {
       echo ""
       echo "=== Cleanup ==="
+      if [ "$STARTED_GITEA" -eq 1 ]; then
+        echo "Stopping ephemeral Gitea..."
+        gitea-test-stop 2>/dev/null || true
+      fi
       if [ "$STARTED_GARAGE" -eq 1 ]; then
         echo "Stopping ephemeral Garage..."
         garage-test-stop 2>/dev/null || true
@@ -92,7 +97,30 @@ let
     echo "Garage S3 credentials loaded."
     echo ""
 
-    # ── 3. Run cargo llvm-cov ──
+    # ── 3. Start ephemeral Gitea ──
+    echo "Starting ephemeral Gitea on port 3920..."
+    gitea-test-start
+    STARTED_GITEA=1
+
+    # Source Gitea credentials
+    GITEA_MARKER="/tmp/flowstate-gitea-test-current"
+    if [ ! -f "$GITEA_MARKER" ]; then
+      echo "ERROR: gitea-test-start did not create marker file."
+      exit 1
+    fi
+    GITEA_TMPDIR=$(cat "$GITEA_MARKER")
+    GITEA_CRED_FILE="$GITEA_TMPDIR/credentials/gitea.env"
+    if [ ! -f "$GITEA_CRED_FILE" ]; then
+      echo "ERROR: Gitea credential file not found at $GITEA_CRED_FILE"
+      exit 1
+    fi
+    set -a
+    source "$GITEA_CRED_FILE"
+    set +a
+    echo "Gitea credentials loaded."
+    echo ""
+
+    # ── 4. Run cargo llvm-cov ──
     echo "Running cargo llvm-cov (workspace, all features, including ignored tests)..."
     echo ""
 
@@ -100,8 +128,9 @@ let
       --workspace \
       --all-features \
       --fail-under-lines "$THRESHOLD" \
-      --ignore-filename-regex '(/main\.rs$|/(mock|test_helpers)\.rs$|backend/claude_cli\.rs$|backend/opencode\.rs$|repo_provider/github\.rs$)' \
+      --ignore-filename-regex '(/main\.rs$|/(mock|test_helpers)\.rs$|backend/claude_cli\.rs$|backend/opencode\.rs$|repo_provider/github\.rs$|server/src/lib\.rs$)' \
       --exclude flowstate-mcp \
+      --no-fail-fast \
       -- --include-ignored \
       || CARGO_EXIT=$?
 

@@ -108,22 +108,19 @@ impl StoreConfig {
     /// If `FLOWSTATE_S3_ENDPOINT` (or `AWS_ENDPOINT_URL`) is set along with
     /// credentials and a bucket name, use S3. Otherwise, fall back to local filesystem.
     pub fn from_env() -> Self {
+        Self::from_getter(|key| std::env::var(key).ok())
+    }
+
+    /// Build from an arbitrary variable-lookup function (testable without env mutation).
+    pub fn from_getter(get: impl Fn(&str) -> Option<String>) -> Self {
         Self {
-            endpoint_url: std::env::var("FLOWSTATE_S3_ENDPOINT")
-                .or_else(|_| std::env::var("AWS_ENDPOINT_URL"))
-                .ok(),
-            region: std::env::var("FLOWSTATE_S3_REGION")
-                .or_else(|_| std::env::var("AWS_REGION"))
-                .ok(),
-            bucket: std::env::var("FLOWSTATE_S3_BUCKET")
-                .or_else(|_| std::env::var("GARAGE_BUCKET"))
-                .ok(),
-            access_key_id: std::env::var("FLOWSTATE_S3_ACCESS_KEY_ID")
-                .or_else(|_| std::env::var("AWS_ACCESS_KEY_ID"))
-                .ok(),
-            secret_access_key: std::env::var("FLOWSTATE_S3_SECRET_ACCESS_KEY")
-                .or_else(|_| std::env::var("AWS_SECRET_ACCESS_KEY"))
-                .ok(),
+            endpoint_url: get("FLOWSTATE_S3_ENDPOINT").or_else(|| get("AWS_ENDPOINT_URL")),
+            region: get("FLOWSTATE_S3_REGION").or_else(|| get("AWS_REGION")),
+            bucket: get("FLOWSTATE_S3_BUCKET").or_else(|| get("GARAGE_BUCKET")),
+            access_key_id: get("FLOWSTATE_S3_ACCESS_KEY_ID")
+                .or_else(|| get("AWS_ACCESS_KEY_ID")),
+            secret_access_key: get("FLOWSTATE_S3_SECRET_ACCESS_KEY")
+                .or_else(|| get("AWS_SECRET_ACCESS_KEY")),
             local_data_dir: None,
         }
     }
@@ -265,66 +262,58 @@ mod tests {
         assert!(store.is_ok(), "should fall back to default local dir");
     }
 
-    // These subtests mutate global env vars and must run sequentially
-    // in a single test to avoid races with parallel test execution.
     #[test]
-    fn store_config_from_env_scenarios() {
-        use std::sync::Mutex;
-        static ENV_LOCK: Mutex<()> = Mutex::new(());
-        let _guard = ENV_LOCK.lock().unwrap();
-
-        let clear_all = || {
-            for var in [
-                "FLOWSTATE_S3_ENDPOINT", "AWS_ENDPOINT_URL",
-                "FLOWSTATE_S3_REGION", "AWS_REGION",
-                "FLOWSTATE_S3_BUCKET", "GARAGE_BUCKET",
-                "FLOWSTATE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID",
-                "FLOWSTATE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY",
-            ] {
-                std::env::remove_var(var);
-            }
-        };
-
-        // Scenario 1: no vars set → all None
-        clear_all();
-        let config = StoreConfig::from_env();
+    fn store_config_from_getter_no_vars() {
+        let config = StoreConfig::from_getter(|_| None);
         assert!(config.endpoint_url.is_none());
         assert!(config.region.is_none());
         assert!(config.bucket.is_none());
         assert!(config.access_key_id.is_none());
         assert!(config.secret_access_key.is_none());
         assert!(!config.is_s3());
+    }
 
-        // Scenario 2: AWS_* fallbacks
-        clear_all();
-        std::env::set_var("AWS_ENDPOINT_URL", "http://aws-endpoint:443");
-        std::env::set_var("AWS_REGION", "us-west-2");
-        std::env::set_var("AWS_ACCESS_KEY_ID", "aws-key");
-        std::env::set_var("AWS_SECRET_ACCESS_KEY", "aws-secret");
-        std::env::set_var("GARAGE_BUCKET", "my-bucket");
-        let config = StoreConfig::from_env();
+    #[test]
+    fn store_config_from_getter_aws_fallbacks() {
+        use std::collections::HashMap;
+        let vars: HashMap<&str, &str> = [
+            ("AWS_ENDPOINT_URL", "http://aws-endpoint:443"),
+            ("AWS_REGION", "us-west-2"),
+            ("AWS_ACCESS_KEY_ID", "aws-key"),
+            ("AWS_SECRET_ACCESS_KEY", "aws-secret"),
+            ("GARAGE_BUCKET", "my-bucket"),
+        ]
+        .into_iter()
+        .collect();
+
+        let config = StoreConfig::from_getter(|key| vars.get(key).map(|v| v.to_string()));
         assert_eq!(config.endpoint_url.as_deref(), Some("http://aws-endpoint:443"));
         assert_eq!(config.region.as_deref(), Some("us-west-2"));
         assert_eq!(config.bucket.as_deref(), Some("my-bucket"));
         assert_eq!(config.access_key_id.as_deref(), Some("aws-key"));
         assert_eq!(config.secret_access_key.as_deref(), Some("aws-secret"));
         assert!(config.is_s3());
+    }
 
-        // Scenario 3: FLOWSTATE_S3_* take precedence over AWS_*
-        clear_all();
-        std::env::set_var("FLOWSTATE_S3_ENDPOINT", "http://flowstate:3900");
-        std::env::set_var("AWS_ENDPOINT_URL", "http://aws:443");
-        std::env::set_var("FLOWSTATE_S3_REGION", "garage");
-        std::env::set_var("FLOWSTATE_S3_BUCKET", "fs-bucket");
-        std::env::set_var("FLOWSTATE_S3_ACCESS_KEY_ID", "fs-key");
-        std::env::set_var("FLOWSTATE_S3_SECRET_ACCESS_KEY", "fs-secret");
-        let config = StoreConfig::from_env();
+    #[test]
+    fn store_config_from_getter_flowstate_takes_precedence() {
+        use std::collections::HashMap;
+        let vars: HashMap<&str, &str> = [
+            ("FLOWSTATE_S3_ENDPOINT", "http://flowstate:3900"),
+            ("AWS_ENDPOINT_URL", "http://aws:443"),
+            ("FLOWSTATE_S3_REGION", "garage"),
+            ("FLOWSTATE_S3_BUCKET", "fs-bucket"),
+            ("FLOWSTATE_S3_ACCESS_KEY_ID", "fs-key"),
+            ("FLOWSTATE_S3_SECRET_ACCESS_KEY", "fs-secret"),
+        ]
+        .into_iter()
+        .collect();
+
+        let config = StoreConfig::from_getter(|key| vars.get(key).map(|v| v.to_string()));
         assert_eq!(config.endpoint_url.as_deref(), Some("http://flowstate:3900"));
         assert_eq!(config.region.as_deref(), Some("garage"));
         assert_eq!(config.bucket.as_deref(), Some("fs-bucket"));
         assert_eq!(config.access_key_id.as_deref(), Some("fs-key"));
         assert_eq!(config.secret_access_key.as_deref(), Some("fs-secret"));
-
-        clear_all();
     }
 }

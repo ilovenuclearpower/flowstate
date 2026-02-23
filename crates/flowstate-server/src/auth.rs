@@ -125,10 +125,18 @@ fn constant_time_eq(a: &str, b: &str) -> bool {
 /// Returns `None` (open access) when neither `FLOWSTATE_API_KEY` is set
 /// nor any DB-backed keys exist.
 pub async fn build_auth_config(db: Arc<dyn Database>) -> Option<Arc<AuthConfig>> {
-    let env_key_hash = std::env::var("FLOWSTATE_API_KEY")
-        .ok()
+    let env_key = std::env::var("FLOWSTATE_API_KEY").ok();
+    build_auth_config_with_key(db, env_key.as_deref()).await
+}
+
+/// Build auth config from an explicit key value (testable without env mutation).
+pub async fn build_auth_config_with_key(
+    db: Arc<dyn Database>,
+    env_key: Option<&str>,
+) -> Option<Arc<AuthConfig>> {
+    let env_key_hash = env_key
         .filter(|k| !k.is_empty())
-        .map(|k| sha256_hex(&k));
+        .map(sha256_hex);
 
     let has_db_keys = db.has_api_keys().await.unwrap_or(false);
 
@@ -145,10 +153,6 @@ pub async fn build_auth_config(db: Arc<dyn Database>) -> Option<Arc<AuthConfig>>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    /// Mutex to serialize tests that modify environment variables.
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_sha256_hex_deterministic() {
@@ -215,25 +219,19 @@ mod tests {
 
     #[tokio::test]
     async fn build_auth_config_no_keys() {
-        let _lock = ENV_MUTEX.lock().unwrap();
-        // Remove env var if present
-        std::env::remove_var("FLOWSTATE_API_KEY");
         let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
-        let config = build_auth_config(db).await;
+        let config = build_auth_config_with_key(db, None).await;
         // No env key, no DB keys → open access
         assert!(config.is_none());
     }
 
     #[tokio::test]
     async fn build_auth_config_env_key() {
-        let _lock = ENV_MUTEX.lock().unwrap();
         let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
-        std::env::set_var("FLOWSTATE_API_KEY", "test-key-for-auth");
-        let config = build_auth_config(db).await;
+        let config = build_auth_config_with_key(db, Some("test-key-for-auth")).await;
         assert!(config.is_some());
         let auth = config.unwrap();
         assert!(auth.env_key_hash.is_some());
-        std::env::remove_var("FLOWSTATE_API_KEY");
     }
 
     #[tokio::test]

@@ -107,3 +107,59 @@ impl AgentBackend for ClaudeCliBackend {
         process::run_managed_with_timeout(&mut cmd, work_dir, timeout, kill_grace).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_default() {
+        let b = ClaudeCliBackend {
+            anthropic_base_url: None,
+            anthropic_auth_token: None,
+            model: None,
+        };
+        assert_eq!(b.name(), "claude-cli");
+    }
+
+    #[test]
+    fn name_custom_endpoint() {
+        let b = ClaudeCliBackend {
+            anthropic_base_url: Some("https://custom.example.com".into()),
+            anthropic_auth_token: None,
+            model: None,
+        };
+        assert_eq!(b.name(), "claude-cli/custom");
+    }
+
+    #[test]
+    fn model_hint_none() {
+        let b = ClaudeCliBackend {
+            anthropic_base_url: None,
+            anthropic_auth_token: None,
+            model: None,
+        };
+        assert_eq!(b.model_hint(), None);
+    }
+
+    #[test]
+    fn model_hint_some() {
+        let b = ClaudeCliBackend {
+            anthropic_base_url: None,
+            anthropic_auth_token: None,
+            model: Some("claude-opus-4-6".into()),
+        };
+        assert_eq!(b.model_hint(), Some("claude-opus-4-6"));
+    }
+
+    #[test]
+    fn name_with_both_overrides() {
+        let b = ClaudeCliBackend {
+            anthropic_base_url: Some("https://vllm.local".into()),
+            anthropic_auth_token: Some("token123".into()),
+            model: Some("my-model".into()),
+        };
+        assert_eq!(b.name(), "claude-cli/custom");
+        assert_eq!(b.model_hint(), Some("my-model"));
+    }
+}

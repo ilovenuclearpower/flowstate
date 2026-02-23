@@ -368,3 +368,235 @@ async fn get_current_branch(dir: &Path) -> Option<String> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: create a temp dir with an initialized git repo and one commit.
+    async fn init_git_repo() -> (tempfile::TempDir, std::path::PathBuf) {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let dir = tmp.path().to_path_buf();
+
+        // git init
+        tokio::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .expect("git init failed");
+
+        // configure user
+        tokio::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .expect("git config email failed");
+
+        tokio::process::Command::new("git")
+            .args(["config", "user.name", "test"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .expect("git config name failed");
+
+        // create a file and commit so HEAD exists
+        tokio::fs::write(dir.join("README.md"), "hello").await.unwrap();
+
+        tokio::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&dir)
+            .output()
+            .await
+            .expect("git add failed");
+
+        tokio::process::Command::new("git")
+            .args(["commit", "-m", "initial commit"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .expect("git commit failed");
+
+        (tmp, dir)
+    }
+
+    // ---- run_git_command tests ----
+
+    #[tokio::test]
+    async fn test_run_git_command_success() {
+        let (_tmp, dir) = init_git_repo().await;
+        let result = run_git_command(&dir, &["status"], false).await;
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        let stdout = result.unwrap();
+        // `git status` in a clean repo should mention "nothing to commit"
+        // or "on branch" — either way it should not be empty.
+        assert!(!stdout.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_run_git_command_failure() {
+        let (_tmp, dir) = init_git_repo().await;
+        // "git log --invalid-flag-xyz" should fail
+        let result = run_git_command(&dir, &["log", "--invalid-flag-xyz"], false).await;
+        assert!(result.is_err(), "expected Err for invalid git flag");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("git log --invalid-flag-xyz failed"),
+            "error should describe the failing command, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_run_git_command_nonexistent_dir() {
+        let dir = Path::new("/tmp/flowstate_nonexistent_dir_for_test");
+        let result = run_git_command(dir, &["status"], false).await;
+        // Either spawn error or git error — both should be Err
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_run_git_command_skip_tls_verify() {
+        let (_tmp, dir) = init_git_repo().await;
+        // With skip_tls_verify=true, the command should still succeed for local ops
+        let result = run_git_command(&dir, &["status"], true).await;
+        assert!(result.is_ok(), "expected Ok with skip_tls_verify, got: {result:?}");
+    }
+
+    #[tokio::test]
+    async fn test_run_git_command_diff_stat_empty() {
+        let (_tmp, dir) = init_git_repo().await;
+        // No changes, so diff --stat should return empty string
+        let result = run_git_command(&dir, &["diff", "--stat"], false).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().trim().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_run_git_command_diff_stat_with_changes() {
+        let (_tmp, dir) = init_git_repo().await;
+        // Modify the file so diff --stat has output
+        tokio::fs::write(dir.join("README.md"), "modified content").await.unwrap();
+        let result = run_git_command(&dir, &["diff", "--stat"], false).await;
+        assert!(result.is_ok());
+        let output = result.unwrap();
+        assert!(!output.trim().is_empty(), "diff --stat should show changes");
+        assert!(output.contains("README.md"));
+    }
+
+    // ---- get_current_branch tests ----
+
+    #[tokio::test]
+    async fn test_get_current_branch_on_repo() {
+        let (_tmp, dir) = init_git_repo().await;
+        let branch = get_current_branch(&dir).await;
+        assert!(branch.is_some(), "expected Some branch name");
+        // Default branch after git init is typically "main" or "master"
+        let name = branch.unwrap();
+        assert!(
+            name == "main" || name == "master",
+            "expected main or master, got: {name}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_current_branch_custom_branch() {
+        let (_tmp, dir) = init_git_repo().await;
+        // Create and checkout a feature branch
+        tokio::process::Command::new("git")
+            .args(["checkout", "-b", "flowstate/test-branch"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .expect("git checkout -b failed");
+
+        let branch = get_current_branch(&dir).await;
+        assert_eq!(branch, Some("flowstate/test-branch".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_get_current_branch_non_git_dir() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        // This directory is not a git repo
+        let branch = get_current_branch(tmp.path()).await;
+        assert!(branch.is_none(), "expected None for non-git directory");
+    }
+
+    #[tokio::test]
+    async fn test_get_current_branch_nonexistent_dir() {
+        let dir = Path::new("/tmp/flowstate_nonexistent_dir_for_branch_test");
+        let branch = get_current_branch(dir).await;
+        assert!(branch.is_none(), "expected None for nonexistent directory");
+    }
+
+    // ---- SalvageOutcome tests ----
+
+    #[test]
+    fn test_salvage_outcome_pr_cut_variant() {
+        let outcome = SalvageOutcome::PrCut {
+            pr_url: "https://github.com/org/repo/pull/42".to_string(),
+            pr_number: 42,
+        };
+        assert!(matches!(outcome, SalvageOutcome::PrCut { pr_number: 42, .. }));
+    }
+
+    #[test]
+    fn test_salvage_outcome_nothing_to_salvage_variant() {
+        let outcome = SalvageOutcome::NothingToSalvage;
+        assert!(matches!(outcome, SalvageOutcome::NothingToSalvage));
+    }
+
+    #[test]
+    fn test_salvage_outcome_validation_failed_variant() {
+        let outcome = SalvageOutcome::ValidationFailed {
+            error: "test failure".to_string(),
+        };
+        assert!(matches!(outcome, SalvageOutcome::ValidationFailed { .. }));
+    }
+
+    #[test]
+    fn test_salvage_outcome_salvage_error_variant() {
+        let outcome = SalvageOutcome::SalvageError {
+            error: "something went wrong".to_string(),
+        };
+        assert!(matches!(outcome, SalvageOutcome::SalvageError { .. }));
+    }
+
+    #[test]
+    fn test_salvage_outcome_pr_cut_fields() {
+        let outcome = SalvageOutcome::PrCut {
+            pr_url: "https://example.com/pr/1".to_string(),
+            pr_number: 1,
+        };
+        if let SalvageOutcome::PrCut { pr_url, pr_number } = outcome {
+            assert_eq!(pr_url, "https://example.com/pr/1");
+            assert_eq!(pr_number, 1);
+        } else {
+            panic!("expected PrCut variant");
+        }
+    }
+
+    #[test]
+    fn test_salvage_outcome_validation_failed_field() {
+        let outcome = SalvageOutcome::ValidationFailed {
+            error: "cargo test failed".to_string(),
+        };
+        if let SalvageOutcome::ValidationFailed { error } = outcome {
+            assert_eq!(error, "cargo test failed");
+        } else {
+            panic!("expected ValidationFailed variant");
+        }
+    }
+
+    #[test]
+    fn test_salvage_outcome_salvage_error_field() {
+        let outcome = SalvageOutcome::SalvageError {
+            error: "push failed".to_string(),
+        };
+        if let SalvageOutcome::SalvageError { error } = outcome {
+            assert_eq!(error, "push failed");
+        } else {
+            panic!("expected SalvageError variant");
+        }
+    }
+}

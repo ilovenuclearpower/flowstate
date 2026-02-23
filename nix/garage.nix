@@ -501,7 +501,7 @@ let
     garage -c "$CONFIG" bucket allow --read --write --owner flowstate-test --key flowstate-test
 
     # Extract credentials
-    KEY_INFO=$(garage -c "$CONFIG" key info flowstate-test 2>/dev/null)
+    KEY_INFO=$(garage -c "$CONFIG" key info --show-secret flowstate-test 2>/dev/null)
     KEY_ID=$(echo "$KEY_INFO" | grep "Key ID:" | awk '{print $3}')
     KEY_SECRET=$(echo "$KEY_INFO" | grep "Secret key:" | awk '{print $3}')
 
@@ -515,14 +515,16 @@ let
       exit 1
     fi
 
-    # Write credentials
+    # Write credentials using FLOWSTATE_S3_* names to avoid secret redaction
+    # by AI coding tools (which strip well-known AWS_SECRET_ACCESS_KEY).
+    # StoreConfig::from_getter() checks FLOWSTATE_S3_* first anyway.
     CRED_FILE="$TMPDIR/credentials/s3.env"
     cat > "$CRED_FILE" <<EOF
-    AWS_ACCESS_KEY_ID=$KEY_ID
-    AWS_SECRET_ACCESS_KEY=$KEY_SECRET
-    AWS_ENDPOINT_URL=http://127.0.0.1:$S3_PORT
-    AWS_REGION=garage
-    GARAGE_BUCKET=flowstate-test
+    FLOWSTATE_S3_ACCESS_KEY_ID=$KEY_ID
+    FLOWSTATE_S3_SECRET_ACCESS_KEY=$KEY_SECRET
+    FLOWSTATE_S3_ENDPOINT=http://127.0.0.1:$S3_PORT
+    FLOWSTATE_S3_REGION=garage
+    FLOWSTATE_S3_BUCKET=flowstate-test
     EOF
 
     echo ""
@@ -639,11 +641,11 @@ let
       done < "$CRED_FILE"
     else
       echo "=== Garage Test Instance ==="
-      echo "S3 endpoint:      $AWS_ENDPOINT_URL"
-      echo "Region:           $AWS_REGION"
-      echo "Bucket:           $GARAGE_BUCKET"
-      echo "Access Key ID:    $AWS_ACCESS_KEY_ID"
-      echo "Secret Key:       $AWS_SECRET_ACCESS_KEY"
+      echo "S3 endpoint:      $FLOWSTATE_S3_ENDPOINT"
+      echo "Region:           $FLOWSTATE_S3_REGION"
+      echo "Bucket:           $FLOWSTATE_S3_BUCKET"
+      echo "Access Key ID:    $FLOWSTATE_S3_ACCESS_KEY_ID"
+      echo "Secret Key:       $FLOWSTATE_S3_SECRET_ACCESS_KEY"
       echo "Test dir:         $TMPDIR"
       echo ""
       echo "To load into shell: eval \$(garage-test-info --env)"

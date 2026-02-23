@@ -80,3 +80,100 @@ impl AgentBackend for MockBackend {
         Ok(self.output.clone())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn success_creates_ok_output() {
+        let mock = MockBackend::success("hello");
+        assert!(mock.output.success);
+        assert_eq!(mock.output.stdout, "hello");
+        assert_eq!(mock.output.stderr, "");
+        assert_eq!(mock.output.exit_code, 0);
+        assert!(mock.files.is_empty());
+    }
+
+    #[test]
+    fn failure_creates_err_output() {
+        let mock = MockBackend::failure("boom", 42);
+        assert!(!mock.output.success);
+        assert_eq!(mock.output.stdout, "");
+        assert_eq!(mock.output.stderr, "boom");
+        assert_eq!(mock.output.exit_code, 42);
+    }
+
+    #[test]
+    fn with_files_stores_entries() {
+        let mock = MockBackend::success("ok")
+            .with_files(vec![("a.txt", "aaa"), ("sub/b.txt", "bbb")]);
+        assert_eq!(mock.files.len(), 2);
+        assert_eq!(mock.files[0].0, "a.txt");
+        assert_eq!(mock.files[0].1, "aaa");
+        assert_eq!(mock.files[1].0, "sub/b.txt");
+        assert_eq!(mock.files[1].1, "bbb");
+    }
+
+    #[test]
+    fn name_is_mock() {
+        let mock = MockBackend::success("");
+        assert_eq!(mock.name(), "mock");
+    }
+
+    #[tokio::test]
+    async fn preflight_check_succeeds() {
+        let mock = MockBackend::success("");
+        mock.preflight_check().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_returns_output() {
+        let mock = MockBackend::success("result");
+        let tmp = tempfile::tempdir().unwrap();
+        let output = mock
+            .run("prompt", tmp.path(), Duration::from_secs(60), Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(output.stdout, "result");
+    }
+
+    #[tokio::test]
+    async fn run_writes_files() {
+        let mock = MockBackend::success("ok")
+            .with_files(vec![("output.txt", "data"), ("sub/nested.txt", "nested")]);
+        let tmp = tempfile::tempdir().unwrap();
+        mock.run("prompt", tmp.path(), Duration::from_secs(60), Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("output.txt")).unwrap(),
+            "data"
+        );
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("sub/nested.txt")).unwrap(),
+            "nested"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_failure_output() {
+        let mock = MockBackend::failure("err", 1);
+        let tmp = tempfile::tempdir().unwrap();
+        let output = mock
+            .run("prompt", tmp.path(), Duration::from_secs(60), Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(!output.success);
+        assert_eq!(output.stderr, "err");
+        assert_eq!(output.exit_code, 1);
+    }
+
+    #[test]
+    fn model_hint_default_is_none() {
+        let mock = MockBackend::success("");
+        assert_eq!(mock.model_hint(), None);
+    }
+}

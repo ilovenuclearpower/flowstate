@@ -65,7 +65,10 @@
 
         garageScripts = import ./nix/garage.nix { inherit pkgs; };
         postgresScripts = import ./nix/postgres.nix { inherit pkgs; };
+        giteaScripts = import ./nix/gitea.nix { inherit pkgs; };
         coverageScripts = import ./nix/coverage.nix { inherit pkgs rustToolchain; };
+        runnerGeminiScripts = import ./nix/runner-gemini.nix { inherit pkgs; };
+        runnerClaudeScripts = import ./nix/runner-claude.nix { inherit pkgs; };
 
       in {
         packages = {
@@ -100,10 +103,15 @@
             pkgs.git
             pkgs.openssl
             pkgs.cargo-llvm-cov
+            pkgs.gemini-cli
+            pkgs.jq
           ] ++ garageScripts.all
             ++ postgresScripts.all
-            ++ coverageScripts.all;
-          RUST_MIN_STACK = "16777216";
+            ++ giteaScripts.all
+            ++ coverageScripts.all
+            ++ runnerGeminiScripts.all
+            ++ runnerClaudeScripts.all;
+          RUST_MIN_STACK = "67108864";
           shellHook = ''
             echo "flowstate dev shell"
             echo "  cargo: $(cargo --version)"
@@ -127,6 +135,15 @@
               echo "  postgres: loaded credentials (backend=$FLOWSTATE_DB_BACKEND)"
             fi
 
+            # Auto-load runner credentials (API keys for agent backends)
+            RUNNER_CRED_FILE="''${XDG_DATA_HOME:-$HOME/.local/share}/flowstate/runner/credentials/runner.env"
+            if [ -f "$RUNNER_CRED_FILE" ]; then
+              set -a
+              source "$RUNNER_CRED_FILE"
+              set +a
+              echo "  runner: loaded credentials"
+            fi
+
             echo ""
             echo "Garage commands:"
             echo "  garage-dev-start   - Start persistent Garage (S3 on :3900)"
@@ -137,6 +154,17 @@
             echo "  garage-test-stop   - Stop ephemeral Garage and wipe data"
             echo "  garage-test-status - Check ephemeral Garage status"
             echo "  garage-test-info   - Show test S3 credentials"
+            echo ""
+            echo "Gitea commands:"
+            echo "  gitea-test-start  - Start ephemeral Gitea (HTTP on :3920)"
+            echo "  gitea-test-stop   - Stop ephemeral Gitea and wipe data"
+            echo "  gitea-test-status - Check ephemeral Gitea status"
+            echo "  gitea-test-info   - Show test Gitea credentials"
+            echo ""
+            echo "Runner:"
+            echo "  runner-claude       - Start runner with Claude CLI (port 3714)"
+            echo "  runner-gemini-pro   - Start runner with Gemini 3.1 Pro (port 3712)"
+            echo "  runner-gemini-flash - Start runner with Gemini 3 Flash (port 3713)"
             echo ""
             echo "Coverage:"
             echo "  flowstate-coverage - Run full coverage suite (starts Postgres + Garage)"

@@ -61,17 +61,30 @@ pub async fn dispatch(
 
 /// Resolve a per-run workspace directory.
 pub fn resolve_workspace_dir(workspace_root: &Option<PathBuf>, run_id: &str) -> PathBuf {
+    resolve_workspace_dir_from(
+        workspace_root,
+        run_id,
+        std::env::var("XDG_DATA_HOME").ok(),
+        std::env::var_os("HOME").map(PathBuf::from),
+    )
+}
+
+pub fn resolve_workspace_dir_from(
+    workspace_root: &Option<PathBuf>,
+    run_id: &str,
+    xdg_data_home: Option<String>,
+    home: Option<PathBuf>,
+) -> PathBuf {
     match workspace_root {
         Some(root) => root.join(run_id),
         None => {
-            if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            if let Some(xdg) = xdg_data_home {
                 PathBuf::from(xdg)
                     .join("flowstate")
                     .join("workspaces")
                     .join(run_id)
-            } else if let Some(home) = std::env::var_os("HOME") {
-                PathBuf::from(home)
-                    .join(".local/share/flowstate/workspaces")
+            } else if let Some(home) = home {
+                home.join(".local/share/flowstate/workspaces")
                     .join(run_id)
             } else {
                 PathBuf::from(".")
@@ -461,4 +474,201 @@ async fn report_failure(
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    // ── resolve_workspace_dir_from ──────────────────────────────────
+
+    #[test]
+    fn resolve_workspace_dir_from_with_explicit_root() {
+        let root = PathBuf::from("/custom/workspace");
+        let dir = resolve_workspace_dir_from(&Some(root.clone()), "run-42", None, None);
+        assert_eq!(dir, PathBuf::from("/custom/workspace/run-42"));
+    }
+
+    #[test]
+    fn resolve_workspace_dir_from_xdg_data_home() {
+        let dir = resolve_workspace_dir_from(
+            &None,
+            "run-99",
+            Some("/tmp/xdg-data".to_string()),
+            Some(PathBuf::from("/home/user")),
+        );
+        assert_eq!(
+            dir,
+            PathBuf::from("/tmp/xdg-data/flowstate/workspaces/run-99")
+        );
+    }
+
+    #[test]
+    fn resolve_workspace_dir_from_home_fallback() {
+        let dir = resolve_workspace_dir_from(
+            &None,
+            "run-7",
+            None,
+            Some(PathBuf::from("/home/testuser")),
+        );
+        assert_eq!(
+            dir,
+            PathBuf::from("/home/testuser/.local/share/flowstate/workspaces/run-7")
+        );
+    }
+
+    #[test]
+    fn resolve_workspace_dir_from_no_env() {
+        let dir = resolve_workspace_dir_from(&None, "run-0", None, None);
+        assert_eq!(dir, PathBuf::from("./flowstate/workspaces/run-0"));
+    }
+
+    #[test]
+    fn resolve_workspace_dir_from_xdg_takes_priority_over_home() {
+        // When both XDG_DATA_HOME and HOME are present, XDG should win
+        let dir = resolve_workspace_dir_from(
+            &None,
+            "run-1",
+            Some("/xdg-path".to_string()),
+            Some(PathBuf::from("/home/user")),
+        );
+        assert!(
+            dir.starts_with("/xdg-path"),
+            "XDG_DATA_HOME should take priority over HOME: {dir:?}"
+        );
+    }
+
+    #[test]
+    fn resolve_workspace_dir_from_explicit_root_ignores_env() {
+        // Explicit root should be used even when XDG and HOME are set
+        let root = PathBuf::from("/explicit");
+        let dir = resolve_workspace_dir_from(
+            &Some(root),
+            "run-2",
+            Some("/xdg".to_string()),
+            Some(PathBuf::from("/home/user")),
+        );
+        assert_eq!(dir, PathBuf::from("/explicit/run-2"));
+    }
+
+    // ── cleanup_workspace ───────────────────────────────────────────
+
+    #[test]
+    fn cleanup_workspace_removes_existing_dir() {
+        let tmp = tempdir().unwrap();
+        let ws = tmp.path().join("workspace-to-clean");
+        std::fs::create_dir_all(&ws).unwrap();
+        // Put a file inside to ensure recursive removal
+        std::fs::write(ws.join("file.txt"), "data").unwrap();
+
+        assert!(ws.exists());
+        cleanup_workspace(&ws);
+        assert!(!ws.exists());
+    }
+
+    #[test]
+    fn cleanup_workspace_noop_when_missing() {
+        let tmp = tempdir().unwrap();
+        let ws = tmp.path().join("nonexistent-workspace");
+        assert!(!ws.exists());
+        // Should not panic or error
+        cleanup_workspace(&ws);
+        assert!(!ws.exists());
+    }
+
+    #[test]
+    fn cleanup_workspace_removes_nested_dirs() {
+        let tmp = tempdir().unwrap();
+        let ws = tmp.path().join("deep");
+        std::fs::create_dir_all(ws.join("a/b/c")).unwrap();
+        std::fs::write(ws.join("a/b/c/leaf.txt"), "leaf").unwrap();
+
+        cleanup_workspace(&ws);
+        assert!(!ws.exists());
+    }
+
+    // ── save_prompt ─────────────────────────────────────────────────
+
+    #[test]
+    fn save_prompt_writes_file_with_xdg() {
+        let tmp = tempdir().unwrap();
+        let xdg_val = tmp.path().to_str().unwrap().to_string();
+
+        // Temporarily override XDG_DATA_HOME for this call.
+        // save_prompt reads env vars directly, so we set them around the call.
+        let old_xdg = std::env::var("XDG_DATA_HOME").ok();
+        std::env::set_var("XDG_DATA_HOME", &xdg_val);
+
+        let result = save_prompt("test-run-xdg", "Hello from XDG test");
+
+        // Restore
+        match old_xdg {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+
+        result.unwrap();
+
+        let expected_path = tmp
+            .path()
+            .join("flowstate/claude_runs/test-run-xdg/prompt.md");
+        assert!(expected_path.exists(), "prompt file should exist at {expected_path:?}");
+        let content = std::fs::read_to_string(&expected_path).unwrap();
+        assert_eq!(content, "Hello from XDG test");
+    }
+
+    #[test]
+    fn save_prompt_writes_file_with_home_fallback() {
+        let tmp = tempdir().unwrap();
+        let home_val = tmp.path().to_str().unwrap().to_string();
+
+        let old_xdg = std::env::var("XDG_DATA_HOME").ok();
+        let old_home = std::env::var("HOME").ok();
+        std::env::remove_var("XDG_DATA_HOME");
+        std::env::set_var("HOME", &home_val);
+
+        let result = save_prompt("test-run-home", "Hello from HOME test");
+
+        // Restore
+        match old_xdg {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+        match old_home {
+            Some(v) => std::env::set_var("HOME", v),
+            None => std::env::remove_var("HOME"),
+        }
+
+        result.unwrap();
+
+        let expected_path = tmp
+            .path()
+            .join(".local/share/flowstate/claude_runs/test-run-home/prompt.md");
+        assert!(expected_path.exists(), "prompt file should exist at {expected_path:?}");
+        let content = std::fs::read_to_string(&expected_path).unwrap();
+        assert_eq!(content, "Hello from HOME test");
+    }
+
+    #[test]
+    fn save_prompt_creates_directories() {
+        let tmp = tempdir().unwrap();
+        let xdg_val = tmp.path().to_str().unwrap().to_string();
+
+        let old_xdg = std::env::var("XDG_DATA_HOME").ok();
+        std::env::set_var("XDG_DATA_HOME", &xdg_val);
+
+        // Directories don't exist yet - save_prompt should create them
+        let result = save_prompt("brand-new-run", "prompt content");
+
+        match old_xdg {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+
+        result.unwrap();
+
+        let expected_dir = tmp.path().join("flowstate/claude_runs/brand-new-run");
+        assert!(expected_dir.is_dir(), "run directory should be created");
+    }
 }

@@ -873,6 +873,7 @@ dependencies = [
  "async-trait",
  "flowstate-core",
  "flowstate-db",
+ "flowstate-server",
  "reqwest",
  "serde",
  "serde_json",

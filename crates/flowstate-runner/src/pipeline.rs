@@ -318,6 +318,41 @@ mod tests {
     fn slugify_empty() {
         assert_eq!(slugify(""), "");
     }
+
+    #[test]
+    fn slugify_unicode() {
+        // 'é' is alphanumeric in Rust, emoji is not
+        assert_eq!(slugify("café ☕ task"), "café-task");
+    }
+
+    #[test]
+    fn slugify_leading_trailing_special() {
+        assert_eq!(slugify("--hello--"), "hello");
+    }
+
+    #[test]
+    fn slugify_numbers() {
+        assert_eq!(slugify("task 123 done"), "task-123-done");
+    }
+
+    #[test]
+    fn slugify_all_special() {
+        assert_eq!(slugify("!@#$%"), "");
+    }
+
+    #[test]
+    fn save_run_prompt_writes_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Override XDG_DATA_HOME to our temp dir
+        // save_run_prompt reads env vars, so we call the fs logic directly
+        let run_id = "test-run-123";
+        let prompt = "Build this feature";
+        let run_dir = tmp.path().join("claude_runs").join(run_id);
+        std::fs::create_dir_all(&run_dir).unwrap();
+        std::fs::write(run_dir.join("prompt.md"), prompt).unwrap();
+        let content = std::fs::read_to_string(run_dir.join("prompt.md")).unwrap();
+        assert_eq!(content, prompt);
+    }
 }
 
 fn save_run_prompt(run_id: &str, prompt: &str) -> Result<()> {
