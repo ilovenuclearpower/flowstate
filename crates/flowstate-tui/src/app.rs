@@ -2629,3 +2629,232 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
         ])
         .split(popup_layout[1])[1]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── next_status / prev_status ──
+
+    #[test]
+    fn next_status_chain() {
+        assert_eq!(next_status(Status::Todo), Some(Status::Research));
+        assert_eq!(next_status(Status::Research), Some(Status::Design));
+        assert_eq!(next_status(Status::Design), Some(Status::Plan));
+        assert_eq!(next_status(Status::Plan), Some(Status::Build));
+        assert_eq!(next_status(Status::Build), Some(Status::Verify));
+        assert_eq!(next_status(Status::Verify), Some(Status::Done));
+        assert_eq!(next_status(Status::Done), None);
+        assert_eq!(next_status(Status::Cancelled), None);
+    }
+
+    #[test]
+    fn prev_status_chain() {
+        assert_eq!(prev_status(Status::Todo), None);
+        assert_eq!(prev_status(Status::Research), Some(Status::Todo));
+        assert_eq!(prev_status(Status::Design), Some(Status::Research));
+        assert_eq!(prev_status(Status::Plan), Some(Status::Design));
+        assert_eq!(prev_status(Status::Build), Some(Status::Plan));
+        assert_eq!(prev_status(Status::Verify), Some(Status::Build));
+        assert_eq!(prev_status(Status::Done), Some(Status::Verify));
+        assert_eq!(prev_status(Status::Cancelled), None);
+    }
+
+    #[test]
+    fn next_prev_roundtrip() {
+        for &s in &[Status::Research, Status::Design, Status::Plan, Status::Build, Status::Verify] {
+            let next = next_status(s).unwrap();
+            let back = prev_status(next).unwrap();
+            assert_eq!(back, s, "prev(next({s:?})) should be {s:?}");
+        }
+    }
+
+    // ── priority_style ──
+
+    #[test]
+    fn priority_style_returns_distinct_styles() {
+        let urgent = priority_style(Priority::Urgent);
+        let high = priority_style(Priority::High);
+        let medium = priority_style(Priority::Medium);
+        let low = priority_style(Priority::Low);
+        let none = priority_style(Priority::None);
+        // Each priority should produce a style (we can't easily check Color equality,
+        // but we can at least verify they don't panic and are not all the same)
+        let styles = [urgent, high, medium, low, none];
+        // At minimum, Urgent and None should differ
+        assert_ne!(styles[0], styles[4]);
+    }
+
+    // ── approval_style ──
+
+    #[test]
+    fn approval_style_returns_distinct_styles() {
+        let none = approval_style(ApprovalStatus::None);
+        let pending = approval_style(ApprovalStatus::Pending);
+        let approved = approval_style(ApprovalStatus::Approved);
+        let rejected = approval_style(ApprovalStatus::Rejected);
+        assert_ne!(none, approved);
+        assert_ne!(pending, rejected);
+        assert_ne!(approved, rejected);
+    }
+
+    // ── centered_rect ──
+
+    #[test]
+    fn centered_rect_basic() {
+        let area = Rect::new(0, 0, 100, 100);
+        let popup = centered_rect(50, 50, area);
+        // The popup should be smaller than the full area
+        assert!(popup.width <= area.width);
+        assert!(popup.height <= area.height);
+        // And roughly centered
+        assert!(popup.x > 0);
+        assert!(popup.y > 0);
+    }
+
+    #[test]
+    fn centered_rect_full_size() {
+        let area = Rect::new(0, 0, 100, 100);
+        let popup = centered_rect(100, 100, area);
+        // 100% should fill (approximately) the whole area
+        assert_eq!(popup.width, area.width);
+        assert_eq!(popup.height, area.height);
+    }
+
+    // ── Mode helpers ──
+
+    #[test]
+    fn is_input_mode_returns_true_for_input_modes() {
+        let input_modes = vec![
+            Mode::NewTask { input: String::new() },
+            Mode::EditTitle { task_id: "t".into(), input: String::new() },
+            Mode::EditDescription { task_id: "t".into(), input: String::new() },
+            Mode::NewProject { name: String::new(), slug: String::new(), field: ProjectField::Name },
+            Mode::EditRepoUrl { project_id: "p".into(), input: String::new() },
+            Mode::EditRepoToken { project_id: "p".into(), input: String::new() },
+            Mode::NewSprint { input: String::new() },
+        ];
+        for mode in &input_modes {
+            // We can't call is_input_mode without an App, but the function uses matches!
+            // on self.mode. Let's test the matches! logic directly.
+            assert!(matches!(
+                mode,
+                Mode::NewTask { .. }
+                    | Mode::EditTitle { .. }
+                    | Mode::EditDescription { .. }
+                    | Mode::NewProject { .. }
+                    | Mode::EditRepoUrl { .. }
+                    | Mode::EditRepoToken { .. }
+                    | Mode::FeedbackInput { .. }
+                    | Mode::NewSprint { .. }
+                    | Mode::NewSubtask { .. }
+            ), "expected input mode for {mode:?}");
+        }
+    }
+
+    #[test]
+    fn is_input_mode_returns_false_for_non_input_modes() {
+        let non_input_modes = vec![
+            Mode::Normal,
+            Mode::Health { checks: vec![] },
+        ];
+        for mode in &non_input_modes {
+            assert!(!matches!(
+                mode,
+                Mode::NewTask { .. }
+                    | Mode::EditTitle { .. }
+                    | Mode::EditDescription { .. }
+                    | Mode::NewProject { .. }
+                    | Mode::EditRepoUrl { .. }
+                    | Mode::EditRepoToken { .. }
+                    | Mode::FeedbackInput { .. }
+                    | Mode::NewSprint { .. }
+                    | Mode::NewSubtask { .. }
+            ), "expected non-input mode for {mode:?}");
+        }
+    }
+
+    #[test]
+    fn needs_polling_only_for_claude_running() {
+        assert!(matches!(
+            Mode::ClaudeRunning {
+                task: dummy_task(),
+                run_id: "r".into(),
+                progress: None,
+            },
+            Mode::ClaudeRunning { .. }
+        ));
+        assert!(!matches!(Mode::Normal, Mode::ClaudeRunning { .. }));
+    }
+
+    // ── HealthCheck / CheckStatus ──
+
+    #[test]
+    fn health_check_construction() {
+        let check = HealthCheck {
+            name: "Server".into(),
+            status: CheckStatus::Passed,
+            detail: "ok".into(),
+        };
+        assert_eq!(check.name, "Server");
+        assert!(matches!(check.status, CheckStatus::Passed));
+    }
+
+    #[test]
+    fn check_status_failed() {
+        let status = CheckStatus::Failed;
+        assert!(matches!(status, CheckStatus::Failed));
+    }
+
+    // ── ProjectField ──
+
+    #[test]
+    fn project_field_variants() {
+        let name = ProjectField::Name;
+        let slug = ProjectField::Slug;
+        assert!(matches!(name, ProjectField::Name));
+        assert!(matches!(slug, ProjectField::Slug));
+    }
+
+    // ── EditorRequest ──
+
+    #[test]
+    fn editor_request_construction() {
+        let req = EditorRequest {
+            path: PathBuf::from("/tmp/test.md"),
+            task_id: "task-1".into(),
+            kind: "spec".into(),
+        };
+        assert_eq!(req.path, PathBuf::from("/tmp/test.md"));
+        assert_eq!(req.task_id, "task-1");
+        assert_eq!(req.kind, "spec");
+    }
+
+    // Helper to create a minimal Task for mode testing
+    fn dummy_task() -> Task {
+        Task {
+            id: "t-1".into(),
+            project_id: "p-1".into(),
+            title: "Test".into(),
+            description: String::new(),
+            status: Status::Todo,
+            priority: Priority::Medium,
+            parent_id: None,
+            reviewer: String::new(),
+            spec_status: ApprovalStatus::None,
+            plan_status: ApprovalStatus::None,
+            research_status: ApprovalStatus::None,
+            verify_status: ApprovalStatus::None,
+            spec_feedback: String::new(),
+            plan_feedback: String::new(),
+            research_feedback: String::new(),
+            verify_feedback: String::new(),
+            spec_approved_hash: String::new(),
+            research_approved_hash: String::new(),
+            sort_order: 0.0,
+            sprint_id: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+}

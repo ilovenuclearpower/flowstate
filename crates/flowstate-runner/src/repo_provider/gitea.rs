@@ -557,4 +557,85 @@ mod tests {
         assert_eq!(provider.repo, "project");
         assert!(provider.skip_tls_verify);
     }
+
+    #[test]
+    fn api_url_formatting() {
+        let provider = GiteaProvider::new(
+            "https://gitea.example.com/user/repo",
+            Some("token123".into()),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            provider.api_url("/repos/user/repo"),
+            "https://gitea.example.com/api/v1/repos/user/repo"
+        );
+        assert_eq!(
+            provider.api_url("/user"),
+            "https://gitea.example.com/api/v1/user"
+        );
+    }
+
+    #[test]
+    fn supports_url_always_true() {
+        let provider = GiteaProvider::new(
+            "https://gitea.example.com/user/repo",
+            Some("token123".into()),
+            false,
+        )
+        .unwrap();
+        assert!(provider.supports_url("https://anything.com/foo/bar"));
+        assert!(provider.supports_url(""));
+    }
+
+    #[tokio::test]
+    async fn preflight_always_ok() {
+        let provider = GiteaProvider::new(
+            "https://gitea.example.com/user/repo",
+            Some("token123".into()),
+            false,
+        )
+        .unwrap();
+        provider.preflight().await.unwrap();
+    }
+
+    #[test]
+    fn parse_gitea_url_http_scheme() {
+        let (base, owner, repo) =
+            parse_gitea_url("http://gitea.local/myorg/myrepo").unwrap();
+        assert_eq!(base, "http://gitea.local");
+        assert_eq!(owner, "myorg");
+        assert_eq!(repo, "myrepo");
+    }
+
+    #[test]
+    fn parse_gitea_url_invalid() {
+        assert!(parse_gitea_url("not-a-url").is_err());
+    }
+
+    #[test]
+    fn parse_gitea_url_no_path() {
+        assert!(parse_gitea_url("https://gitea.example.com").is_err());
+    }
+
+    #[test]
+    fn gitea_construction_skip_tls_false() {
+        let provider = GiteaProvider::new(
+            "https://gitea.example.com/user/repo",
+            Some("token".into()),
+            false,
+        )
+        .unwrap();
+        assert!(!provider.skip_tls_verify);
+    }
+
+    #[test]
+    fn parse_gitea_url_with_extra_path_segments() {
+        // Should take the first two segments as owner/repo
+        let (base, owner, repo) =
+            parse_gitea_url("https://gitea.example.com/org/repo/extra/path").unwrap();
+        assert_eq!(base, "https://gitea.example.com");
+        assert_eq!(owner, "org");
+        assert_eq!(repo, "repo");
+    }
 }

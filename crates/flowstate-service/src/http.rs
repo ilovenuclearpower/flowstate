@@ -576,3 +576,735 @@ impl TaskService for HttpService {
             .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flowstate_core::claude_run::{ClaudeAction, ClaudeRunStatus, CreateClaudeRun};
+    use flowstate_core::project::CreateProject;
+    use flowstate_core::sprint::CreateSprint;
+    use flowstate_core::task::{CreateTask, Priority, Status, TaskFilter, UpdateTask};
+    use flowstate_core::task_link::{CreateTaskLink, LinkType};
+    use flowstate_core::task_pr::CreateTaskPr;
+
+    /// Spawn a test server and return an HttpService connected to it.
+    /// The returned TestServer must be kept alive for the duration of the test.
+    async fn setup() -> (HttpService, flowstate_server::test_helpers::TestServer) {
+        let server = flowstate_server::test_helpers::spawn_test_server().await;
+        let svc = HttpService::new(&server.base_url);
+        (svc, server)
+    }
+
+    fn test_project() -> CreateProject {
+        CreateProject {
+            name: "Test Project".into(),
+            slug: "test-project".into(),
+            description: "A test project".into(),
+            repo_url: String::new(),
+        }
+    }
+
+    fn test_task(project_id: &str) -> CreateTask {
+        CreateTask {
+            project_id: project_id.to_string(),
+            title: "Test Task".into(),
+            description: "A test task".into(),
+            status: Status::Todo,
+            priority: Priority::Medium,
+            parent_id: None,
+            reviewer: String::new(),
+        }
+    }
+
+    // ---- health_check ----
+
+    #[tokio::test]
+    async fn health_check_succeeds() {
+        let (svc, _server) = setup().await;
+        svc.health_check().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn health_check_unreachable() {
+        let svc = HttpService::new("http://127.0.0.1:1");
+        let err = svc.health_check().await.unwrap_err();
+        assert!(matches!(err, ServiceError::Internal(_)));
+    }
+
+    // ---- constructors and setters ----
+
+    #[tokio::test]
+    async fn with_api_key_constructor() {
+        let (_, server) = setup().await;
+        let svc = HttpService::with_api_key(&server.base_url, "fake-key".into());
+        // Server has no auth, so requests should still work
+        svc.health_check().await.unwrap();
+        let projects = svc.list_projects().await.unwrap();
+        assert!(projects.is_empty());
+    }
+
+    #[tokio::test]
+    async fn set_runner_id_propagated() {
+        let (mut svc, _server) = setup().await;
+        svc.set_runner_id("test-runner".into());
+        // Health check should still work with runner header
+        svc.health_check().await.unwrap();
+    }
+
+    // ---- project CRUD ----
+
+    #[tokio::test]
+    async fn project_create_get_list_update_delete() {
+        let (svc, _server) = setup().await;
+
+        // Create
+        let project = svc.create_project(&test_project()).await.unwrap();
+        assert_eq!(project.name, "Test Project");
+        assert_eq!(project.slug, "test-project");
+
+        // Get by id
+        let fetched = svc.get_project(&project.id).await.unwrap();
+        assert_eq!(fetched.id, project.id);
+
+        // Get by slug
+        let by_slug = svc.get_project_by_slug("test-project").await.unwrap();
+        assert_eq!(by_slug.id, project.id);
+
+        // List
+        let all = svc.list_projects().await.unwrap();
+        assert_eq!(all.len(), 1);
+
+        // Update
+        let updated = svc
+            .update_project(
+                &project.id,
+                &flowstate_core::project::UpdateProject {
+                    name: Some("Renamed".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.name, "Renamed");
+
+        // Delete
+        svc.delete_project(&project.id).await.unwrap();
+        let all = svc.list_projects().await.unwrap();
+        assert!(all.is_empty());
+    }
+
+    // ---- task CRUD ----
+
+    #[tokio::test]
+    async fn task_create_get_list_update_delete() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+
+        // Create
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+        assert_eq!(task.title, "Test Task");
+
+        // Get
+        let fetched = svc.get_task(&task.id).await.unwrap();
+        assert_eq!(fetched.id, task.id);
+
+        // List with project filter
+        let all = svc
+            .list_tasks(&TaskFilter {
+                project_id: Some(project.id.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 1);
+
+        // Update
+        let updated = svc
+            .update_task(
+                &task.id,
+                &UpdateTask {
+                    title: Some("Updated Title".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.title, "Updated Title");
+
+        // Delete
+        svc.delete_task(&task.id).await.unwrap();
+        let all = svc
+            .list_tasks(&TaskFilter {
+                project_id: Some(project.id.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert!(all.is_empty());
+    }
+
+    // ---- task filters ----
+
+    #[tokio::test]
+    async fn list_tasks_with_status_filter() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+
+        svc.create_task(&CreateTask {
+            project_id: project.id.clone(),
+            title: "Todo".into(),
+            description: String::new(),
+            status: Status::Todo,
+            priority: Priority::High,
+            parent_id: None,
+            reviewer: String::new(),
+        })
+        .await
+        .unwrap();
+
+        svc.create_task(&CreateTask {
+            project_id: project.id.clone(),
+            title: "Done".into(),
+            description: String::new(),
+            status: Status::Done,
+            priority: Priority::Low,
+            parent_id: None,
+            reviewer: String::new(),
+        })
+        .await
+        .unwrap();
+
+        // Filter by status
+        let todo_only = svc
+            .list_tasks(&TaskFilter {
+                project_id: Some(project.id.clone()),
+                status: Some(Status::Todo),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(todo_only.len(), 1);
+        assert_eq!(todo_only[0].title, "Todo");
+
+        // Filter by priority
+        let high_only = svc
+            .list_tasks(&TaskFilter {
+                project_id: Some(project.id.clone()),
+                priority: Some(Priority::High),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(high_only.len(), 1);
+        assert_eq!(high_only[0].title, "Todo");
+
+        // Filter with limit
+        let limited = svc
+            .list_tasks(&TaskFilter {
+                project_id: Some(project.id.clone()),
+                limit: Some(1),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(limited.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn list_tasks_with_sprint_filter() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+
+        let sprint = svc
+            .create_sprint(&CreateSprint {
+                project_id: project.id.clone(),
+                name: "Sprint 1".into(),
+                goal: String::new(),
+                starts_at: None,
+                ends_at: None,
+            })
+            .await
+            .unwrap();
+
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+        svc.update_task(
+            &task.id,
+            &UpdateTask {
+                sprint_id: Some(Some(sprint.id.clone())),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let with_sprint = svc
+            .list_tasks(&TaskFilter {
+                project_id: Some(project.id.clone()),
+                sprint_id: Some(sprint.id.clone()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(with_sprint.len(), 1);
+    }
+
+    // ---- count tasks by status ----
+
+    #[tokio::test]
+    async fn count_tasks_by_status_returns_counts() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+
+        svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        let counts = svc.count_tasks_by_status(&project.id).await.unwrap();
+        assert!(!counts.is_empty());
+        // Should have at least one entry for "todo"
+        let todo_count = counts.iter().find(|(s, _)| s == "todo");
+        assert!(todo_count.is_some());
+        assert_eq!(todo_count.unwrap().1, 1);
+    }
+
+    // ---- child tasks ----
+
+    #[tokio::test]
+    async fn list_child_tasks_empty_then_populated() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let parent = svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        // No children yet
+        let children = svc.list_child_tasks(&parent.id).await.unwrap();
+        assert!(children.is_empty());
+
+        // Create a child
+        svc.create_task(&CreateTask {
+            project_id: project.id.clone(),
+            title: "Child Task".into(),
+            description: String::new(),
+            status: Status::Todo,
+            priority: Priority::Low,
+            parent_id: Some(parent.id.clone()),
+            reviewer: String::new(),
+        })
+        .await
+        .unwrap();
+
+        let children = svc.list_child_tasks(&parent.id).await.unwrap();
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0].title, "Child Task");
+    }
+
+    // ---- sprint CRUD ----
+
+    #[tokio::test]
+    async fn sprint_create_get_list_update_delete() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+
+        let sprint = svc
+            .create_sprint(&CreateSprint {
+                project_id: project.id.clone(),
+                name: "Sprint 1".into(),
+                goal: "Ship it".into(),
+                starts_at: None,
+                ends_at: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(sprint.name, "Sprint 1");
+
+        let fetched = svc.get_sprint(&sprint.id).await.unwrap();
+        assert_eq!(fetched.id, sprint.id);
+
+        let all = svc.list_sprints(&project.id).await.unwrap();
+        assert_eq!(all.len(), 1);
+
+        let updated = svc
+            .update_sprint(
+                &sprint.id,
+                &flowstate_core::sprint::UpdateSprint {
+                    name: Some("Sprint 1 Updated".into()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.name, "Sprint 1 Updated");
+
+        svc.delete_sprint(&sprint.id).await.unwrap();
+        let all = svc.list_sprints(&project.id).await.unwrap();
+        assert!(all.is_empty());
+    }
+
+    // ---- task links ----
+
+    #[tokio::test]
+    async fn task_link_create_list_delete() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+
+        let task1 = svc.create_task(&test_task(&project.id)).await.unwrap();
+        let task2 = svc
+            .create_task(&CreateTask {
+                project_id: project.id.clone(),
+                title: "Task 2".into(),
+                description: String::new(),
+                status: Status::Todo,
+                priority: Priority::Medium,
+                parent_id: None,
+                reviewer: String::new(),
+            })
+            .await
+            .unwrap();
+
+        let link = svc
+            .create_task_link(&CreateTaskLink {
+                source_task_id: task1.id.clone(),
+                target_task_id: task2.id.clone(),
+                link_type: LinkType::Blocks,
+            })
+            .await
+            .unwrap();
+        assert_eq!(link.source_task_id, task1.id);
+
+        let links = svc.list_task_links(&task1.id).await.unwrap();
+        assert_eq!(links.len(), 1);
+
+        svc.delete_task_link(&link.id).await.unwrap();
+        let links = svc.list_task_links(&task1.id).await.unwrap();
+        assert!(links.is_empty());
+    }
+
+    // ---- task PRs ----
+
+    #[tokio::test]
+    async fn task_pr_create_list() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        let pr = svc
+            .create_task_pr(&CreateTaskPr {
+                task_id: task.id.clone(),
+                claude_run_id: None,
+                pr_url: "https://github.com/org/repo/pull/42".into(),
+                pr_number: 42,
+                branch_name: "flowstate/test".into(),
+            })
+            .await
+            .unwrap();
+        assert_eq!(pr.pr_number, 42);
+
+        let prs = svc.list_task_prs(&task.id).await.unwrap();
+        assert_eq!(prs.len(), 1);
+        assert_eq!(prs[0].pr_number, 42);
+    }
+
+    // ---- claude runs (trait methods) ----
+
+    #[tokio::test]
+    async fn claude_run_create_get_list() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        let run = svc
+            .create_claude_run(&CreateClaudeRun {
+                task_id: task.id.clone(),
+                action: ClaudeAction::Research,
+                required_capability: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(run.task_id, task.id);
+        assert_eq!(run.action, ClaudeAction::Research);
+        assert_eq!(run.status, ClaudeRunStatus::Queued);
+
+        let fetched = svc.get_claude_run(&run.id).await.unwrap();
+        assert_eq!(fetched.id, run.id);
+
+        let runs = svc.list_claude_runs(&task.id).await.unwrap();
+        assert_eq!(runs.len(), 1);
+    }
+
+    // ---- convenience: trigger_claude_run ----
+
+    #[tokio::test]
+    async fn trigger_claude_run_creates_run() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
+        assert_eq!(run.task_id, task.id);
+        assert_eq!(run.action, ClaudeAction::Research);
+    }
+
+    // ---- convenience: claim_claude_run ----
+
+    #[tokio::test]
+    async fn claim_claude_run_returns_none_when_empty() {
+        let (mut svc, _server) = setup().await;
+        svc.set_runner_id("claimer".into());
+        svc.register_runner("claimer", "claude-cli", "standard")
+            .await
+            .unwrap();
+
+        let claimed = svc.claim_claude_run().await.unwrap();
+        assert!(claimed.is_none());
+    }
+
+    #[tokio::test]
+    async fn claim_claude_run_claims_queued_run() {
+        let (mut svc, _server) = setup().await;
+        svc.set_runner_id("claimer".into());
+        svc.register_runner("claimer", "claude-cli", "standard")
+            .await
+            .unwrap();
+
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
+
+        let claimed = svc.claim_claude_run().await.unwrap();
+        assert!(claimed.is_some());
+        assert_eq!(claimed.unwrap().id, run.id);
+    }
+
+    // ---- convenience: update_claude_run_status ----
+
+    #[tokio::test]
+    async fn update_claude_run_status_to_completed() {
+        let (mut svc, _server) = setup().await;
+        svc.set_runner_id("runner-1".into());
+        svc.register_runner("runner-1", "claude-cli", "standard")
+            .await
+            .unwrap();
+
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+        let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
+
+        // Claim first (moves to Running)
+        svc.claim_claude_run().await.unwrap();
+
+        let updated = svc
+            .update_claude_run_status(&run.id, "completed", None, Some(0))
+            .await
+            .unwrap();
+        assert_eq!(updated.status, ClaudeRunStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn update_claude_run_status_to_failed() {
+        let (mut svc, _server) = setup().await;
+        svc.set_runner_id("runner-2".into());
+        svc.register_runner("runner-2", "claude-cli", "standard")
+            .await
+            .unwrap();
+
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+        let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
+
+        svc.claim_claude_run().await.unwrap();
+
+        let updated = svc
+            .update_claude_run_status(&run.id, "failed", Some("something broke"), Some(1))
+            .await
+            .unwrap();
+        assert_eq!(updated.status, ClaudeRunStatus::Failed);
+        assert_eq!(updated.error_message.as_deref(), Some("something broke"));
+    }
+
+    // ---- convenience: update_claude_run_progress ----
+
+    #[tokio::test]
+    async fn update_claude_run_progress_succeeds() {
+        let (mut svc, _server) = setup().await;
+        svc.set_runner_id("runner-3".into());
+        svc.register_runner("runner-3", "claude-cli", "standard")
+            .await
+            .unwrap();
+
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+        svc.trigger_claude_run(&task.id, "research").await.unwrap();
+
+        let claimed = svc.claim_claude_run().await.unwrap().unwrap();
+        svc.update_claude_run_progress(&claimed.id, "Working on it...")
+            .await
+            .unwrap();
+    }
+
+    // ---- convenience: spec/plan/research/verification roundtrip ----
+
+    #[tokio::test]
+    async fn spec_plan_research_verification_roundtrip() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        // Spec
+        svc.write_task_spec(&task.id, "# Spec").await.unwrap();
+        let spec = svc.read_task_spec(&task.id).await.unwrap();
+        assert_eq!(spec, "# Spec");
+
+        // Plan
+        svc.write_task_plan(&task.id, "# Plan").await.unwrap();
+        let plan = svc.read_task_plan(&task.id).await.unwrap();
+        assert_eq!(plan, "# Plan");
+
+        // Research
+        svc.write_task_research(&task.id, "# Research")
+            .await
+            .unwrap();
+        let research = svc.read_task_research(&task.id).await.unwrap();
+        assert_eq!(research, "# Research");
+
+        // Verification
+        svc.write_task_verification(&task.id, "# Verification")
+            .await
+            .unwrap();
+        let verification = svc.read_task_verification(&task.id).await.unwrap();
+        assert_eq!(verification, "# Verification");
+    }
+
+    // ---- convenience: repo token ----
+
+    #[tokio::test]
+    async fn repo_token_set_get_roundtrip() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+
+        svc.set_repo_token(&project.id, "ghp_test_token_123")
+            .await
+            .unwrap();
+        let token = svc.get_repo_token(&project.id).await.unwrap();
+        assert_eq!(token, "ghp_test_token_123");
+    }
+
+    // ---- convenience: system_status ----
+
+    #[tokio::test]
+    async fn system_status_returns_ok() {
+        let (svc, _server) = setup().await;
+        let status = svc.system_status().await.unwrap();
+        assert_eq!(status.server, "ok");
+    }
+
+    // ---- convenience: update_claude_run_pr ----
+
+    #[tokio::test]
+    async fn update_claude_run_pr_sets_pr_info() {
+        let (mut svc, _server) = setup().await;
+        svc.set_runner_id("pr-runner".into());
+        svc.register_runner("pr-runner", "claude-cli", "standard")
+            .await
+            .unwrap();
+
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+        let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
+
+        // Claim first
+        svc.claim_claude_run().await.unwrap();
+
+        let updated = svc
+            .update_claude_run_pr(
+                &run.id,
+                Some("https://github.com/org/repo/pull/99"),
+                Some(99),
+                Some("flowstate/my-branch"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.status, ClaudeRunStatus::Completed);
+    }
+
+    // ---- convenience: register_runner ----
+
+    #[tokio::test]
+    async fn register_runner_succeeds() {
+        let (svc, _server) = setup().await;
+        svc.register_runner("runner-reg-test", "claude-cli", "standard")
+            .await
+            .unwrap();
+    }
+
+    // ---- convenience: get_claude_run_output ----
+
+    #[tokio::test]
+    async fn get_claude_run_output_not_found_when_no_output() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+        let run = svc.trigger_claude_run(&task.id, "research").await.unwrap();
+
+        // Output not available yet
+        let err = svc.get_claude_run_output(&run.id).await.unwrap_err();
+        assert!(matches!(err, ServiceError::NotFound(_)));
+    }
+
+    // ---- attachments ----
+
+    #[tokio::test]
+    async fn list_attachments_empty() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        let attachments = svc.list_attachments(&task.id).await.unwrap();
+        assert!(attachments.is_empty());
+    }
+
+    // ---- error paths ----
+
+    #[tokio::test]
+    async fn get_nonexistent_project_returns_not_found() {
+        let (svc, _server) = setup().await;
+        let err = svc
+            .get_project("00000000-0000-0000-0000-000000000000")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ServiceError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn get_nonexistent_task_returns_not_found() {
+        let (svc, _server) = setup().await;
+        let err = svc
+            .get_task("00000000-0000-0000-0000-000000000000")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ServiceError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn trigger_design_without_approved_research_returns_invalid_input() {
+        let (svc, _server) = setup().await;
+        let project = svc.create_project(&test_project()).await.unwrap();
+        let task = svc.create_task(&test_task(&project.id)).await.unwrap();
+
+        let err = svc
+            .trigger_claude_run(&task.id, "design")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, ServiceError::InvalidInput(_)),
+            "expected InvalidInput, got: {err:?}"
+        );
+    }
+
+    // ---- base_url trailing slash trimming ----
+
+    #[tokio::test]
+    async fn trailing_slash_in_base_url_is_trimmed() {
+        let server = flowstate_server::test_helpers::spawn_test_server().await;
+        let url_with_slash = format!("{}/", server.base_url);
+        let svc = HttpService::new(&url_with_slash);
+        svc.health_check().await.unwrap();
+    }
+}

@@ -25,7 +25,7 @@ All configuration options for the `flowstate-runner` binary. Each option can be 
 
 | Flag | Env Var | Default | Description |
 |------|---------|---------|-------------|
-| `--light-timeout` | `FLOWSTATE_LIGHT_TIMEOUT` | `900` | Timeout in seconds for light actions: research, design, plan, verify (and their distill variants). |
+| `--light-timeout` | `FLOWSTATE_LIGHT_TIMEOUT` | `1800` | Timeout in seconds for light actions: research, design, plan, verify (and their distill variants). |
 | `--build-timeout` | `FLOWSTATE_BUILD_TIMEOUT` | `3600` | Timeout in seconds for build actions. Builds typically take longer due to code generation, testing, and PR creation. |
 | `--kill-grace-period` | `FLOWSTATE_KILL_GRACE` | `10` | Seconds to wait after sending SIGTERM to a Claude CLI process before escalating to SIGKILL. |
 | `--activity-timeout` | `FLOWSTATE_ACTIVITY_TIMEOUT` | `900` | Inactivity threshold in seconds (reserved for future use). |
@@ -74,6 +74,107 @@ The health endpoint returns JSON with capacity and active run information:
 }
 ```
 
+## Agent Backend
+
+| Flag | Env Var | Default | Description |
+|------|---------|---------|-------------|
+| `--agent-backend` | `FLOWSTATE_AGENT_BACKEND` | `claude-cli` | Which agentic backend to use: `claude-cli`, `gemini-cli`, or `opencode`. |
+| `--runner-capability` | `FLOWSTATE_RUNNER_CAPABILITY` | `heavy` | Capability tier: `light`, `standard`, or `heavy`. A runner at tier X handles work at tier X and all lower tiers. |
+
+### Claude CLI (default)
+
+| Flag | Env Var | Description |
+|------|---------|-------------|
+| `--anthropic-base-url` | `FLOWSTATE_ANTHROPIC_BASE_URL` | Override the Anthropic API base URL (for vLLM, Ollama, OpenRouter with Anthropic-compatible API). |
+| `--anthropic-auth-token` | `FLOWSTATE_ANTHROPIC_AUTH_TOKEN` | Override the Anthropic auth token. |
+| `--anthropic-model` | `FLOWSTATE_ANTHROPIC_MODEL` | Model name hint (informational). |
+
+Authentication (pick one):
+1. **OAuth session** (interactive) -- run `claude login`. Creates `~/.claude/.credentials.json`. Works for local dev but expires and requires a browser.
+2. **Long-lived token** (headless) -- run `claude setup-token` interactively once to generate a persistent token, then set `FLOWSTATE_ANTHROPIC_AUTH_TOKEN` in your credentials file. This is the recommended approach for runners.
+3. **Custom endpoint** -- set `FLOWSTATE_ANTHROPIC_BASE_URL` and `FLOWSTATE_ANTHROPIC_AUTH_TOKEN` for vLLM, Ollama, OpenRouter, or any Anthropic-compatible API.
+
+Headless setup:
+
+```bash
+# 1. Generate a long-lived token (interactive, one-time)
+claude setup-token
+
+# 2. Copy the token into your credentials file
+echo 'FLOWSTATE_ANTHROPIC_AUTH_TOKEN=<your-token>' >> ~/.local/share/flowstate/runner/credentials/runner.env
+```
+
+### Gemini CLI
+
+Requires the `gemini` CLI: `npm install -g @google/gemini-cli` (Node.js >= 18).
+
+| Flag | Env Var | Description |
+|------|---------|-------------|
+| `--gemini-api-key` | `FLOWSTATE_GEMINI_API_KEY` | Gemini API key. Simplest auth method for dev. |
+| `--gemini-model` | `FLOWSTATE_GEMINI_MODEL` | Model identifier, e.g. `gemini-3.1-pro-preview`, `gemini-3-flash-preview`. |
+| `--gemini-gcp-project` | `FLOWSTATE_GEMINI_GCP_PROJECT` | Google Cloud project ID (enables Vertex AI auth). |
+| `--gemini-gcp-location` | `FLOWSTATE_GEMINI_GCP_LOCATION` | Google Cloud region for Vertex AI, e.g. `us-central1`. |
+
+Authentication (pick one):
+1. **Gemini API key** -- set `FLOWSTATE_GEMINI_API_KEY`. Works headless.
+2. **Vertex AI** -- set `FLOWSTATE_GEMINI_GCP_PROJECT` and `FLOWSTATE_GEMINI_GCP_LOCATION`. Uses service account or ADC.
+3. **Google Login** -- run `gcloud auth application-default login`. Requires a browser, not suitable for headless runners.
+
+### OpenCode
+
+| Flag | Env Var | Description |
+|------|---------|-------------|
+| `--opencode-provider` | `FLOWSTATE_OPENCODE_PROVIDER` | Provider name, e.g. `openrouter`, `ollama`. Default: `ollama`. |
+| `--opencode-model` | `FLOWSTATE_OPENCODE_MODEL` | Model identifier. Default: `default`. |
+| `--opencode-api-key` | `FLOWSTATE_OPENCODE_API_KEY` | API key for the provider. |
+| `--opencode-base-url` | `FLOWSTATE_OPENCODE_BASE_URL` | Base URL override. |
+
+## Credentials File
+
+Runner credentials (API keys, tokens) are stored outside the repository at:
+
+```
+~/.local/share/flowstate/runner/credentials/runner.env
+```
+
+This file is auto-loaded by:
+- The nix dev shell (`nix develop`)
+- The `runner-gemini-pro` and `runner-gemini-flash` wrapper scripts
+
+To set up credentials:
+
+```bash
+mkdir -p ~/.local/share/flowstate/runner/credentials
+cp configuration/examples/runner.env.example ~/.local/share/flowstate/runner/credentials/runner.env
+# Edit the file with your actual keys:
+$EDITOR ~/.local/share/flowstate/runner/credentials/runner.env
+chmod 600 ~/.local/share/flowstate/runner/credentials/runner.env
+```
+
+The file uses `KEY=value` format (no `export`), one variable per line. See `configuration/examples/runner.env.example` for all available variables.
+
+For Docker deployments, pass these as container environment variables instead.
+
+## Nix Dev Shell Scripts
+
+The nix dev shell provides convenience wrappers that set the backend and model, source the credentials file, and exec into `flowstate-runner`:
+
+| Command | Backend | Default Model | Health Port |
+|---------|---------|---------------|-------------|
+| `runner-claude` | `claude-cli` | *(from Claude CLI config)* | 3714 |
+| `runner-gemini-pro` | `gemini-cli` | `gemini-3.1-pro-preview` | 3712 |
+| `runner-gemini-flash` | `gemini-cli` | `gemini-3-flash-preview` | 3713 |
+
+All defaults can be overridden via env vars or extra CLI flags passed through to `flowstate-runner`:
+
+```bash
+# Use a different model:
+FLOWSTATE_GEMINI_MODEL=gemini-3-pro runner-gemini-pro
+
+# Override health port and concurrency:
+runner-gemini-flash --health-port 3720 --max-concurrent 2
+```
+
 ## Example Configurations
 
 ### Sequential (backwards-compatible)
@@ -99,6 +200,18 @@ flowstate-runner --max-concurrent 8 --max-builds 1
 ```
 
 Up to 8 concurrent runs with builds serialized. Requires sufficient disk space and network bandwidth.
+
+### Gemini Runners (nix dev shell)
+
+Run two Gemini runners side-by-side (in separate terminals):
+
+```bash
+# Terminal 1: Gemini 3.1 Pro for heavy work
+runner-gemini-pro
+
+# Terminal 2: Gemini 3 Flash for lighter work
+runner-gemini-flash
+```
 
 ### Environment Variables
 

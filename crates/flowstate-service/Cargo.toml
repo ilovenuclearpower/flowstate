@@ -16,4 +16,5 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 flowstate-db = { path = "../flowstate-db", features = ["sqlite"] }
+flowstate-server = { path = "../flowstate-server", features = ["test-helpers"] }
 tokio = { workspace = true, features = ["full", "test-util"] }

@@ -9,9 +9,11 @@ use base64::Engine;
 /// Load or generate the server encryption key.
 /// Stored at `~/.config/flowstate/server.key` (32 bytes, base64-encoded).
 pub fn load_or_generate_key() -> Key<Aes256Gcm> {
-    let path = key_file_path();
+    load_or_generate_key_at(&key_file_path())
+}
 
-    if let Ok(data) = fs::read_to_string(&path) {
+fn load_or_generate_key_at(path: &std::path::Path) -> Key<Aes256Gcm> {
+    if let Ok(data) = fs::read_to_string(path) {
         if let Ok(bytes) = B64.decode(data.trim()) {
             if bytes.len() == 32 {
                 return *Key::<Aes256Gcm>::from_slice(&bytes);
@@ -25,14 +27,14 @@ pub fn load_or_generate_key() -> Key<Aes256Gcm> {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let _ = fs::write(&path, B64.encode(key.as_slice()));
+    let _ = fs::write(path, B64.encode(key.as_slice()));
 
     // Set file permissions to 600
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = fs::Permissions::from_mode(0o600);
-        let _ = fs::set_permissions(&path, perms);
+        let _ = fs::set_permissions(path, perms);
     }
 
     key
@@ -218,5 +220,103 @@ mod tests {
         let encrypted = encrypt(&key, unicode_text).unwrap();
         let decrypted = decrypt(&key, &encrypted).unwrap();
         assert_eq!(decrypted, unicode_text);
+    }
+
+    #[test]
+    fn load_or_generate_creates_and_reloads_same_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let key_path = tmp.path().join("server.key");
+
+        // First call: no file exists, should generate and write
+        assert!(!key_path.exists());
+        let key1 = load_or_generate_key_at(&key_path);
+
+        // Key file should have been created
+        assert!(key_path.exists());
+
+        // Second call should return the same key
+        let key2 = load_or_generate_key_at(&key_path);
+        assert_eq!(key1, key2, "loading twice should return the same key");
+    }
+
+    #[test]
+    fn load_or_generate_replaces_invalid_key_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let key_path = tmp.path().join("server.key");
+
+        // Write invalid data (not 32 bytes)
+        std::fs::write(&key_path, B64.encode(b"too short")).unwrap();
+
+        // load_or_generate_key_at should detect invalid and regenerate
+        let key = load_or_generate_key_at(&key_path);
+        assert_eq!(key.len(), 32);
+
+        // The file should now contain a valid key
+        let data = std::fs::read_to_string(&key_path).unwrap();
+        let bytes = B64.decode(data.trim()).unwrap();
+        assert_eq!(bytes.len(), 32);
+        let loaded_key = *Key::<Aes256Gcm>::from_slice(&bytes);
+        assert_eq!(key, loaded_key);
+    }
+
+    #[test]
+    fn load_or_generate_creates_parent_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let key_path = tmp.path().join("nested").join("dir").join("server.key");
+
+        // Parent dirs don't exist yet
+        assert!(!key_path.parent().unwrap().exists());
+
+        let key = load_or_generate_key_at(&key_path);
+        assert_eq!(key.len(), 32);
+        assert!(key_path.exists());
+    }
+
+    #[test]
+    fn load_or_generate_replaces_invalid_base64() {
+        let tmp = tempfile::tempdir().unwrap();
+        let key_path = tmp.path().join("server.key");
+
+        // Write non-base64 data
+        std::fs::write(&key_path, "not-valid-base64!!!").unwrap();
+
+        // Should generate a new valid key
+        let key = load_or_generate_key_at(&key_path);
+        assert_eq!(key.len(), 32);
+
+        // File should now be valid
+        let data = std::fs::read_to_string(&key_path).unwrap();
+        let bytes = B64.decode(data.trim()).unwrap();
+        assert_eq!(bytes.len(), 32);
+    }
+
+    #[test]
+    fn key_file_path_from_xdg() {
+        let path = key_file_path_from(Some("/tmp/xdg".into()), None);
+        assert_eq!(path, PathBuf::from("/tmp/xdg/flowstate/server.key"));
+    }
+
+    #[test]
+    fn key_file_path_from_home() {
+        let path = key_file_path_from(None, Some(PathBuf::from("/home/user")));
+        assert_eq!(
+            path,
+            PathBuf::from("/home/user/.config/flowstate/server.key")
+        );
+    }
+
+    #[test]
+    fn key_file_path_from_fallback() {
+        let path = key_file_path_from(None, None);
+        assert_eq!(path, PathBuf::from("flowstate/server.key"));
+    }
+
+    #[test]
+    fn key_file_path_xdg_takes_precedence() {
+        let path = key_file_path_from(
+            Some("/xdg".into()),
+            Some(PathBuf::from("/home/user")),
+        );
+        assert_eq!(path, PathBuf::from("/xdg/flowstate/server.key"));
     }
 }

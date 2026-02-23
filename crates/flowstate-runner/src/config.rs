@@ -35,8 +35,8 @@ pub struct RunnerConfig {
     pub health_port: u16,
 
     /// Timeout for research/design/plan/verify actions (seconds).
-    /// These are typically shorter than builds.
-    #[arg(long, env = "FLOWSTATE_LIGHT_TIMEOUT", default_value = "900")]
+    /// Research tasks can be open-ended, so this defaults to 30 minutes.
+    #[arg(long, env = "FLOWSTATE_LIGHT_TIMEOUT", default_value = "1800")]
     pub light_timeout: u64,
 
     /// Timeout for build actions (seconds).
@@ -206,7 +206,7 @@ mod tests {
             poll_interval: 5,
             workspace_root: None,
             health_port: 3711,
-            light_timeout: 900,
+            light_timeout: 1800,
             build_timeout: 3600,
             kill_grace_period: 10,
             activity_timeout: 900,
@@ -283,11 +283,11 @@ mod tests {
         );
         assert_eq!(
             cfg.timeout_for_action(ClaudeAction::Research),
-            Duration::from_secs(900)
+            Duration::from_secs(1800)
         );
         assert_eq!(
             cfg.timeout_for_action(ClaudeAction::Verify),
-            Duration::from_secs(900)
+            Duration::from_secs(1800)
         );
     }
 

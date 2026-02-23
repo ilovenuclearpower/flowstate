@@ -208,4 +208,139 @@ mod tests {
         let result = inject_token(url, Some("mytoken"));
         assert_eq!(result, url);
     }
+
+    async fn init_test_repo() -> (tempfile::TempDir, std::path::PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().to_path_buf();
+        tokio::process::Command::new("git")
+            .args(["init"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+        tokio::fs::write(dir.join("README.md"), "init").await.unwrap();
+        tokio::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["commit", "-m", "initial"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+        (tmp, dir)
+    }
+
+    #[tokio::test]
+    async fn test_create_branch() {
+        let (_tmp, dir) = init_test_repo().await;
+        create_branch(&dir, "feature/test").await.unwrap();
+
+        // Verify we are now on the new branch
+        let output = tokio::process::Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(branch, "feature/test");
+    }
+
+    #[tokio::test]
+    async fn test_create_branch_recreate() {
+        let (_tmp, dir) = init_test_repo().await;
+
+        // Create branch the first time
+        create_branch(&dir, "feature/dup").await.unwrap();
+
+        // Switch back to the initial branch so we can recreate the feature branch
+        tokio::process::Command::new("git")
+            .args(["checkout", "-"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+
+        // Create the same branch again — should succeed because the function
+        // deletes the existing branch first.
+        create_branch(&dir, "feature/dup").await.unwrap();
+
+        let output = tokio::process::Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(branch, "feature/dup");
+    }
+
+    #[tokio::test]
+    async fn test_add_and_commit() {
+        let (_tmp, dir) = init_test_repo().await;
+
+        // Modify a file so there is something to commit
+        tokio::fs::write(dir.join("README.md"), "modified").await.unwrap();
+
+        add_and_commit(&dir, "test commit").await.unwrap();
+
+        // Verify the commit was made
+        let output = tokio::process::Command::new("git")
+            .args(["log", "--oneline", "-1"])
+            .current_dir(&dir)
+            .output()
+            .await
+            .unwrap();
+        let log = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert!(log.contains("test commit"), "expected 'test commit' in log: {log}");
+    }
+
+    #[tokio::test]
+    async fn test_add_and_commit_no_changes() {
+        let (_tmp, dir) = init_test_repo().await;
+
+        // No modifications — working tree is clean
+        let result = add_and_commit(&dir, "empty").await;
+        assert!(result.is_ok(), "add_and_commit with no changes should succeed");
+    }
+
+    #[tokio::test]
+    async fn test_detect_default_branch_no_remote() {
+        let (_tmp, dir) = init_test_repo().await;
+
+        // No remote configured, so both symbolic-ref and rev-parse will fail.
+        // The function should fall back to "master".
+        let branch = detect_default_branch(&dir).await.unwrap();
+        assert_eq!(branch, "master");
+    }
+
+    #[tokio::test]
+    async fn test_ensure_repo_empty_url() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().to_path_buf();
+
+        let result = ensure_repo(&dir, "", None, false).await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("no repo_url configured"),
+            "expected 'no repo_url configured' in error: {err_msg}"
+        );
+    }
 }

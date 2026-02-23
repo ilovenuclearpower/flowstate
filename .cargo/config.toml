@@ -1,0 +1,2 @@
+[env]
+RUST_MIN_STACK = "67108864"  # 64 MB — prevents stack overflows in deeply recursive code and instrumented builds
