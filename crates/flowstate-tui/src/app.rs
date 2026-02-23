@@ -73,8 +73,8 @@ pub enum Mode {
     ViewResearch { task: Task, scroll: u16 },
     /// Read-only verification viewer
     ViewVerification { task: Task, scroll: u16 },
-    /// Entering feedback text for rejection
-    FeedbackInput { task: Task, field: String, input: String },
+    /// Entering feedback text for rejection or approval-with-notes
+    FeedbackInput { task: Task, field: String, input: String, status: ApprovalStatus },
     /// Editing a project's repo URL
     EditRepoUrl {
         project_id: String,
@@ -355,8 +355,8 @@ impl App {
             Mode::ViewVerification { task, scroll } => {
                 self.handle_view_scroll(key, task.clone(), *scroll, "verification")
             }
-            Mode::FeedbackInput { task, field, input } => {
-                self.handle_feedback_input(key, task.clone(), field.clone(), input.clone())
+            Mode::FeedbackInput { task, field, input, status } => {
+                self.handle_feedback_input(key, task.clone(), field.clone(), input.clone(), *status)
             }
             Mode::EditRepoUrl { project_id, input } => {
                 self.handle_edit_repo_url(key, project_id.clone(), input.clone())
@@ -1201,36 +1201,48 @@ impl App {
         }
     }
 
-    fn handle_feedback_input(&mut self, key: KeyEvent, task: Task, field: String, mut input: String) {
+    fn handle_feedback_input(&mut self, key: KeyEvent, task: Task, field: String, mut input: String, status: ApprovalStatus) {
         match key.code {
             KeyCode::Enter => {
                 let feedback_update = match field.as_str() {
                     "research" => UpdateTask {
-                        research_feedback: Some(input),
-                        research_status: Some(ApprovalStatus::Rejected),
+                        research_feedback: Some(input.clone()),
+                        research_status: Some(status),
                         ..Default::default()
                     },
                     "spec" | "design" => UpdateTask {
-                        spec_feedback: Some(input),
-                        spec_status: Some(ApprovalStatus::Rejected),
+                        spec_feedback: Some(input.clone()),
+                        spec_status: Some(status),
                         ..Default::default()
                     },
                     "plan" => UpdateTask {
-                        plan_feedback: Some(input),
-                        plan_status: Some(ApprovalStatus::Rejected),
+                        plan_feedback: Some(input.clone()),
+                        plan_status: Some(status),
                         ..Default::default()
                     },
                     "verify" => UpdateTask {
-                        verify_feedback: Some(input),
-                        verify_status: Some(ApprovalStatus::Rejected),
+                        verify_feedback: Some(input.clone()),
+                        verify_status: Some(status),
                         ..Default::default()
                     },
                     _ => UpdateTask::default(),
                 };
+                let label = if input.is_empty() {
+                    if status == ApprovalStatus::Approved { "approved" } else { "rejected" }
+                } else if status == ApprovalStatus::Approved {
+                    "approved with notes"
+                } else {
+                    "rejected with feedback"
+                };
                 match self.service.update_task(&task.id, &feedback_update) {
                     Ok(updated) => {
                         self.refresh();
-                        self.status_message = Some(format!("{field} rejected with feedback"));
+                        let msg = if status == ApprovalStatus::Approved && updated.status != task.status {
+                            format!("{field} {label} — moved to {}", updated.status.display_name())
+                        } else {
+                            format!("{field} {label}")
+                        };
+                        self.status_message = Some(msg);
                         self.mode = Mode::TaskDetail { task: updated };
                     }
                     Err(e) => {
@@ -1244,11 +1256,11 @@ impl App {
             }
             KeyCode::Backspace => {
                 input.pop();
-                self.mode = Mode::FeedbackInput { task, field, input };
+                self.mode = Mode::FeedbackInput { task, field, input, status };
             }
             KeyCode::Char(c) => {
                 input.push(c);
-                self.mode = Mode::FeedbackInput { task, field, input };
+                self.mode = Mode::FeedbackInput { task, field, input, status };
             }
             _ => {}
         }
@@ -1322,22 +1334,38 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('n') => {
+                self.mode = Mode::FeedbackInput {
+                    task, field, input: String::new(),
+                    status: ApprovalStatus::Approved,
+                };
+            }
             KeyCode::Char('r') => {
+                self.mode = Mode::FeedbackInput {
+                    task, field, input: String::new(),
+                    status: ApprovalStatus::Rejected,
+                };
+            }
+            KeyCode::Char('x') => {
                 let update = match field.as_str() {
                     "research" => UpdateTask {
-                        research_status: Some(ApprovalStatus::Rejected),
+                        research_status: Some(ApprovalStatus::None),
+                        research_feedback: Some(String::new()),
                         ..Default::default()
                     },
                     "spec" => UpdateTask {
-                        spec_status: Some(ApprovalStatus::Rejected),
+                        spec_status: Some(ApprovalStatus::None),
+                        spec_feedback: Some(String::new()),
                         ..Default::default()
                     },
                     "plan" => UpdateTask {
-                        plan_status: Some(ApprovalStatus::Rejected),
+                        plan_status: Some(ApprovalStatus::None),
+                        plan_feedback: Some(String::new()),
                         ..Default::default()
                     },
                     "verify" => UpdateTask {
-                        verify_status: Some(ApprovalStatus::Rejected),
+                        verify_status: Some(ApprovalStatus::None),
+                        verify_feedback: Some(String::new()),
                         ..Default::default()
                     },
                     _ => UpdateTask::default(),
@@ -1345,7 +1373,7 @@ impl App {
                 match self.service.update_task(&task.id, &update) {
                     Ok(updated) => {
                         self.refresh();
-                        self.status_message = Some(format!("{field} rejected"));
+                        self.status_message = Some(format!("{field} reset — ready for rerun"));
                         self.mode = Mode::TaskDetail { task: updated };
                     }
                     Err(e) => {
@@ -1858,8 +1886,13 @@ impl App {
                 };
                 self.render_scrollable_text(frame, " Verification ", &display, *scroll, area)
             }
-            Mode::FeedbackInput { input, field, .. } => {
-                self.render_input_bar(frame, &format!("Feedback ({field}): "), input, area)
+            Mode::FeedbackInput { input, field, status, .. } => {
+                let label = if *status == ApprovalStatus::Approved {
+                    format!("Notes ({field}): ")
+                } else {
+                    format!("Feedback ({field}): ")
+                };
+                self.render_input_bar(frame, &label, input, area)
             }
             Mode::EditRepoUrl { input, .. } => {
                 self.render_input_bar(frame, "Repo URL: ", input, area)
@@ -1978,10 +2011,18 @@ impl App {
             Mode::ClaudeOutput { .. } | Mode::ViewSpec { .. } | Mode::ViewPlan { .. } | Mode::ViewResearch { .. } | Mode::ViewVerification { .. } => {
                 vec![("j/k", "scroll"), ("Esc", "back")]
             }
-            Mode::FeedbackInput { .. } => vec![("Enter", "submit"), ("Esc", "cancel")],
+            Mode::FeedbackInput { status, .. } => {
+                if *status == ApprovalStatus::Approved {
+                    vec![("Enter", "approve w/notes"), ("Esc", "cancel")]
+                } else {
+                    vec![("Enter", "reject"), ("Esc", "cancel")]
+                }
+            }
             Mode::ApprovalPick { .. } => vec![
                 ("a", "approve"),
+                ("n", "notes"),
                 ("r", "reject"),
+                ("x", "rerun"),
                 ("Esc", "cancel"),
             ],
             Mode::EditRepoUrl { .. } | Mode::EditRepoToken { .. } => {
@@ -2539,7 +2580,7 @@ impl App {
     }
 
     fn render_approval_pick(&self, frame: &mut Frame, field: &str, area: Rect) {
-        let popup = centered_rect(40, 20, area);
+        let popup = centered_rect(40, 30, area);
         frame.render_widget(Clear, popup);
 
         let title = format!(" Approve {} ", field);
@@ -2555,8 +2596,18 @@ impl App {
             ]),
             Line::from(""),
             Line::from(vec![
+                Span::styled("[n] ", Style::default().fg(Color::Yellow).bold()),
+                Span::raw("Approve w/Notes"),
+            ]),
+            Line::from(""),
+            Line::from(vec![
                 Span::styled("[r] ", Style::default().fg(Color::Red).bold()),
                 Span::raw("Reject"),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("[x] ", Style::default().fg(Color::Cyan).bold()),
+                Span::raw("Rerun"),
             ]),
         ];
 

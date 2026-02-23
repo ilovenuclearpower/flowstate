@@ -29,6 +29,7 @@ pub struct PromptContext {
     pub research_content: Option<String>,
     pub verification_content: Option<String>,
     pub distill_feedback: Option<String>,
+    pub reviewer_notes: Vec<(String, String)>,
     pub child_tasks: Vec<ChildTaskInfo>,
     pub parent_context: Option<ParentContext>,
 }
@@ -83,6 +84,17 @@ impl PromptContext {
             prompt.push_str("\n\n");
         }
 
+        if !self.reviewer_notes.is_empty() {
+            prompt.push_str("## Reviewer Notes from Prior Phases\n\n");
+            prompt.push_str(
+                "The following notes were provided by the reviewer during approval \
+                 of prior phases. Consider these when producing your output.\n\n",
+            );
+            for (phase, notes) in &self.reviewer_notes {
+                prompt.push_str(&format!("### {phase}\n\n{notes}\n\n"));
+            }
+        }
+
         if !self.child_tasks.is_empty() {
             prompt.push_str("## Sub-tasks\n\n");
             for child in &self.child_tasks {
@@ -111,6 +123,7 @@ mod tests {
             research_content: None,
             verification_content: None,
             distill_feedback: None,
+            reviewer_notes: vec![],
             child_tasks: vec![],
             parent_context: None,
         }
@@ -214,5 +227,59 @@ mod tests {
         assert!(out.contains("Child B"));
         assert!(out.contains("[Done]"));
         assert!(out.contains("[InProgress]"));
+    }
+
+    #[test]
+    fn reviewer_notes_rendered_in_preamble() {
+        let mut ctx = minimal_ctx();
+        ctx.reviewer_notes = vec![("Research".into(), "check deps".into())];
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(out.contains("## Reviewer Notes from Prior Phases"));
+        assert!(out.contains("### Research"));
+        assert!(out.contains("check deps"));
+    }
+
+    #[test]
+    fn empty_reviewer_notes_omitted() {
+        let ctx = minimal_ctx();
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        assert!(!out.contains("Reviewer Notes"));
+    }
+
+    #[test]
+    fn multiple_reviewer_notes_ordered() {
+        let mut ctx = minimal_ctx();
+        ctx.reviewer_notes = vec![
+            ("Research".into(), "research note".into()),
+            ("Specification".into(), "spec note".into()),
+        ];
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        let research_pos = out.find("### Research").unwrap();
+        let spec_pos = out.find("### Specification").unwrap();
+        assert!(research_pos < spec_pos, "Research should appear before Specification");
+        assert!(out.contains("research note"));
+        assert!(out.contains("spec note"));
+    }
+
+    #[test]
+    fn reviewer_notes_after_verification_before_subtasks() {
+        let mut ctx = minimal_ctx();
+        ctx.verification_content = Some("verify content".into());
+        ctx.reviewer_notes = vec![("Research".into(), "note".into())];
+        ctx.child_tasks = vec![ChildTaskInfo {
+            title: "Child".into(),
+            description: "desc".into(),
+            status: "Todo".into(),
+        }];
+        let mut out = String::new();
+        ctx.append_preamble(&mut out);
+        let verify_pos = out.find("## Verification").unwrap();
+        let notes_pos = out.find("## Reviewer Notes").unwrap();
+        let subtasks_pos = out.find("## Sub-tasks").unwrap();
+        assert!(verify_pos < notes_pos, "Verification before Reviewer Notes");
+        assert!(notes_pos < subtasks_pos, "Reviewer Notes before Sub-tasks");
     }
 }
