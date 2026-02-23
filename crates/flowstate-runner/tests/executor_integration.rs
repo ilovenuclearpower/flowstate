@@ -153,26 +153,39 @@ fn resolve_workspace_dir_with_root() {
 
 #[test]
 fn resolve_workspace_dir_with_xdg() {
-    let _lock = ENV_MUTEX.lock().unwrap();
-    std::env::set_var("XDG_DATA_HOME", "/tmp/xdg-data-test");
-    let dir = executor::resolve_workspace_dir(&None, "run-456");
+    let dir = executor::resolve_workspace_dir_from(
+        &None,
+        "run-456",
+        Some("/tmp/xdg-data-test".into()),
+        None,
+    );
     assert_eq!(
         dir,
         PathBuf::from("/tmp/xdg-data-test/flowstate/workspaces/run-456")
     );
-    std::env::remove_var("XDG_DATA_HOME");
 }
 
 #[test]
 fn resolve_workspace_dir_with_home() {
-    let _lock = ENV_MUTEX.lock().unwrap();
-    std::env::remove_var("XDG_DATA_HOME");
-    if std::env::var_os("HOME").is_some() {
-        let dir = executor::resolve_workspace_dir(&None, "run-789");
-        assert!(dir
-            .to_string_lossy()
-            .contains(".local/share/flowstate/workspaces/run-789"));
-    }
+    let dir = executor::resolve_workspace_dir_from(
+        &None,
+        "run-789",
+        None,
+        Some(PathBuf::from("/home/testuser")),
+    );
+    assert_eq!(
+        dir,
+        PathBuf::from("/home/testuser/.local/share/flowstate/workspaces/run-789")
+    );
+}
+
+#[test]
+fn resolve_workspace_dir_no_env() {
+    let dir = executor::resolve_workspace_dir_from(&None, "run-000", None, None);
+    assert_eq!(
+        dir,
+        PathBuf::from("./flowstate/workspaces/run-000")
+    );
 }
 
 #[test]
@@ -192,8 +205,6 @@ fn cleanup_workspace_removes_dir() {
     executor::cleanup_workspace(&ws);
     assert!(!ws.exists());
 }
-
-static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 // ---- Executor dispatch integration tests ----
 

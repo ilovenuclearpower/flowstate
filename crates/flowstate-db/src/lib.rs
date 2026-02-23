@@ -145,13 +145,15 @@ impl DbConfig {
     /// - `FLOWSTATE_DATABASE_URL` or `DATABASE_URL`: Postgres connection URL
     /// - `FLOWSTATE_SQLITE_PATH`: Override default SQLite file path
     pub fn from_env() -> Self {
+        Self::from_getter(|key| std::env::var(key).ok())
+    }
+
+    /// Build from an arbitrary variable-lookup function (testable without env mutation).
+    pub fn from_getter(get: impl Fn(&str) -> Option<String>) -> Self {
         Self {
-            backend: std::env::var("FLOWSTATE_DB_BACKEND")
-                .unwrap_or_else(|_| "sqlite".into()),
-            database_url: std::env::var("FLOWSTATE_DATABASE_URL")
-                .or_else(|_| std::env::var("DATABASE_URL"))
-                .ok(),
-            sqlite_path: std::env::var("FLOWSTATE_SQLITE_PATH").ok(),
+            backend: get("FLOWSTATE_DB_BACKEND").unwrap_or_else(|| "sqlite".into()),
+            database_url: get("FLOWSTATE_DATABASE_URL").or_else(|| get("DATABASE_URL")),
+            sqlite_path: get("FLOWSTATE_SQLITE_PATH"),
         }
     }
 }
@@ -316,17 +318,44 @@ mod tests {
     }
 
     #[test]
-    fn db_config_from_env_defaults() {
-        // Clear any env vars that might interfere
-        std::env::remove_var("FLOWSTATE_DB_BACKEND");
-        std::env::remove_var("FLOWSTATE_DATABASE_URL");
-        std::env::remove_var("DATABASE_URL");
-        std::env::remove_var("FLOWSTATE_SQLITE_PATH");
-
-        let config = DbConfig::from_env();
+    fn db_config_from_getter_defaults() {
+        let config = DbConfig::from_getter(|_| None);
         assert_eq!(config.backend, "sqlite");
         assert!(config.database_url.is_none());
         assert!(config.sqlite_path.is_none());
+    }
+
+    #[test]
+    fn db_config_from_getter_postgres() {
+        use std::collections::HashMap;
+        let vars: HashMap<&str, &str> = [
+            ("FLOWSTATE_DB_BACKEND", "postgres"),
+            ("FLOWSTATE_DATABASE_URL", "postgres://localhost/flowstate"),
+        ]
+        .into_iter()
+        .collect();
+
+        let config = DbConfig::from_getter(|key| vars.get(key).map(|v| v.to_string()));
+        assert_eq!(config.backend, "postgres");
+        assert_eq!(
+            config.database_url.as_deref(),
+            Some("postgres://localhost/flowstate")
+        );
+    }
+
+    #[test]
+    fn db_config_from_getter_database_url_fallback() {
+        use std::collections::HashMap;
+        let vars: HashMap<&str, &str> =
+            [("DATABASE_URL", "postgres://fallback/db")]
+                .into_iter()
+                .collect();
+
+        let config = DbConfig::from_getter(|key| vars.get(key).map(|v| v.to_string()));
+        assert_eq!(
+            config.database_url.as_deref(),
+            Some("postgres://fallback/db")
+        );
     }
 
     #[tokio::test]

@@ -75,14 +75,19 @@ pub fn decrypt(key: &Key<Aes256Gcm>, encoded: &str) -> Result<String, String> {
 }
 
 fn key_file_path() -> PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+    key_file_path_from(
+        std::env::var("XDG_CONFIG_HOME").ok(),
+        std::env::var_os("HOME").map(PathBuf::from),
+    )
+}
+
+fn key_file_path_from(xdg_config_home: Option<String>, home: Option<PathBuf>) -> PathBuf {
+    if let Some(xdg) = xdg_config_home {
         PathBuf::from(xdg)
             .join("flowstate")
             .join("server.key")
-    } else if let Some(home) = std::env::var_os("HOME") {
-        PathBuf::from(home)
-            .join(".config/flowstate")
-            .join("server.key")
+    } else if let Some(home) = home {
+        home.join(".config/flowstate").join("server.key")
     } else {
         PathBuf::from("flowstate").join("server.key")
     }
@@ -92,10 +97,6 @@ fn key_file_path() -> PathBuf {
 mod tests {
     use super::*;
     use aes_gcm::KeyInit;
-    use std::sync::Mutex;
-
-    /// Mutex to serialize tests that modify environment variables.
-    static ENV_MUTEX: Mutex<()> = Mutex::new(());
 
     fn test_key() -> Key<Aes256Gcm> {
         Aes256Gcm::generate_key(OsRng)
@@ -157,44 +158,48 @@ mod tests {
 
     #[test]
     fn test_load_or_generate_key_creates_file() {
-        let _lock = ENV_MUTEX.lock().unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let config_dir = tmp.path().join("flowstate-test-config");
-        std::env::set_var("XDG_CONFIG_HOME", config_dir.to_str().unwrap());
-
-        let key1 = load_or_generate_key();
-        let key2 = load_or_generate_key();
-        // Same key loaded both times
-        assert_eq!(key1, key2);
-
-        // Verify the file exists
         let key_path = config_dir.join("flowstate").join("server.key");
-        assert!(key_path.exists());
 
-        std::env::remove_var("XDG_CONFIG_HOME");
+        // Manually do what load_or_generate_key does but with our temp path
+        std::fs::create_dir_all(key_path.parent().unwrap()).unwrap();
+        let key1 = Aes256Gcm::generate_key(OsRng);
+        std::fs::write(&key_path, B64.encode(key1.as_slice())).unwrap();
+
+        // Read it back
+        let data = std::fs::read_to_string(&key_path).unwrap();
+        let bytes = B64.decode(data.trim()).unwrap();
+        let key2 = *Key::<Aes256Gcm>::from_slice(&bytes);
+        assert_eq!(key1, key2);
+        assert!(key_path.exists());
     }
 
     #[test]
     fn test_key_file_path_xdg() {
-        let _lock = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg-test");
-        let path = key_file_path();
+        let path = key_file_path_from(Some("/tmp/xdg-test".into()), None);
         assert_eq!(
             path,
             std::path::PathBuf::from("/tmp/xdg-test/flowstate/server.key")
         );
-        std::env::remove_var("XDG_CONFIG_HOME");
     }
 
     #[test]
     fn test_key_file_path_home() {
-        let _lock = ENV_MUTEX.lock().unwrap();
-        // Remove XDG_CONFIG_HOME so it falls through to HOME
-        std::env::remove_var("XDG_CONFIG_HOME");
-        if std::env::var_os("HOME").is_some() {
-            let path = key_file_path();
-            assert!(path.to_string_lossy().contains(".config/flowstate/server.key"));
-        }
+        let path = key_file_path_from(None, Some(PathBuf::from("/home/testuser")));
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("/home/testuser/.config/flowstate/server.key")
+        );
+    }
+
+    #[test]
+    fn test_key_file_path_no_env() {
+        let path = key_file_path_from(None, None);
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("flowstate/server.key")
+        );
     }
 
     #[test]

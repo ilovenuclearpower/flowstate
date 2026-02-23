@@ -61,17 +61,30 @@ pub async fn dispatch(
 
 /// Resolve a per-run workspace directory.
 pub fn resolve_workspace_dir(workspace_root: &Option<PathBuf>, run_id: &str) -> PathBuf {
+    resolve_workspace_dir_from(
+        workspace_root,
+        run_id,
+        std::env::var("XDG_DATA_HOME").ok(),
+        std::env::var_os("HOME").map(PathBuf::from),
+    )
+}
+
+pub fn resolve_workspace_dir_from(
+    workspace_root: &Option<PathBuf>,
+    run_id: &str,
+    xdg_data_home: Option<String>,
+    home: Option<PathBuf>,
+) -> PathBuf {
     match workspace_root {
         Some(root) => root.join(run_id),
         None => {
-            if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            if let Some(xdg) = xdg_data_home {
                 PathBuf::from(xdg)
                     .join("flowstate")
                     .join("workspaces")
                     .join(run_id)
-            } else if let Some(home) = std::env::var_os("HOME") {
-                PathBuf::from(home)
-                    .join(".local/share/flowstate/workspaces")
+            } else if let Some(home) = home {
+                home.join(".local/share/flowstate/workspaces")
                     .join(run_id)
             } else {
                 PathBuf::from(".")
