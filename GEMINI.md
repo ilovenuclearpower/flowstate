@@ -52,13 +52,27 @@ Clippy runs with `-D warnings`. Common lints to watch for:
 - `needless_borrow`: remove unnecessary `&` references
 - `print_literal`: use format string directly
 
+## Architecture
+
+Workspace with crates: core, db, store, service, server, verify, prompts, runner, tui, mcp.
+
+- **flowstate-core**: types only (no IO). All enum parsing uses `parse_str()` (not `from_str()`) to avoid clippy `should_implement_trait`.
+- **flowstate-db**: SQLite via rusqlite (+ optional Postgres via sqlx). Versioned migrations in `migrations.rs` using a `schema_version` table.
+- **flowstate-store**: Object storage abstraction. Local filesystem by default, S3-compatible (Garage) when configured. S3 support gated behind `s3` feature (on by default).
+- **flowstate-service**: `TaskService` trait with `LocalService` (direct DB) and `HttpService` (REST client) implementations.
+- **flowstate-server**: Axum HTTP server. Routes in `routes/` modules. `AppState = Arc<InnerAppState>` with `service: LocalService` and `db: Db`.
+- **flowstate-runner**: Standalone binary that polls the server for jobs via `HttpService` and runs Claude CLI. No direct DB dependency.
+- **flowstate-prompts**: Pure library for assembling prompts. No IO dependencies.
+- **flowstate-verify**: Test runner that executes `VerificationStep` commands.
+- **flowstate-tui**: Terminal UI with vim-style navigation.
+- **flowstate-mcp**: MCP server (excluded from coverage).
+
 ## Code Patterns
 
-- **flowstate-core** is types-only (no IO). All enum parsing uses `parse_str()` (not `from_str()`) to avoid clippy `should_implement_trait`.
 - **ApprovalStatus** derives `Default` with `#[default]` on the `None` variant.
-- **Server routes** use `AppState = Arc<InnerAppState>` with `service: LocalService` and `db: Db`.
-- **Runner** talks to the server exclusively via `HttpService` — no direct DB dependency.
-- **DB migrations** use a `schema_version` table with versioned migration functions.
+- Server routes use `AppState = Arc<InnerAppState>`.
+- Runner talks to the server exclusively via `HttpService` — no direct DB dependency.
+- DB migrations use a `schema_version` table with versioned migration functions.
 
 ## Test Organization
 

@@ -100,11 +100,7 @@ let
       --workspace \
       --all-features \
       --fail-under-lines "$THRESHOLD" \
-      --ignore-filename-regex '/main\.rs$' \
-      --ignore-filename-regex '/(mock|test_helpers)\.rs$' \
-      --ignore-filename-regex 'backend/claude_cli\.rs$' \
-      --ignore-filename-regex 'backend/opencode\.rs$' \
-      --ignore-filename-regex 'repo_provider/github\.rs$' \
+      --ignore-filename-regex '(/main\.rs$|/(mock|test_helpers)\.rs$|backend/claude_cli\.rs$|backend/opencode\.rs$|repo_provider/github\.rs$)' \
       --exclude flowstate-mcp \
       -- --include-ignored \
       || CARGO_EXIT=$?
