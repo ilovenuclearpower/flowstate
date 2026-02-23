@@ -1,12 +1,15 @@
 use chrono::Utc;
 use rusqlite::{params, Row};
 
-use flowstate_core::project::{CreateProject, Project, UpdateProject};
+use flowstate_core::project::{CreateProject, Project, ProviderType, UpdateProject};
 
 use crate::DbError;
 use super::super::{SqliteDatabase, SqliteResultExt};
 
 fn row_to_project(row: &Row) -> rusqlite::Result<Project> {
+    let provider_type_str: Option<String> = row.get("provider_type")?;
+    let provider_type = provider_type_str.as_deref().and_then(ProviderType::parse_str);
+    let skip_tls_verify: i32 = row.get("skip_tls_verify")?;
     Ok(Project {
         id: row.get("id")?,
         name: row.get("name")?,
@@ -14,6 +17,8 @@ fn row_to_project(row: &Row) -> rusqlite::Result<Project> {
         description: row.get("description")?,
         repo_url: row.get("repo_url")?,
         repo_token: row.get("repo_token")?,
+        provider_type,
+        skip_tls_verify: skip_tls_verify != 0,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
     })
@@ -109,6 +114,14 @@ impl SqliteDatabase {
             if let Some(ref repo_token) = update.repo_token {
                 sets.push("repo_token = ?");
                 values.push(Box::new(repo_token.clone()));
+            }
+            if let Some(ref provider_type) = update.provider_type {
+                sets.push("provider_type = ?");
+                values.push(Box::new(provider_type.as_str().to_string()));
+            }
+            if let Some(skip_tls_verify) = update.skip_tls_verify {
+                sets.push("skip_tls_verify = ?");
+                values.push(Box::new(if skip_tls_verify { 1i32 } else { 0i32 }));
             }
 
             if sets.is_empty() {

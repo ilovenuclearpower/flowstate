@@ -49,6 +49,10 @@ impl RepoProvider for MockRepoProvider {
         true
     }
 
+    async fn preflight(&self) -> Result<(), ProviderError> {
+        Ok(())
+    }
+
     async fn check_auth(&self, _repo_url: &str) -> Result<(), ProviderError> {
         Ok(())
     }

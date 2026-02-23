@@ -8,6 +8,7 @@ pub async fn ensure_repo(
     workspace: &Path,
     repo_url: &str,
     repo_token: Option<&str>,
+    skip_tls_verify: bool,
 ) -> Result<()> {
     if repo_url.is_empty() {
         bail!("project has no repo_url configured");
@@ -24,12 +25,12 @@ pub async fn ensure_repo(
             .await;
 
         // Fetch latest from origin (don't pull — we may be on a branch without tracking)
-        let output = Command::new("git")
-            .args(["fetch", "origin"])
-            .current_dir(workspace)
-            .output()
-            .await
-            .context("git fetch")?;
+        let mut fetch_cmd = Command::new("git");
+        fetch_cmd.args(["fetch", "origin"]).current_dir(workspace);
+        if skip_tls_verify {
+            fetch_cmd.env("GIT_SSL_NO_VERIFY", "true");
+        }
+        let output = fetch_cmd.output().await.context("git fetch")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -38,12 +39,14 @@ pub async fn ensure_repo(
         info!("workspace updated via git fetch");
     } else {
         std::fs::create_dir_all(workspace).context("create workspace dir")?;
-        let output = Command::new("git")
+        let mut clone_cmd = Command::new("git");
+        clone_cmd
             .args(["clone", &auth_url, "."])
-            .current_dir(workspace)
-            .output()
-            .await
-            .context("git clone")?;
+            .current_dir(workspace);
+        if skip_tls_verify {
+            clone_cmd.env("GIT_SSL_NO_VERIFY", "true");
+        }
+        let output = clone_cmd.output().await.context("git clone")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

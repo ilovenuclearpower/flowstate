@@ -97,7 +97,7 @@ async fn ensure_repo_clones_local_repo() {
     let ws = tempfile::tempdir().unwrap();
     let ws_path = ws.path().join("clone");
 
-    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None)
+    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None, false)
         .await
         .unwrap();
 
@@ -112,12 +112,12 @@ async fn ensure_repo_fetches_existing_clone() {
     let ws_path = ws.path().join("clone");
 
     // First clone
-    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None)
+    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None, false)
         .await
         .unwrap();
 
     // Second call should fetch (not fail)
-    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None)
+    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None, false)
         .await
         .unwrap();
 
@@ -128,7 +128,7 @@ async fn ensure_repo_fetches_existing_clone() {
 async fn ensure_repo_empty_url_fails() {
     let ws = tempfile::tempdir().unwrap();
     let result =
-        flowstate_runner::workspace::ensure_repo(ws.path(), "", None).await;
+        flowstate_runner::workspace::ensure_repo(ws.path(), "", None, false).await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
     assert!(msg.contains("no repo_url"));
@@ -142,7 +142,7 @@ async fn create_branch_switches_to_new_branch() {
     let ws = tempfile::tempdir().unwrap();
     let ws_path = ws.path().join("clone");
 
-    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None)
+    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None, false)
         .await
         .unwrap();
 
@@ -160,7 +160,7 @@ async fn create_branch_recreates_existing_branch() {
     let ws = tempfile::tempdir().unwrap();
     let ws_path = ws.path().join("clone");
 
-    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None)
+    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None, false)
         .await
         .unwrap();
 
@@ -194,7 +194,7 @@ async fn add_and_commit_with_changes() {
     let ws = tempfile::tempdir().unwrap();
     let ws_path = ws.path().join("clone");
 
-    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None)
+    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None, false)
         .await
         .unwrap();
 
@@ -233,7 +233,7 @@ async fn add_and_commit_no_changes_succeeds() {
     let ws = tempfile::tempdir().unwrap();
     let ws_path = ws.path().join("clone");
 
-    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None)
+    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None, false)
         .await
         .unwrap();
 
@@ -273,7 +273,7 @@ async fn detect_default_branch_returns_main_or_master() {
     let ws = tempfile::tempdir().unwrap();
     let ws_path = ws.path().join("clone");
 
-    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None)
+    flowstate_runner::workspace::ensure_repo(&ws_path, &repo_url, None, false)
         .await
         .unwrap();
 

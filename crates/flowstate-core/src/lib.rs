@@ -13,6 +13,6 @@ pub mod task_pr;
 pub mod verification;
 
 pub use error::FlowstateError;
-pub use project::Project;
+pub use project::{Project, ProviderType};
 pub use sprint::{CreateSprint, Sprint, SprintStatus, UpdateSprint};
 pub use task::{ApprovalStatus, Priority, Status, Task};

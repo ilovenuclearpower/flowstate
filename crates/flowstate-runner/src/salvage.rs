@@ -65,7 +65,7 @@ pub async fn attempt_salvage(
     }
 
     // 3. Check for changes via git diff --stat
-    let diff_stat = match run_git_command(ws_dir, &["diff", "--stat"]).await {
+    let diff_stat = match run_git_command(ws_dir, &["diff", "--stat"], false).await {
         Ok(output) => output,
         Err(e) => {
             error!("salvage: failed to run git diff: {e}");
@@ -84,12 +84,12 @@ pub async fn attempt_salvage(
     };
 
     // Also check staged changes
-    let diff_staged = run_git_command(ws_dir, &["diff", "--cached", "--stat"])
+    let diff_staged = run_git_command(ws_dir, &["diff", "--cached", "--stat"], false)
         .await
         .unwrap_or_default();
 
     // Check untracked files
-    let untracked = run_git_command(ws_dir, &["ls-files", "--others", "--exclude-standard"])
+    let untracked = run_git_command(ws_dir, &["ls-files", "--others", "--exclude-standard"], false)
         .await
         .unwrap_or_default();
 
@@ -189,7 +189,12 @@ pub async fn attempt_salvage(
 
     // Resolve provider and push (with PAT for gh CLI auth)
     let token = service.get_repo_token(&project.id).await.ok();
-    let provider = match repo_provider::provider_for_url(&project.repo_url, token) {
+    let provider = match repo_provider::provider_for_url(
+        &project.repo_url,
+        token,
+        project.provider_type,
+        project.skip_tls_verify,
+    ) {
         Ok(p) => p,
         Err(e) => {
             error!("salvage: unsupported repo provider: {e}");
@@ -222,6 +227,7 @@ pub async fn attempt_salvage(
         let force_result = run_git_command(
             ws_dir,
             &["push", "-u", "origin", &branch_name, "--force-with-lease"],
+            project.skip_tls_verify,
         )
         .await;
         if let Err(e2) = force_result {
@@ -315,10 +321,18 @@ pub async fn attempt_salvage(
 }
 
 /// Run a git command in the workspace and return stdout as a string.
-async fn run_git_command(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let output = tokio::process::Command::new("git")
-        .args(args)
-        .current_dir(dir)
+async fn run_git_command(
+    dir: &Path,
+    args: &[&str],
+    skip_tls_verify: bool,
+) -> Result<String, String> {
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.args(args).current_dir(dir);
+    if skip_tls_verify {
+        cmd.env("GIT_SSL_NO_VERIFY", "true");
+    }
+
+    let output = cmd
         .output()
         .await
         .map_err(|e| format!("spawn git: {e}"))?;

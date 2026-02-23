@@ -826,6 +826,7 @@ dependencies = [
  "flowstate-verify",
  "libc",
  "nix",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
@@ -833,6 +834,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 

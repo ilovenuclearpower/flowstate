@@ -1,26 +1,29 @@
-All 10 phases are complete. Here's a summary of what was implemented:
+All 7 phases are complete. Here's a summary of what was done and the final status:
 
-### Agnostic Runner Interface - Implementation Complete
+## Implementation Complete
 
-**Core abstractions:**
-- `RunnerCapability` enum (Light/Standard/Heavy) with tier hierarchy and action-to-capability mapping
-- `AgentBackend` trait abstracting agent invocation (preflight, run, name, model)
-- `ClaudeCliBackend` implementation (extracts existing Claude CLI logic)
-- `OpenCodeBackend` stub for future backends
+All phases of the multi-provider git platform abstraction have been implemented:
 
-**Runner changes:**
-- `RunnerConfig` extended with `--backend` and `--capability` CLI flags
-- Backend threaded through entire dispatch chain: main → execute_run → executor → pipeline
-- Preflight checks use `backend.preflight_check()` instead of hardcoded Claude CLI checks
-- Runner registers with server on startup (capabilities, backend name)
-- Health endpoint reports backend, model, and capability info
+**Phase 1-6** (completed in previous session):
+- Added `ProviderType` enum (Github/Gitea) to `flowstate-core`
+- SQLite v11 and Postgres V3 migrations for `provider_type` and `skip_tls_verify` columns
+- Extended `RepoProvider` trait with `preflight()`, PR comment/review methods
+- Provider factory with auto-detection and explicit configuration
+- HTTPS enforcement
+- Full Gitea provider via `reqwest` HTTP API
+- Enhanced GitHub provider with PR comment/review methods via `gh api`
+- Updated all callers: pipeline, salvage, executor, workspace, preflight
+- Provider-agnostic TUI health check
 
-**Server changes:**
-- `POST /api/runners/register` endpoint for runner registration
-- Capability-aware claim filtering — runners only receive work matching their tier
-- Triggered runs automatically set `required_capability` based on action type
+**Phase 7** (completed now — fixing test compilation issues):
+- Fixed `workspace_integration.rs` — added 4th `skip_tls_verify: bool` arg to all 9 `ensure_repo()` calls
+- Added `#[derive(Debug)]` to `GiteaProvider`
+- Fixed `unwrap_err()` on `Box<dyn RepoProvider>` by using `.err().expect()` instead
 
-**Database:**
-- SQLite v10 migration adding `required_capability` column
-- PostgreSQL V2 migration for same
-- Claim query filters by runner capabilities (backwards-compatible: empty = claim anything)
+## Test Results
+- **506 unit tests pass, 0 failures** (34 ignored integration tests)
+- **Clippy clean** with `-D warnings`
+- **`flowstate-coverage` fails** — but this is a **pre-existing issue on main** (S3 tests fail under `cargo llvm-cov` due to environment variable propagation; they pass fine under regular `cargo test`)
+
+## Files Modified/Created
+- 19 modified files + 2 new files (`gitea.rs`, `V3__add_provider_type.sql`)

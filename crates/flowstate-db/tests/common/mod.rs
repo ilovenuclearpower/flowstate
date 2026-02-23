@@ -1026,6 +1026,7 @@ pub async fn test_update_project_all_fields(db: &dyn Database) {
                 description: Some("New desc".into()),
                 repo_url: Some("https://new-url.com".into()),
                 repo_token: Some("tok_123".into()),
+                ..Default::default()
             },
         )
         .await

@@ -105,7 +105,7 @@ async fn execute_research(
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify).await?;
 
     progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, run.action).await;
@@ -160,7 +160,7 @@ async fn execute_design(
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify).await?;
 
     progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, run.action).await;
@@ -215,7 +215,7 @@ async fn execute_plan(
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify).await?;
 
     progress(service, &run.id, "Assembling prompt...").await;
     let ctx = build_prompt_context(service, task, project, run.action).await;
@@ -270,7 +270,7 @@ async fn execute_verify(
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
     let token = service.get_repo_token(&project.id).await.ok();
-    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref()).await?;
+    workspace::ensure_repo(ws_dir, &project.repo_url, token.as_deref(), project.skip_tls_verify).await?;
 
     // Checkout the feature branch from the most recent completed build run
     let runs = service.list_claude_runs(&task.id).await.unwrap_or_default();

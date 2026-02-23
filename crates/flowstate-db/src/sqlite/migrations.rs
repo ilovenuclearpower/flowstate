@@ -597,5 +597,25 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         .to_db()?;
     }
 
+    if current_version < 11 {
+        // v11: Add provider_type and skip_tls_verify columns to projects
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if !has_column("projects", "provider_type") {
+            conn.execute_batch(
+                "ALTER TABLE projects ADD COLUMN provider_type TEXT;
+                 ALTER TABLE projects ADD COLUMN skip_tls_verify INTEGER NOT NULL DEFAULT 0;",
+            )
+            .to_db()?;
+        }
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (11, datetime('now'))",
+            [],
+        )
+        .to_db()?;
+    }
+
     Ok(())
 }

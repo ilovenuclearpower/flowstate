@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use flowstate_core::project::{CreateProject, Project, UpdateProject};
+use flowstate_core::project::{CreateProject, Project, ProviderType, UpdateProject};
 
 use crate::DbError;
 use super::super::{pg_err, pg_not_found, PostgresDatabase};
@@ -13,6 +13,8 @@ struct ProjectRow {
     description: String,
     repo_url: String,
     repo_token: Option<String>,
+    provider_type: Option<String>,
+    skip_tls_verify: bool,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
 }
@@ -26,6 +28,8 @@ impl From<ProjectRow> for Project {
             description: r.description,
             repo_url: r.repo_url,
             repo_token: r.repo_token,
+            provider_type: r.provider_type.as_deref().and_then(ProviderType::parse_str),
+            skip_tls_verify: r.skip_tls_verify,
             created_at: r.created_at,
             updated_at: r.updated_at,
         }
@@ -116,12 +120,15 @@ impl PostgresDatabase {
         // We'll build a dynamic query using string formatting for SET clauses
         // and collect bind values in order.
 
-        // We need to collect the values to bind later; since they're all strings
-        // and Option<String>, we can collect them as Option<String>.
+        // String params and a separate bool param tracked by position.
         struct Param {
             value: String,
         }
         let mut params: Vec<Param> = Vec::new();
+
+        // Track the bool param position and value separately since sqlx
+        // needs typed binds.
+        let mut bool_bind: Option<(usize, bool)> = None;
 
         if let Some(ref name) = update.name {
             sets.push(format!("name = ${param_idx}"));
@@ -143,6 +150,16 @@ impl PostgresDatabase {
             params.push(Param { value: repo_token.clone() });
             param_idx += 1;
         }
+        if let Some(ref provider_type) = update.provider_type {
+            sets.push(format!("provider_type = ${param_idx}"));
+            params.push(Param { value: provider_type.as_str().to_string() });
+            param_idx += 1;
+        }
+        if let Some(skip_tls_verify) = update.skip_tls_verify {
+            sets.push(format!("skip_tls_verify = ${param_idx}"));
+            bool_bind = Some((param_idx, skip_tls_verify));
+            param_idx += 1;
+        }
 
         if sets.is_empty() {
             return self.pg_get_project(id).await;
@@ -162,6 +179,9 @@ impl PostgresDatabase {
         let mut query = sqlx::query(&sql);
         for p in &params {
             query = query.bind(&p.value);
+        }
+        if let Some((_, val)) = bool_bind {
+            query = query.bind(val);
         }
         query = query.bind(now);
         query = query.bind(id);

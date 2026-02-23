@@ -1545,35 +1545,30 @@ impl App {
         };
         checks.push(claude);
 
-        // 5. GitHub CLI auth
-        let gh = match std::process::Command::new("gh")
-            .args(["auth", "status"])
-            .output()
-        {
-            Ok(out) if out.status.success() => HealthCheck {
-                name: "GitHub CLI".into(),
-                status: CheckStatus::Passed,
-                detail: "Authenticated".into(),
-            },
-            Ok(out) => {
-                let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                HealthCheck {
-                    name: "GitHub CLI".into(),
-                    status: CheckStatus::Failed,
-                    detail: if msg.is_empty() {
-                        "Not authenticated".into()
-                    } else {
-                        msg
-                    },
+        // 5. VCS Provider
+        let provider_name = self
+            .project
+            .provider_type
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_else(|| {
+                if self.project.repo_url.contains("github.com") {
+                    "github (auto-detected)".to_string()
+                } else if self.project.repo_url.is_empty() {
+                    "not configured".to_string()
+                } else {
+                    "unknown (set provider_type)".to_string()
                 }
-            }
-            _ => HealthCheck {
-                name: "GitHub CLI".into(),
-                status: CheckStatus::Failed,
-                detail: "Not found".into(),
-            },
+            });
+        let provider_status = if self.project.repo_url.is_empty() {
+            CheckStatus::Failed
+        } else {
+            CheckStatus::Passed
         };
-        checks.push(gh);
+        checks.push(HealthCheck {
+            name: "VCS Provider".into(),
+            status: provider_status,
+            detail: provider_name,
+        });
 
         checks
     }

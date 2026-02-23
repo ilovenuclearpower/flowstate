@@ -6,11 +6,13 @@ use tracing::info;
 use crate::backend::AgentBackend;
 
 /// Run all preflight checks before entering the poll loop.
+///
+/// Provider-specific preflight checks (e.g. gh CLI for GitHub, token validation
+/// for Gitea) are deferred to the first time a project is dispatched — see
+/// `pipeline.rs` and `salvage.rs` which call `provider.preflight()` per-run.
 pub async fn run_all(service: &HttpService, backend: &dyn AgentBackend) -> Result<()> {
     check_git()?;
     backend.preflight_check().await?;
-    check_gh_cli()?;
-    check_gh_auth()?;
     check_server_health(service).await?;
     check_server_auth(service).await?;
     info!("all preflight checks passed");
@@ -27,35 +29,6 @@ fn check_git() -> Result<()> {
     }
     let version = String::from_utf8_lossy(&output.stdout);
     info!("git: {}", version.trim());
-    Ok(())
-}
-
-fn check_gh_cli() -> Result<()> {
-    let output = Command::new("gh")
-        .arg("--version")
-        .output()
-        .context("GitHub CLI (gh) is not installed. Install it: https://cli.github.com")?;
-    if !output.status.success() {
-        bail!("gh --version failed");
-    }
-    let version = String::from_utf8_lossy(&output.stdout);
-    info!("gh: {}", version.lines().next().unwrap_or("").trim());
-    Ok(())
-}
-
-fn check_gh_auth() -> Result<()> {
-    let output = Command::new("gh")
-        .args(["auth", "status"])
-        .output()
-        .context("failed to check gh auth status")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!(
-            "GitHub CLI not authenticated. Run: gh auth login\nDetails: {}",
-            stderr.trim()
-        );
-    }
-    info!("gh: authenticated");
     Ok(())
 }
 
@@ -86,12 +59,6 @@ mod tests {
     fn check_git_succeeds() {
         // Git should be available in the nix dev shell
         check_git().unwrap();
-    }
-
-    #[test]
-    fn check_gh_cli_succeeds() {
-        // gh should be available in the nix dev shell
-        check_gh_cli().unwrap();
     }
 
     #[tokio::test]
