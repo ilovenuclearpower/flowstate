@@ -136,6 +136,7 @@ pub async fn execute(
         research_content: None,
         verification_content: None,
         distill_feedback: None,
+        reviewer_notes: vec![],
         child_tasks,
         parent_context,
     };

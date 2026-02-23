@@ -1,28 +1,20 @@
-All three phases are complete. Here's a summary of what was implemented:
+All phases are complete. Here's a summary of everything that was implemented:
 
-## Summary
+## Summary of Changes
 
-### Files Created
-- **`crates/flowstate-runner/src/backend/gemini_cli.rs`** — New `GeminiCliBackend` struct implementing the `AgentBackend` trait, with:
-  - `name()` returning `"gemini-cli"`
-  - `model_hint()` returning the configured model name
-  - `preflight_check()` — 2-phase check: binary availability (`gemini --version`) then authentication (`gemini -p "Respond with: ok" --output-format text`)
-  - `run()` — spawns `gemini -p <prompt> --output-format text --yolo` with optional `-m <model>`, delegates to `process::run_managed_with_timeout()`
-  - `apply_env()` / `apply_env_async()` helpers for setting `GEMINI_API_KEY`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, and `GOOGLE_GENAI_USE_VERTEXAI=true` (conditional on project being set)
-  - 14 unit tests covering `name()`, `model_hint()` (Some/None), and all env var combination branches
+### Phase 1: Fix FeedbackInput Disconnect + Extend Mode with Status
+- **`crates/flowstate-tui/src/app.rs`**: Added `status: ApprovalStatus` field to `Mode::FeedbackInput` enum variant. Updated `handle_key()` dispatch to pass the status. Updated `handle_feedback_input()` to use the dynamic status instead of hardcoding `Rejected`. Pressing `r` in the approval modal now transitions to `FeedbackInput` mode (fixing the bug where rejection skipped feedback collection).
 
-### Files Modified
-- **`crates/flowstate-runner/src/backend/mod.rs`** — Added `pub mod gemini_cli;`
-- **`crates/flowstate-runner/src/config.rs`** — Added:
-  - Import for `GeminiCliBackend`
-  - 4 new config fields: `gemini_api_key`, `gemini_model`, `gemini_gcp_project`, `gemini_gcp_location`
-  - `"gemini-cli"` match arm in `build_backend()`
-  - Updated error message and help text to list `gemini-cli`
-  - Updated `test_config()` helper
-  - 2 new tests: `test_build_backend_gemini_cli` and `test_build_backend_gemini_cli_with_model`
-- **`crates/flowstate-runner/tests/executor_integration.rs`** — Added 4 new `None` fields to its `test_config()` helper
+### Phase 2: Add "Approve with Notes" and "Rerun" Options
+- **`crates/flowstate-tui/src/app.rs`**: Added `n` (approve with notes) keybinding that enters `FeedbackInput` with `Approved` status. Added `x` (rerun) keybinding that resets approval status to `None` and clears feedback. Updated `render_approval_pick()` to show 4 options with distinct color-coded keybindings. Updated status bar hints for both `ApprovalPick` and `FeedbackInput` modes. Rendering label changes dynamically ("Notes" vs "Feedback" based on status).
 
-### Validation Results
-- **Clippy**: Zero warnings with `-D warnings`
-- **Tests**: All 95 runner tests pass (77 unit + 10 executor integration + 8 workspace integration)
-- **Coverage**: The `flowstate-coverage` run failed due to a pre-existing flaky `stale_runs` test in `flowstate-db` (Postgres timing issue) — completely unrelated to these changes
+### Phase 3: Forward Reviewer Notes in PromptContext
+- **`crates/flowstate-prompts/src/context.rs`**: Added `reviewer_notes: Vec<(String, String)>` field to `PromptContext`. Added rendering in `append_preamble()` — placed after Verification and before Sub-tasks.
+- **`crates/flowstate-prompts/src/lib.rs`**: Updated `minimal_ctx()` test helper.
+- **`crates/flowstate-runner/src/executor.rs`**: Added reviewer notes collection in `build_prompt_context()` following the forwarding matrix (Design sees Research notes, Plan sees Research+Spec, Build/Verify see all three). Only includes notes from `Approved` phases with non-empty feedback. Skips for distill actions.
+- **`crates/flowstate-runner/src/pipeline.rs`** and **`crates/flowstate-server/src/claude.rs`**: Updated `PromptContext` construction sites with `reviewer_notes: vec![]`.
+
+### Phase 4: Tests
+- **`crates/flowstate-prompts/src/context.rs`**: 4 new tests (reviewer notes rendering, empty omission, ordering, positioning relative to verification/subtasks).
+- **`crates/flowstate-prompts/src/lib.rs`**: 2 new tests (design prompt includes research notes, research prompt has no notes).
+- **`crates/flowstate-tui/tests/app_state_machine.rs`**: 4 new tests (approve-with-notes transitions, notes submit approves, rerun resets status, feedback Esc cancels). Updated 2 existing tests to account for the new FeedbackInput step in the reject flow.

@@ -203,6 +203,7 @@ async fn build_prompt(db: &dyn Database, task: &Task, project: &Project, action:
         research_content: None,
         verification_content: None,
         distill_feedback: None,
+        reviewer_notes: vec![],
         child_tasks,
         parent_context: None,
     };

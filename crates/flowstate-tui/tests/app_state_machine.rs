@@ -837,7 +837,9 @@ fn approval_pick_reject() {
     app.handle_key(key(KeyCode::Enter));
     app.handle_key(char_key('a'));
     assert!(matches!(app.mode(), Mode::ApprovalPick { .. }));
-    app.handle_key(char_key('r')); // reject
+    app.handle_key(char_key('r')); // reject → transitions to FeedbackInput
+    assert!(matches!(app.mode(), Mode::FeedbackInput { .. }));
+    app.handle_key(key(KeyCode::Enter)); // submit empty feedback → reject
     assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
 }
 
@@ -860,16 +862,66 @@ fn detail_a_nothing_pending() {
     assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
 }
 
-// ---- Handler tests: Feedback input ----
+// ---- Handler tests: Approve with notes ----
 
 #[test]
-fn approval_reject_returns_to_detail() {
-    // In the current code, ApprovalPick 'r' does an immediate reject
-    // (no FeedbackInput step). Test that the reject flow completes.
+fn approval_pick_notes_transitions_to_feedback_input() {
     let (mut app, _) = make_app_with_pending_approval();
     app.handle_key(key(KeyCode::Enter)); // TaskDetail
     app.handle_key(char_key('a')); // ApprovalPick
-    app.handle_key(char_key('r')); // reject
+    assert!(matches!(app.mode(), Mode::ApprovalPick { .. }));
+    app.handle_key(char_key('n')); // approve with notes → FeedbackInput
+    assert!(matches!(app.mode(), Mode::FeedbackInput { .. }));
+}
+
+#[test]
+fn approval_notes_submit_approves() {
+    let (mut app, _) = make_app_with_pending_approval();
+    app.handle_key(key(KeyCode::Enter)); // TaskDetail
+    app.handle_key(char_key('a')); // ApprovalPick
+    app.handle_key(char_key('n')); // approve with notes
+    assert!(matches!(app.mode(), Mode::FeedbackInput { .. }));
+    app.handle_key(char_key('h')); // type "hi"
+    app.handle_key(char_key('i'));
+    app.handle_key(key(KeyCode::Enter)); // submit → approved with notes
+    assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
+}
+
+// ---- Handler tests: Rerun ----
+
+#[test]
+fn approval_pick_rerun_resets_status() {
+    let (mut app, _) = make_app_with_pending_approval();
+    app.handle_key(key(KeyCode::Enter)); // TaskDetail
+    app.handle_key(char_key('a')); // ApprovalPick
+    assert!(matches!(app.mode(), Mode::ApprovalPick { .. }));
+    app.handle_key(char_key('x')); // rerun
+    assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
+}
+
+// ---- Handler tests: Feedback input ----
+
+#[test]
+fn feedback_input_esc_cancels() {
+    let (mut app, _) = make_app_with_pending_approval();
+    app.handle_key(key(KeyCode::Enter)); // TaskDetail
+    app.handle_key(char_key('a')); // ApprovalPick
+    app.handle_key(char_key('r')); // reject → FeedbackInput
+    assert!(matches!(app.mode(), Mode::FeedbackInput { .. }));
+    app.handle_key(key(KeyCode::Esc)); // cancel
+    assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
+}
+
+#[test]
+fn approval_reject_returns_to_detail() {
+    // ApprovalPick 'r' transitions to FeedbackInput for feedback collection.
+    // Pressing Enter submits the feedback and returns to TaskDetail.
+    let (mut app, _) = make_app_with_pending_approval();
+    app.handle_key(key(KeyCode::Enter)); // TaskDetail
+    app.handle_key(char_key('a')); // ApprovalPick
+    app.handle_key(char_key('r')); // reject → FeedbackInput
+    assert!(matches!(app.mode(), Mode::FeedbackInput { .. }));
+    app.handle_key(key(KeyCode::Enter)); // submit → reject with feedback
     assert!(matches!(app.mode(), Mode::TaskDetail { .. }));
 }
 
@@ -1600,9 +1652,7 @@ fn render_feedback_input_mode() {
     let (mut app, _) = make_app_with_pending_approval();
     app.handle_key(key(KeyCode::Enter));
     app.handle_key(char_key('a')); // ApprovalPick (research pending)
-    // FeedbackInput is never entered from ApprovalPick in current code
-    // (reject does immediate update). But render path still exists.
-    // Just verify ApprovalPick renders correctly as proxy coverage.
+    // Verify ApprovalPick renders correctly as proxy coverage.
     let backend = ratatui::backend::TestBackend::new(120, 40);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
     terminal.draw(|f| app.render(f)).unwrap();

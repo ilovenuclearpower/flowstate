@@ -59,6 +59,7 @@ mod tests {
             research_content: None,
             verification_content: None,
             distill_feedback: None,
+            reviewer_notes: vec![],
             child_tasks: vec![],
             parent_context: None,
         }
@@ -136,5 +137,22 @@ mod tests {
         let out = assemble_prompt(&ctx, ClaudeAction::VerifyDistill);
         assert!(out.contains("Review & Distill"));
         assert!(out.contains("verification"));
+    }
+
+    #[test]
+    fn design_prompt_includes_research_notes() {
+        let mut ctx = minimal_ctx();
+        ctx.reviewer_notes = vec![("Research".into(), "check the config crate".into())];
+        let out = assemble_prompt(&ctx, ClaudeAction::Design);
+        assert!(out.contains("## Reviewer Notes from Prior Phases"));
+        assert!(out.contains("### Research"));
+        assert!(out.contains("check the config crate"));
+    }
+
+    #[test]
+    fn research_prompt_has_no_notes() {
+        let ctx = minimal_ctx();
+        let out = assemble_prompt(&ctx, ClaudeAction::Research);
+        assert!(!out.contains("Reviewer Notes"));
     }
 }

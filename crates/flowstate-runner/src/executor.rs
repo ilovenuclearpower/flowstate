@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Result;
 use flowstate_core::claude_run::{ClaudeAction, ClaudeRun};
 use flowstate_core::project::Project;
-use flowstate_core::task::Task;
+use flowstate_core::task::{ApprovalStatus, Task};
 use flowstate_prompts::{ChildTaskInfo, PromptContext};
 use flowstate_service::{HttpService, TaskService};
 use tracing::{info, warn};
@@ -404,6 +404,38 @@ async fn build_prompt_context(
         _ => None,
     };
 
+    // Collect reviewer notes from approved prior phases for forward propagation.
+    let mut reviewer_notes = Vec::new();
+    if distill_feedback.is_none() {
+        if task.research_status == ApprovalStatus::Approved
+            && !task.research_feedback.is_empty()
+            && matches!(
+                action,
+                ClaudeAction::Design
+                    | ClaudeAction::Plan
+                    | ClaudeAction::Build
+                    | ClaudeAction::Verify
+            )
+        {
+            reviewer_notes.push(("Research".to_string(), task.research_feedback.clone()));
+        }
+        if task.spec_status == ApprovalStatus::Approved
+            && !task.spec_feedback.is_empty()
+            && matches!(
+                action,
+                ClaudeAction::Plan | ClaudeAction::Build | ClaudeAction::Verify
+            )
+        {
+            reviewer_notes.push(("Specification".to_string(), task.spec_feedback.clone()));
+        }
+        if task.plan_status == ApprovalStatus::Approved
+            && !task.plan_feedback.is_empty()
+            && matches!(action, ClaudeAction::Build | ClaudeAction::Verify)
+        {
+            reviewer_notes.push(("Plan".to_string(), task.plan_feedback.clone()));
+        }
+    }
+
     let child_tasks = service
         .list_child_tasks(&task.id)
         .await
@@ -426,6 +458,7 @@ async fn build_prompt_context(
         plan_content,
         verification_content,
         distill_feedback,
+        reviewer_notes,
         child_tasks,
         parent_context: None,
     }
