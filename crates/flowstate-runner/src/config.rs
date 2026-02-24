@@ -90,19 +90,19 @@ pub struct RunnerConfig {
     #[arg(long, env = "FLOWSTATE_ANTHROPIC_MODEL")]
     pub anthropic_model: Option<String>,
 
-    /// For opencode backend: provider name (e.g., "openrouter", "ollama")
-    #[arg(long, env = "FLOWSTATE_OPENCODE_PROVIDER")]
-    pub opencode_provider: Option<String>,
+    /// For opencode backend: provider name (e.g., "anthropic", "openai", "openrouter")
+    #[arg(long, env = "FLOWSTATE_OPENCODE_PROVIDER", default_value = "anthropic")]
+    pub opencode_provider: String,
 
-    /// For opencode backend: model identifier
+    /// For opencode backend: model in "provider/model" format (e.g., "anthropic/claude-sonnet-4-5")
     #[arg(long, env = "FLOWSTATE_OPENCODE_MODEL")]
     pub opencode_model: Option<String>,
 
-    /// For opencode backend: API key
+    /// For opencode backend: API key for the configured provider
     #[arg(long, env = "FLOWSTATE_OPENCODE_API_KEY")]
     pub opencode_api_key: Option<String>,
 
-    /// For opencode backend: base URL override
+    /// For opencode backend: optional custom base URL for self-hosted endpoints
     #[arg(long, env = "FLOWSTATE_OPENCODE_BASE_URL")]
     pub opencode_base_url: Option<String>,
 
@@ -171,16 +171,10 @@ impl RunnerConfig {
                 google_cloud_location: self.gemini_gcp_location.clone(),
             })),
             "opencode" => Ok(Box::new(OpenCodeBackend {
-                provider: self
-                    .opencode_provider
-                    .clone()
-                    .unwrap_or_else(|| "ollama".to_string()),
-                model: self
-                    .opencode_model
-                    .clone()
-                    .unwrap_or_else(|| "default".to_string()),
+                provider: self.opencode_provider.clone(),
+                model: self.opencode_model.clone(),
                 api_key: self.opencode_api_key.clone(),
-                api_base_url: self.opencode_base_url.clone(),
+                base_url: self.opencode_base_url.clone(),
             })),
             other => {
                 bail!("unknown agent backend: {other}. Supported: claude-cli, gemini-cli, opencode")
@@ -222,7 +216,7 @@ mod tests {
             anthropic_base_url: None,
             anthropic_auth_token: None,
             anthropic_model: None,
-            opencode_provider: None,
+            opencode_provider: "anthropic".into(),
             opencode_model: None,
             opencode_api_key: None,
             opencode_base_url: None,
@@ -348,6 +342,16 @@ mod tests {
         cfg.agent_backend = "opencode".into();
         let backend = cfg.build_backend().unwrap();
         assert_eq!(backend.name(), "opencode");
+    }
+
+    #[test]
+    fn test_build_backend_opencode_with_model() {
+        let mut cfg = test_config();
+        cfg.agent_backend = "opencode".into();
+        cfg.opencode_model = Some("anthropic/claude-sonnet-4-5".into());
+        let backend = cfg.build_backend().unwrap();
+        assert_eq!(backend.name(), "opencode");
+        assert_eq!(backend.model_hint(), Some("anthropic/claude-sonnet-4-5"));
     }
 
     #[test]

@@ -85,7 +85,7 @@ fn test_config(workspace_root: PathBuf) -> RunnerConfig {
         anthropic_base_url: None,
         anthropic_auth_token: None,
         anthropic_model: None,
-        opencode_provider: None,
+        opencode_provider: "anthropic".into(),
         opencode_model: None,
         opencode_api_key: None,
         opencode_base_url: None,

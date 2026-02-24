@@ -138,6 +138,7 @@ mod tests {
                 tmp.path(),
                 Duration::from_secs(60),
                 Duration::from_secs(5),
+                None,
             )
             .await
             .unwrap();
@@ -155,6 +156,7 @@ mod tests {
             tmp.path(),
             Duration::from_secs(60),
             Duration::from_secs(5),
+            None,
         )
         .await
         .unwrap();
@@ -179,6 +181,7 @@ mod tests {
                 tmp.path(),
                 Duration::from_secs(60),
                 Duration::from_secs(5),
+                None,
             )
             .await
             .unwrap();

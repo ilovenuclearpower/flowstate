@@ -69,6 +69,7 @@
         coverageScripts = import ./nix/coverage.nix { inherit pkgs rustToolchain; };
         runnerGeminiScripts = import ./nix/runner-gemini.nix { inherit pkgs; };
         runnerClaudeScripts = import ./nix/runner-claude.nix { inherit pkgs; };
+        runnerOpencodeScripts = import ./nix/runner-opencode.nix { inherit pkgs; };
 
       in {
         packages = {
@@ -110,7 +111,8 @@
             ++ giteaScripts.all
             ++ coverageScripts.all
             ++ runnerGeminiScripts.all
-            ++ runnerClaudeScripts.all;
+            ++ runnerClaudeScripts.all
+            ++ runnerOpencodeScripts.all;
           RUST_MIN_STACK = "67108864";
           shellHook = ''
             echo "flowstate dev shell"
@@ -165,6 +167,7 @@
             echo "  runner-claude       - Start runner with Claude CLI (port 3714)"
             echo "  runner-gemini-pro   - Start runner with Gemini 3.1 Pro (port 3712)"
             echo "  runner-gemini-flash - Start runner with Gemini 3 Flash (port 3713)"
+            echo "  runner-opencode     - Start runner with OpenCode CLI (port 3715)"
             echo ""
             echo "Coverage:"
             echo "  flowstate-coverage - Run full coverage suite (starts Postgres + Garage)"

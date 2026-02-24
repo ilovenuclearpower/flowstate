@@ -141,7 +141,9 @@ async fn execute_research(
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
-    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
+    let output = backend
+        .run(&prompt, ws_dir, timeout, kill_grace, None)
+        .await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -202,7 +204,9 @@ async fn execute_design(
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
-    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
+    let output = backend
+        .run(&prompt, ws_dir, timeout, kill_grace, None)
+        .await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -262,7 +266,9 @@ async fn execute_plan(
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
-    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
+    let output = backend
+        .run(&prompt, ws_dir, timeout, kill_grace, None)
+        .await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
@@ -343,7 +349,9 @@ async fn execute_verify(
     save_prompt(&run.id, &prompt)?;
 
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
-    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
+    let output = backend
+        .run(&prompt, ws_dir, timeout, kill_grace, None)
+        .await?;
 
     if output.success {
         progress(service, &run.id, "Reading output...").await;
