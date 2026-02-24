@@ -153,7 +153,18 @@ pub async fn execute(
         backend.name(),
         ws_dir.display()
     );
-    let output = backend.run(&prompt, ws_dir, timeout, kill_grace).await?;
+    let output = backend
+        .run(&prompt, ws_dir, timeout, kill_grace, token.as_deref())
+        .await?;
+
+    info!(
+        "agent finished with exit_code={}, success={}",
+        output.exit_code, output.success
+    );
+    info!("---
+ AGENT STDOUT ---\n{}", output.stdout);
+    info!("---
+ AGENT STDERR ---\n{}", output.stderr);
 
     if !output.success {
         let msg = if output.stderr.is_empty() {

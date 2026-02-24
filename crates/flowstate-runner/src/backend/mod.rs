@@ -53,5 +53,6 @@ pub trait AgentBackend: Send + Sync {
         work_dir: &Path,
         timeout: Duration,
         kill_grace: Duration,
+        repo_token: Option<&str>,
     ) -> Result<AgentOutput>;
 }

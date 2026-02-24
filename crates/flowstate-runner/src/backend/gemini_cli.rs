@@ -42,7 +42,7 @@ impl GeminiCliBackend {
     }
 
     /// Apply configured environment variables to a tokio async command.
-    fn apply_env_async(&self, cmd: &mut Command) {
+    fn apply_env_async(&self, cmd: &mut Command, repo_token: Option<&str>) {
         if let Some(ref key) = self.gemini_api_key {
             cmd.env("GEMINI_API_KEY", key);
         }
@@ -52,6 +52,9 @@ impl GeminiCliBackend {
         }
         if let Some(ref location) = self.google_cloud_location {
             cmd.env("GOOGLE_CLOUD_LOCATION", location);
+        }
+        if let Some(token) = repo_token {
+            cmd.env("GITHUB_TOKEN", token);
         }
     }
 }
@@ -112,6 +115,7 @@ impl AgentBackend for GeminiCliBackend {
         work_dir: &Path,
         timeout: Duration,
         kill_grace: Duration,
+        repo_token: Option<&str>,
     ) -> Result<AgentOutput> {
         let mut cmd = Command::new("gemini");
         cmd.arg("-p")
@@ -125,7 +129,7 @@ impl AgentBackend for GeminiCliBackend {
             cmd.arg("-m").arg(model);
         }
 
-        self.apply_env_async(&mut cmd);
+        self.apply_env_async(&mut cmd, repo_token);
 
         process::run_managed_with_timeout(&mut cmd, work_dir, timeout, kill_grace).await
     }
@@ -236,28 +240,28 @@ mod tests {
     fn test_apply_env_async_no_config() {
         let backend = backend_minimal();
         let mut cmd = Command::new("echo");
-        backend.apply_env_async(&mut cmd);
+        backend.apply_env_async(&mut cmd, None);
     }
 
     #[test]
     fn test_apply_env_async_api_key_only() {
         let backend = backend_with_api_key();
         let mut cmd = Command::new("echo");
-        backend.apply_env_async(&mut cmd);
+        backend.apply_env_async(&mut cmd, None);
     }
 
     #[test]
     fn test_apply_env_async_vertex_ai() {
         let backend = backend_with_vertex_ai();
         let mut cmd = Command::new("echo");
-        backend.apply_env_async(&mut cmd);
+        backend.apply_env_async(&mut cmd, None);
     }
 
     #[test]
     fn test_apply_env_async_full() {
         let backend = backend_full();
         let mut cmd = Command::new("echo");
-        backend.apply_env_async(&mut cmd);
+        backend.apply_env_async(&mut cmd, None);
     }
 
     #[test]
@@ -282,6 +286,6 @@ mod tests {
             google_cloud_location: Some("us-central1".to_string()),
         };
         let mut cmd = Command::new("echo");
-        backend.apply_env_async(&mut cmd);
+        backend.apply_env_async(&mut cmd, None);
     }
 }
