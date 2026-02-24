@@ -1,19 +1,40 @@
-All four phases are complete. Here's a summary of the changes made:
+All phases are complete. Here's a summary of what was implemented:
 
-### Changes Summary
+## Implementation Summary
 
-**3 files modified:**
+### Phase 1: Core Types & Subtask Parser (completed previously)
+- `SubtaskDefinition` struct in `flowstate-core/src/subtask.rs`
+- `subtask_parser.rs` in flowstate-runner with `extract_subtasks()` function + 14 tests
 
-1. **`crates/flowstate-core/src/task.rs`** — Added `attention_required()` method to `Task` that returns `Option<(Status, ApprovalStatus)>` indicating the earliest workflow phase needing human attention (Pending or Rejected). Added 8 unit tests covering all edge cases.
+### Phase 2: Prompt Updates (completed previously)
+- Extended `PromptContext` with `task_id` and `file_allowlist`
+- Plan prompt now includes Section 5: Subtask Definitions
+- Build prompt renders file allowlist restrictions
 
-2. **`crates/flowstate-tui/src/components/task_board.rs`** — Three additions:
-   - `phase_attention_indicator()` helper that maps phases to Nerd Font symbols (󰒆 Research, 󰚎 Design, 󰏗 Plan, 󰗠 Verify) with Yellow for Pending and Red for Rejected
-   - Updated `render_column` to prepend the phase indicator to task titles
-   - Added `select_next_attention()` method that scans all columns with wrap-around to find the next task needing attention
-   - 6 unit tests for the navigation logic
+### Phase 3: Executor Integration (completed previously)
+- `execute_plan` creates subtasks from parsed plan output
+- Pipeline populates `file_allowlist` for subtask builds
 
-3. **`crates/flowstate-tui/src/app.rs`** — Wired `N` (shift-n) key in `handle_normal()` to call `select_next_attention()`, with a status message when no tasks need attention.
+### Phase 4: MCP Server Implementation (this session)
+- **`Cargo.toml`** — Updated deps to use `flowstate-service` instead of `flowstate-db`/`flowstate-verify`
+- **`protocol.rs`** — JSON-RPC types: `JsonRpcRequest`, `JsonRpcResponse`, `ToolDefinition`, `ToolResult` (7 tests)
+- **`tools.rs`** — 8 MCP tools: `list_tasks`, `get_task`, `create_task`, `update_task`, `list_child_tasks`, `get_task_spec`, `get_task_plan`, `get_task_research` with dispatch function (5 tests)
+- **`server.rs`** — MCP server loop with stdin/stdout JSON-RPC handling: `initialize`, `tools/list`, `tools/call` (5 tests)
+- **`main.rs`** — Entry point wiring `HttpService` from env vars to server loop
+- **19 total MCP tests passing**
 
-### Validation
-- `cargo clippy -- -D warnings` — clean, no warnings
-- `cargo test --workspace --all-features` — all 28 test suites pass (0 failures)
+### Phase 5: Runner ↔ MCP Backend Integration (this session)
+- **`McpEnv`** struct in `backend/mod.rs` — carries MCP server path, server URL, API key
+- **`supports_mcp()`** method on `AgentBackend` trait (default `false`)
+- Updated `AgentBackend::run()` signature with `mcp_env: Option<&McpEnv>` parameter
+- **Claude CLI backend** — `supports_mcp() -> true`, writes `.mcp-config.json` and passes `--mcp-config` flag
+- **Gemini/OpenCode/Mock backends** — updated signatures, ignore `mcp_env`
+- **`RunnerConfig`** — added `mcp_server_path: Option<PathBuf>` field and `build_mcp_env()` method
+- Updated `executor::dispatch`, all phase functions, and `pipeline::execute` to thread `mcp_env`
+- Updated `main.rs` `execute_run` to build and pass `mcp_env` when backend supports it
+- Updated all integration tests with the new parameter
+
+### Final Validation
+- `cargo build --workspace` — clean, no warnings
+- `cargo test --workspace --all-features` — all tests pass
+- `cargo clippy --workspace --all-features -- -D warnings` — clean, no warnings

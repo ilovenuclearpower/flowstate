@@ -9,7 +9,7 @@ use flowstate_core::runner::RunnerCapability;
 use crate::backend::claude_cli::ClaudeCliBackend;
 use crate::backend::gemini_cli::GeminiCliBackend;
 use crate::backend::opencode::OpenCodeBackend;
-use crate::backend::AgentBackend;
+use crate::backend::{AgentBackend, McpEnv};
 
 #[derive(Debug, Parser)]
 #[command(name = "flowstate-runner", about = "Flowstate build runner")]
@@ -106,6 +106,11 @@ pub struct RunnerConfig {
     #[arg(long, env = "FLOWSTATE_OPENCODE_BASE_URL")]
     pub opencode_base_url: Option<String>,
 
+    /// Path to the flowstate-mcp binary. When set, MCP server integration is
+    /// enabled for backends that support it (currently claude-cli).
+    #[arg(long, env = "FLOWSTATE_MCP_SERVER_PATH")]
+    pub mcp_server_path: Option<PathBuf>,
+
     /// For gemini-cli backend: Gemini API key
     #[arg(long, env = "FLOWSTATE_GEMINI_API_KEY")]
     pub gemini_api_key: Option<String>,
@@ -182,6 +187,15 @@ impl RunnerConfig {
         }
     }
 
+    /// Build the MCP environment configuration, if a server path is set.
+    pub fn build_mcp_env(&self) -> Option<McpEnv> {
+        self.mcp_server_path.as_ref().map(|path| McpEnv {
+            mcp_server_path: path.clone(),
+            server_url: self.server_url.clone(),
+            api_key: self.api_key.clone(),
+        })
+    }
+
     /// Parse the configured capability tier.
     pub fn capability(&self) -> Result<RunnerCapability> {
         RunnerCapability::parse_str(&self.runner_capability).ok_or_else(|| {
@@ -216,6 +230,7 @@ mod tests {
             anthropic_base_url: None,
             anthropic_auth_token: None,
             anthropic_model: None,
+            mcp_server_path: None,
             opencode_provider: "anthropic".into(),
             opencode_model: None,
             opencode_api_key: None,

@@ -197,6 +197,23 @@ impl HttpService {
         .await
     }
 
+    /// Trigger a run on any task with an optional capability requirement.
+    /// Used by the runner to trigger follow-up phases on tasks it doesn't
+    /// currently own (e.g., triggering Build on newly created subtasks).
+    pub async fn trigger_task_run(
+        &self,
+        task_id: &str,
+        action: &str,
+        capability: Option<&str>,
+    ) -> Result<ClaudeRun, ServiceError> {
+        let mut body = serde_json::json!({ "action": action });
+        if let Some(cap) = capability {
+            body["required_capability"] = serde_json::Value::String(cap.to_string());
+        }
+        self.post_json(&format!("/api/tasks/{task_id}/claude-runs"), &body)
+            .await
+    }
+
     pub async fn get_claude_run_output(&self, run_id: &str) -> Result<String, ServiceError> {
         self.get_text(&format!("/api/claude-runs/{run_id}/output"))
             .await

@@ -7,6 +7,7 @@ pub mod label;
 pub mod project;
 pub mod runner;
 pub mod sprint;
+pub mod subtask;
 pub mod task;
 pub mod task_link;
 pub mod task_pr;

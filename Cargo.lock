@@ -794,11 +794,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "flowstate-core",
- "flowstate-db",
- "flowstate-verify",
+ "flowstate-server",
+ "flowstate-service",
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -85,6 +85,7 @@ fn test_config(workspace_root: PathBuf) -> RunnerConfig {
         anthropic_base_url: None,
         anthropic_auth_token: None,
         anthropic_model: None,
+        mcp_server_path: None,
         opencode_provider: "anthropic".into(),
         opencode_model: None,
         opencode_api_key: None,
@@ -223,7 +224,7 @@ async fn dispatch_research_success() {
     let backend = MockBackend::success("research output")
         .with_files(vec![("RESEARCH.md", "# Research Findings\n\nGood stuff.")]);
 
-    executor::dispatch(&svc, &run, &task, &project, &config, &backend)
+    executor::dispatch(&svc, &run, &task, &project, &config, &backend, None)
         .await
         .unwrap();
 
@@ -252,7 +253,7 @@ async fn dispatch_research_failure() {
     let config = test_config(ws_root);
     let backend = MockBackend::failure("agent crashed", 1);
 
-    executor::dispatch(&svc, &run, &task, &project, &config, &backend)
+    executor::dispatch(&svc, &run, &task, &project, &config, &backend, None)
         .await
         .unwrap();
 
@@ -277,7 +278,7 @@ async fn dispatch_design_success() {
     let config = test_config(ws_root.clone());
     let research_backend = MockBackend::success("research output")
         .with_files(vec![("RESEARCH.md", "# Research\n\nDone.")]);
-    executor::dispatch(&svc, &run, &task, &project, &config, &research_backend)
+    executor::dispatch(&svc, &run, &task, &project, &config, &research_backend, None)
         .await
         .unwrap();
 
@@ -299,7 +300,7 @@ async fn dispatch_design_success() {
 
     let design_backend = MockBackend::success("spec output")
         .with_files(vec![("SPECIFICATION.md", "# Spec\n\nThe spec.")]);
-    executor::dispatch(&svc, &claimed, &task, &project, &config, &design_backend)
+    executor::dispatch(&svc, &claimed, &task, &project, &config, &design_backend, None)
         .await
         .unwrap();
 
@@ -329,7 +330,7 @@ async fn dispatch_plan_success() {
 
     // Complete research
     let backend = MockBackend::success("ok").with_files(vec![("RESEARCH.md", "# Research")]);
-    executor::dispatch(&svc, &run, &task, &project, &config, &backend)
+    executor::dispatch(&svc, &run, &task, &project, &config, &backend, None)
         .await
         .unwrap();
 
@@ -348,7 +349,7 @@ async fn dispatch_plan_success() {
     let _design_run = svc.trigger_claude_run(&task.id, "design").await.unwrap();
     let claimed = svc.claim_claude_run().await.unwrap().unwrap();
     let backend = MockBackend::success("ok").with_files(vec![("SPECIFICATION.md", "# Spec")]);
-    executor::dispatch(&svc, &claimed, &task, &project, &config, &backend)
+    executor::dispatch(&svc, &claimed, &task, &project, &config, &backend, None)
         .await
         .unwrap();
 
@@ -371,7 +372,7 @@ async fn dispatch_plan_success() {
         "PLAN.md",
         "# Plan\n\n## Validation\n\n```bash\necho ok\n```",
     )]);
-    executor::dispatch(&svc, &claimed, &task, &project, &config, &backend)
+    executor::dispatch(&svc, &claimed, &task, &project, &config, &backend, None)
         .await
         .unwrap();
 
@@ -395,7 +396,7 @@ async fn dispatch_research_no_file_uses_stdout() {
     // Backend succeeds but doesn't write RESEARCH.md — executor falls back to stdout
     let backend = MockBackend::success("stdout research content");
 
-    executor::dispatch(&svc, &run, &task, &project, &config, &backend)
+    executor::dispatch(&svc, &run, &task, &project, &config, &backend, None)
         .await
         .unwrap();
 

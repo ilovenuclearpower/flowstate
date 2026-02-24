@@ -9,7 +9,7 @@ use flowstate_prompts::{ChildTaskInfo, PromptContext};
 use flowstate_service::{HttpService, TaskService};
 use tracing::{info, warn};
 
-use crate::backend::AgentBackend;
+use crate::backend::{AgentBackend, McpEnv};
 use crate::config::RunnerConfig;
 use crate::pipeline;
 use crate::workspace;
@@ -24,6 +24,7 @@ pub async fn dispatch(
     project: &Project,
     config: &RunnerConfig,
     backend: &dyn AgentBackend,
+    mcp_env: Option<&McpEnv>,
 ) -> Result<()> {
     let ws_dir = resolve_workspace_dir(&config.workspace_root, &run.id);
     info!("workspace for run {}: {}", run.id, ws_dir.display());
@@ -34,31 +35,31 @@ pub async fn dispatch(
     let result = match run.action {
         ClaudeAction::Research | ClaudeAction::ResearchDistill => {
             execute_research(
-                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend, mcp_env,
             )
             .await
         }
         ClaudeAction::Design | ClaudeAction::DesignDistill => {
             execute_design(
-                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend, mcp_env,
             )
             .await
         }
         ClaudeAction::Plan | ClaudeAction::PlanDistill => {
             execute_plan(
-                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend, mcp_env,
             )
             .await
         }
         ClaudeAction::Build => {
             pipeline::execute(
-                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend, mcp_env,
             )
             .await
         }
         ClaudeAction::Verify | ClaudeAction::VerifyDistill => {
             execute_verify(
-                service, run, task, project, &ws_dir, timeout, kill_grace, backend,
+                service, run, task, project, &ws_dir, timeout, kill_grace, backend, mcp_env,
             )
             .await
         }
@@ -122,6 +123,7 @@ async fn execute_research(
     timeout: Duration,
     kill_grace: Duration,
     backend: &dyn AgentBackend,
+    mcp_env: Option<&McpEnv>,
 ) -> Result<()> {
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
@@ -142,7 +144,7 @@ async fn execute_research(
 
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
     let output = backend
-        .run(&prompt, ws_dir, timeout, kill_grace, None)
+        .run(&prompt, ws_dir, timeout, kill_grace, None, mcp_env)
         .await?;
 
     if output.success {
@@ -185,6 +187,7 @@ async fn execute_design(
     timeout: Duration,
     kill_grace: Duration,
     backend: &dyn AgentBackend,
+    mcp_env: Option<&McpEnv>,
 ) -> Result<()> {
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
@@ -205,7 +208,7 @@ async fn execute_design(
 
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
     let output = backend
-        .run(&prompt, ws_dir, timeout, kill_grace, None)
+        .run(&prompt, ws_dir, timeout, kill_grace, None, mcp_env)
         .await?;
 
     if output.success {
@@ -247,6 +250,7 @@ async fn execute_plan(
     timeout: Duration,
     kill_grace: Duration,
     backend: &dyn AgentBackend,
+    mcp_env: Option<&McpEnv>,
 ) -> Result<()> {
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
@@ -267,7 +271,7 @@ async fn execute_plan(
 
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
     let output = backend
-        .run(&prompt, ws_dir, timeout, kill_grace, None)
+        .run(&prompt, ws_dir, timeout, kill_grace, None, mcp_env)
         .await?;
 
     if output.success {
@@ -290,6 +294,33 @@ async fn execute_plan(
             .await
             .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+        // Parse subtasks from plan output and create them as child tasks
+        let subtask_defs = crate::subtask_parser::extract_subtasks(&content);
+        if !subtask_defs.is_empty() {
+            progress(service, &run.id, "Creating subtasks from plan...").await;
+            info!("creating {} subtasks from plan", subtask_defs.len());
+            for def in &subtask_defs {
+                let create = flowstate_core::task::CreateTask {
+                    project_id: task.project_id.clone(),
+                    title: def.title.clone(),
+                    description: def.description.clone(),
+                    status: flowstate_core::task::Status::Todo,
+                    priority: task.priority,
+                    parent_id: Some(task.id.clone()),
+                    reviewer: task.reviewer.clone(),
+                    research_capability: None,
+                    design_capability: None,
+                    plan_capability: None,
+                    build_capability: def.build_capability,
+                    verify_capability: None,
+                };
+                match service.create_task(&create).await {
+                    Ok(child) => info!("created subtask '{}' ({})", child.title, child.id),
+                    Err(e) => warn!("failed to create subtask '{}': {e}", def.title),
+                }
+            }
+        }
+
         report_success(service, &run.id, output.exit_code).await?;
         info!("plan complete for task {}", task.id);
     } else {
@@ -309,6 +340,7 @@ async fn execute_verify(
     timeout: Duration,
     kill_grace: Duration,
     backend: &dyn AgentBackend,
+    mcp_env: Option<&McpEnv>,
 ) -> Result<()> {
     // Clone repo so the agent can explore the codebase
     progress(service, &run.id, "Cloning repository...").await;
@@ -350,7 +382,7 @@ async fn execute_verify(
 
     progress(service, &run.id, &format!("Running {}...", backend.name())).await;
     let output = backend
-        .run(&prompt, ws_dir, timeout, kill_grace, None)
+        .run(&prompt, ws_dir, timeout, kill_grace, None, mcp_env)
         .await?;
 
     if output.success {
@@ -487,6 +519,7 @@ async fn build_prompt_context(
         .collect();
 
     PromptContext {
+        task_id: task.id.clone(),
         project_name: project.name.clone(),
         repo_url: project.repo_url.clone(),
         task_title: task.title.clone(),
@@ -499,6 +532,7 @@ async fn build_prompt_context(
         reviewer_notes,
         child_tasks,
         parent_context: None,
+        file_allowlist: vec![],
     }
 }
 

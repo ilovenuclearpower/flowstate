@@ -10,7 +10,7 @@ use flowstate_service::{HttpService, TaskService};
 use flowstate_verify::Runner as VerifyRunner;
 use tracing::{error, info};
 
-use crate::backend::AgentBackend;
+use crate::backend::{AgentBackend, McpEnv};
 use crate::plan_parser;
 use crate::repo_provider::{self, ProviderError};
 use crate::workspace;
@@ -26,6 +26,7 @@ pub async fn execute(
     timeout: Duration,
     kill_grace: Duration,
     backend: &dyn AgentBackend,
+    mcp_env: Option<&McpEnv>,
 ) -> Result<()> {
     // 1. Validate prerequisites
     //    Subtasks inherit approvals from their parent task.
@@ -126,7 +127,25 @@ pub async fn execute(
         None
     };
 
+    // For subtask builds, populate file_allowlist from the subtask's plan files
+    let file_allowlist = if is_subtask {
+        if let Some(ref parent_plan) = parent_context.as_ref().and_then(|p| p.plan_content.clone())
+        {
+            let subtask_defs = crate::subtask_parser::extract_subtasks(parent_plan);
+            subtask_defs
+                .iter()
+                .find(|d| d.title == task.title)
+                .map(|d| d.files.clone())
+                .unwrap_or_default()
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
     let ctx = PromptContext {
+        task_id: task.id.clone(),
         project_name: project.name.clone(),
         repo_url: project.repo_url.clone(),
         task_title: task.title.clone(),
@@ -139,6 +158,7 @@ pub async fn execute(
         reviewer_notes: vec![],
         child_tasks,
         parent_context,
+        file_allowlist,
     };
 
     let prompt = flowstate_prompts::assemble_prompt(&ctx, ClaudeAction::Build);
@@ -154,7 +174,7 @@ pub async fn execute(
         ws_dir.display()
     );
     let output = backend
-        .run(&prompt, ws_dir, timeout, kill_grace, token.as_deref())
+        .run(&prompt, ws_dir, timeout, kill_grace, token.as_deref(), mcp_env)
         .await?;
 
     info!(
