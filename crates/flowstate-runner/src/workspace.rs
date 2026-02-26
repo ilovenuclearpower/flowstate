@@ -55,6 +55,15 @@ pub async fn ensure_repo(
         info!("workspace cloned from {repo_url}");
     }
 
+    // Activate project git hooks if the repo has a .githooks directory
+    if workspace.join(".githooks").is_dir() {
+        let _ = Command::new("git")
+            .args(["config", "core.hooksPath", ".githooks"])
+            .current_dir(workspace)
+            .output()
+            .await;
+    }
+
     Ok(())
 }
 

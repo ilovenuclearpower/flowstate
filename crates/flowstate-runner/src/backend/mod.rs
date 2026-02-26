@@ -3,7 +3,7 @@ pub mod gemini_cli;
 pub mod mock;
 pub mod opencode;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -16,6 +16,17 @@ pub struct AgentOutput {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: i32,
+}
+
+/// MCP server configuration passed to backends that support it.
+#[derive(Debug, Clone)]
+pub struct McpEnv {
+    /// Path to the flowstate-mcp binary.
+    pub mcp_server_path: PathBuf,
+    /// Flowstate server URL for the MCP server to connect to.
+    pub server_url: String,
+    /// Optional API key for the MCP server to use.
+    pub api_key: Option<String>,
 }
 
 /// Trait for agentic coding tool backends.
@@ -39,6 +50,11 @@ pub trait AgentBackend: Send + Sync {
         None
     }
 
+    /// Whether this backend supports MCP server integration.
+    fn supports_mcp(&self) -> bool {
+        false
+    }
+
     /// Run preflight checks specific to this backend.
     /// Called once at runner startup.
     async fn preflight_check(&self) -> Result<()>;
@@ -54,5 +70,6 @@ pub trait AgentBackend: Send + Sync {
         timeout: Duration,
         kill_grace: Duration,
         repo_token: Option<&str>,
+        mcp_env: Option<&McpEnv>,
     ) -> Result<AgentOutput>;
 }

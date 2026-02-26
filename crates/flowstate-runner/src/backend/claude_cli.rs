@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use tokio::process::Command;
 use tracing::info;
 
-use super::{AgentBackend, AgentOutput};
+use super::{AgentBackend, AgentOutput, McpEnv};
 use crate::process;
 
 /// Claude CLI backend — wraps the `claude` command-line tool.
@@ -35,6 +35,10 @@ impl AgentBackend for ClaudeCliBackend {
 
     fn model_hint(&self) -> Option<&str> {
         self.model.as_deref()
+    }
+
+    fn supports_mcp(&self) -> bool {
+        true
     }
 
     async fn preflight_check(&self) -> Result<()> {
@@ -88,6 +92,7 @@ impl AgentBackend for ClaudeCliBackend {
         timeout: Duration,
         kill_grace: Duration,
         repo_token: Option<&str>,
+        mcp_env: Option<&McpEnv>,
     ) -> Result<AgentOutput> {
         let mut cmd = Command::new("claude");
         cmd.arg("-p")
@@ -108,8 +113,45 @@ impl AgentBackend for ClaudeCliBackend {
             cmd.env("GITHUB_TOKEN", token);
         }
 
+        // Write MCP config and pass --mcp-config if available
+        if let Some(env) = mcp_env {
+            let mcp_config = write_mcp_config(work_dir, env)?;
+            cmd.arg("--mcp-config").arg(&mcp_config);
+        }
+
         process::run_managed_with_timeout(&mut cmd, work_dir, timeout, kill_grace).await
     }
+}
+
+/// Write a temporary MCP config JSON file for the Claude CLI.
+///
+/// The config tells Claude CLI to connect to our flowstate-mcp server
+/// via stdio transport.
+fn write_mcp_config(work_dir: &Path, env: &McpEnv) -> Result<std::path::PathBuf> {
+    let config_path = work_dir.join(".mcp-config.json");
+    let mut mcp_env_vars = serde_json::Map::new();
+    mcp_env_vars.insert(
+        "FLOWSTATE_SERVER_URL".into(),
+        serde_json::Value::String(env.server_url.clone()),
+    );
+    if let Some(ref key) = env.api_key {
+        mcp_env_vars.insert(
+            "FLOWSTATE_API_KEY".into(),
+            serde_json::Value::String(key.clone()),
+        );
+    }
+
+    let config = serde_json::json!({
+        "mcpServers": {
+            "flowstate": {
+                "command": env.mcp_server_path.to_string_lossy(),
+                "args": [],
+                "env": mcp_env_vars
+            }
+        }
+    });
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+    Ok(config_path)
 }
 
 #[cfg(test)]

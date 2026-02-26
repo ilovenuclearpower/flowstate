@@ -20,7 +20,7 @@ pub fn assemble_prompt(ctx: &PromptContext, action: ClaudeAction) -> String {
         ClaudeAction::Research => research::append_instructions(&mut prompt),
         ClaudeAction::Design => design::append_instructions(&mut prompt),
         ClaudeAction::Plan => plan::append_instructions(&mut prompt),
-        ClaudeAction::Build => build::append_instructions(&mut prompt),
+        ClaudeAction::Build => build::append_instructions(&mut prompt, &ctx.file_allowlist),
         ClaudeAction::Verify => verify::append_instructions(&mut prompt),
         ClaudeAction::ResearchDistill => {
             if let Some(ref content) = ctx.research_content {
@@ -50,6 +50,7 @@ mod tests {
 
     fn minimal_ctx() -> PromptContext {
         PromptContext {
+            task_id: String::new(),
             project_name: "TestProject".into(),
             repo_url: String::new(),
             task_title: "Test Task".into(),
@@ -62,6 +63,7 @@ mod tests {
             reviewer_notes: vec![],
             child_tasks: vec![],
             parent_context: None,
+            file_allowlist: vec![],
         }
     }
 

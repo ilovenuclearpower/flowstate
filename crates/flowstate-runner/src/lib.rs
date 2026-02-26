@@ -8,4 +8,5 @@ pub mod process;
 pub mod repo_provider;
 pub mod run_tracker;
 pub mod salvage;
+pub mod subtask_parser;
 pub mod workspace;

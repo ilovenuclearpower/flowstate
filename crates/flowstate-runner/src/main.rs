@@ -407,10 +407,25 @@ async fn execute_run(
             heartbeat_loop(&heartbeat_service, &heartbeat_run_id).await;
         });
 
+        // Build MCP env if configured and backend supports it
+        let mcp_env = if backend.supports_mcp() {
+            config.build_mcp_env()
+        } else {
+            None
+        };
+
         // Execute with timeout
         let result = tokio::time::timeout(
             timeout,
-            executor::dispatch(&service, &run, &task, &project, &config, backend.as_ref()),
+            executor::dispatch(
+                &service,
+                &run,
+                &task,
+                &project,
+                &config,
+                backend.as_ref(),
+                mcp_env.as_ref(),
+            ),
         )
         .await;
 

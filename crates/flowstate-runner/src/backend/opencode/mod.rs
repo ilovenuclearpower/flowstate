@@ -139,6 +139,7 @@ impl AgentBackend for OpenCodeBackend {
         timeout: Duration,
         kill_grace: Duration,
         repo_token: Option<&str>,
+        _mcp_env: Option<&super::McpEnv>,
     ) -> Result<AgentOutput> {
         let mut cmd = Command::new("opencode");
         cmd.arg("run").arg(prompt).current_dir(work_dir);

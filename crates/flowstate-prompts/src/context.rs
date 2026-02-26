@@ -20,6 +20,7 @@ pub struct ParentContext {
 /// All the context needed to assemble a prompt for any action.
 #[derive(Debug, Clone)]
 pub struct PromptContext {
+    pub task_id: String,
     pub project_name: String,
     pub repo_url: String,
     pub task_title: String,
@@ -32,6 +33,7 @@ pub struct PromptContext {
     pub reviewer_notes: Vec<(String, String)>,
     pub child_tasks: Vec<ChildTaskInfo>,
     pub parent_context: Option<ParentContext>,
+    pub file_allowlist: Vec<String>,
 }
 
 impl PromptContext {
@@ -57,7 +59,14 @@ impl PromptContext {
             }
         }
 
-        prompt.push_str(&format!("# Task: {}\n\n", self.task_title));
+        if self.task_id.is_empty() {
+            prompt.push_str(&format!("# Task: {}\n\n", self.task_title));
+        } else {
+            prompt.push_str(&format!(
+                "# Task: {} (ID: {})\n\n",
+                self.task_title, self.task_id
+            ));
+        }
         prompt.push_str(&format!("## Description\n\n{}\n\n", self.task_description));
 
         if let Some(ref research) = self.research_content {
@@ -114,6 +123,7 @@ mod tests {
 
     fn minimal_ctx() -> PromptContext {
         PromptContext {
+            task_id: String::new(),
             project_name: "TestProject".into(),
             repo_url: String::new(),
             task_title: "Test Task".into(),
@@ -126,6 +136,7 @@ mod tests {
             reviewer_notes: vec![],
             child_tasks: vec![],
             parent_context: None,
+            file_allowlist: vec![],
         }
     }
 

@@ -69,6 +69,7 @@ impl AgentBackend for MockBackend {
         _timeout: Duration,
         _kill_grace: Duration,
         _repo_token: Option<&str>,
+        _mcp_env: Option<&super::McpEnv>,
     ) -> Result<AgentOutput> {
         // Write configured files into workspace
         for (path, content) in &self.files {
@@ -139,6 +140,7 @@ mod tests {
                 Duration::from_secs(60),
                 Duration::from_secs(5),
                 None,
+                None,
             )
             .await
             .unwrap();
@@ -156,6 +158,7 @@ mod tests {
             tmp.path(),
             Duration::from_secs(60),
             Duration::from_secs(5),
+            None,
             None,
         )
         .await
@@ -181,6 +184,7 @@ mod tests {
                 tmp.path(),
                 Duration::from_secs(60),
                 Duration::from_secs(5),
+                None,
                 None,
             )
             .await

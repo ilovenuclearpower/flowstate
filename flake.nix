@@ -122,6 +122,11 @@
           RUST_MIN_STACK = "67108864";
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.openssl ];
           shellHook = ''
+            # Install project git hooks
+            if [ -d ".githooks" ]; then
+              git config core.hooksPath .githooks
+            fi
+
             echo "flowstate dev shell"
             echo "  cargo: $(cargo --version)"
             echo "  rustc: $(rustc --version)"
