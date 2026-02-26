@@ -99,9 +99,7 @@ impl AgentBackend for OpenCodeBackend {
         let output = std::process::Command::new("opencode")
             .arg("version")
             .output()
-            .context(
-                "OpenCode CLI is not installed. Install it: https://opencode.ai/docs/",
-            )?;
+            .context("OpenCode CLI is not installed. Install it: https://opencode.ai/docs/")?;
         if !output.status.success() {
             bail!("opencode version failed");
         }
@@ -144,9 +142,7 @@ impl AgentBackend for OpenCodeBackend {
         _mcp_env: Option<&super::McpEnv>,
     ) -> Result<AgentOutput> {
         let mut cmd = Command::new("opencode");
-        cmd.arg("run")
-            .arg(prompt)
-            .current_dir(work_dir);
+        cmd.arg("run").arg(prompt).current_dir(work_dir);
 
         if let Some(ref model) = self.model {
             cmd.arg("--model").arg(model);

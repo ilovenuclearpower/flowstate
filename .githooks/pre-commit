@@ -1,0 +1,12 @@
+#!/bin/sh
+# Auto-format Rust code before committing.
+# Installed via: git config core.hooksPath .githooks
+# (done automatically by `nix develop` shellHook)
+
+if [ -f "Cargo.toml" ]; then
+    cargo fmt --all 2>/dev/null
+    if [ $? -eq 0 ]; then
+        # Re-stage any files that were reformatted
+        git add -u
+    fi
+fi

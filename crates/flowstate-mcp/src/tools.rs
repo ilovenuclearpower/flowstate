@@ -134,7 +134,10 @@ fn require_str<'a>(args: &'a serde_json::Value, key: &str) -> Result<&'a str, To
 
 async fn handle_list_tasks(service: &HttpService, args: &serde_json::Value) -> ToolResult {
     let filter = TaskFilter {
-        project_id: args.get("project_id").and_then(|v| v.as_str()).map(String::from),
+        project_id: args
+            .get("project_id")
+            .and_then(|v| v.as_str())
+            .map(String::from),
         status: args
             .get("status")
             .and_then(|v| v.as_str())

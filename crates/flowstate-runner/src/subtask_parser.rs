@@ -216,10 +216,7 @@ Include comprehensive unit tests.
         assert_eq!(subtasks.len(), 2);
 
         assert_eq!(subtasks[0].title, "Add SubtaskDefinition type");
-        assert_eq!(
-            subtasks[0].build_capability,
-            Some(RunnerCapability::Light)
-        );
+        assert_eq!(subtasks[0].build_capability, Some(RunnerCapability::Light));
         assert!(subtasks[0].description.contains("subtask.rs"));
         assert_eq!(subtasks[0].files.len(), 2);
         assert_eq!(subtasks[0].files[0], "crates/flowstate-core/src/subtask.rs");
@@ -261,10 +258,7 @@ Do the thing.
         let subtasks = extract_subtasks(plan);
         assert_eq!(subtasks.len(), 1);
         assert_eq!(subtasks[0].description, "Just a title");
-        assert_eq!(
-            subtasks[0].build_capability,
-            Some(RunnerCapability::Heavy)
-        );
+        assert_eq!(subtasks[0].build_capability, Some(RunnerCapability::Heavy));
     }
 
     #[test]
@@ -396,15 +390,9 @@ Task with all caps capability.
 "#;
         let subtasks = extract_subtasks(plan);
         assert_eq!(subtasks.len(), 2);
-        assert_eq!(
-            subtasks[0].build_capability,
-            Some(RunnerCapability::Light)
-        );
+        assert_eq!(subtasks[0].build_capability, Some(RunnerCapability::Light));
         // "HEAVY" lowercased = "heavy" which should parse
-        assert_eq!(
-            subtasks[1].build_capability,
-            Some(RunnerCapability::Heavy)
-        );
+        assert_eq!(subtasks[1].build_capability, Some(RunnerCapability::Heavy));
     }
 
     #[test]

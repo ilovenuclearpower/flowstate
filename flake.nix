@@ -115,6 +115,11 @@
             ++ runnerOpencodeScripts.all;
           RUST_MIN_STACK = "67108864";
           shellHook = ''
+            # Install project git hooks
+            if [ -d ".githooks" ]; then
+              git config core.hooksPath .githooks
+            fi
+
             echo "flowstate dev shell"
             echo "  cargo: $(cargo --version)"
             echo "  rustc: $(rustc --version)"

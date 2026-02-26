@@ -15,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let base_url =
-        std::env::var("FLOWSTATE_SERVER_URL").unwrap_or_else(|_| "http://localhost:3000".into());
+        std::env::var("FLOWSTATE_SERVER_URL").unwrap_or_else(|_| "http://localhost:3710".into());
     let api_key = std::env::var("FLOWSTATE_API_KEY").ok();
 
     let service = match api_key {

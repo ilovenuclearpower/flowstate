@@ -69,7 +69,11 @@ async fn handle_request(service: &HttpService, req: &JsonRpcRequest) -> JsonRpcR
             JsonRpcResponse::success(req.id.clone(), json!({ "tools": defs }))
         }
         "tools/call" => {
-            let tool_name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let tool_name = req
+                .params
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             let arguments = req.params.get("arguments").cloned().unwrap_or(json!({}));
             let result = tools::dispatch_tool(service, tool_name, &arguments).await;
             JsonRpcResponse::success(req.id.clone(), serde_json::to_value(result).unwrap())

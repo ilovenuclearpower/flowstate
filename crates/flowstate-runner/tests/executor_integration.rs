@@ -278,9 +278,17 @@ async fn dispatch_design_success() {
     let config = test_config(ws_root.clone());
     let research_backend = MockBackend::success("research output")
         .with_files(vec![("RESEARCH.md", "# Research\n\nDone.")]);
-    executor::dispatch(&svc, &run, &task, &project, &config, &research_backend, None)
-        .await
-        .unwrap();
+    executor::dispatch(
+        &svc,
+        &run,
+        &task,
+        &project,
+        &config,
+        &research_backend,
+        None,
+    )
+    .await
+    .unwrap();
 
     // Approve research
     svc.update_task(
@@ -300,9 +308,17 @@ async fn dispatch_design_success() {
 
     let design_backend = MockBackend::success("spec output")
         .with_files(vec![("SPECIFICATION.md", "# Spec\n\nThe spec.")]);
-    executor::dispatch(&svc, &claimed, &task, &project, &config, &design_backend, None)
-        .await
-        .unwrap();
+    executor::dispatch(
+        &svc,
+        &claimed,
+        &task,
+        &project,
+        &config,
+        &design_backend,
+        None,
+    )
+    .await
+    .unwrap();
 
     // Verify design run completed
     let updated = svc.get_claude_run(&claimed.id).await.unwrap();

@@ -307,7 +307,15 @@ async fn execute_run(
         // Execute with timeout
         let result = tokio::time::timeout(
             timeout,
-            executor::dispatch(&service, &run, &task, &project, &config, backend.as_ref(), mcp_env.as_ref()),
+            executor::dispatch(
+                &service,
+                &run,
+                &task,
+                &project,
+                &config,
+                backend.as_ref(),
+                mcp_env.as_ref(),
+            ),
         )
         .await;
 
