@@ -29,9 +29,12 @@ uuid = { workspace = true }
 aes-gcm = { workspace = true }
 base64 = { workspace = true }
 flowstate-store = { path = "../flowstate-store" }
+reqwest = { workspace = true }
+async-trait = { workspace = true }
 bytes = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
+runpod = { workspace = true }
 tempfile = { version = "3", optional = true }
 
 [[test]]

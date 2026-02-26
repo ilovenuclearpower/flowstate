@@ -123,6 +123,26 @@ pub struct RunnerConfig {
     pub gemini_gcp_location: Option<String>,
 }
 
+/// Dynamic runtime configuration that can be updated by the server.
+/// Protected by `Arc<RwLock<RuntimeConfig>>` in the poll loop.
+#[derive(Debug, Clone)]
+pub struct RuntimeConfig {
+    /// Current poll interval in seconds (may be adjusted by server).
+    pub poll_interval: u64,
+    /// Whether the runner should drain (stop claiming, exit when idle).
+    pub drain: bool,
+}
+
+impl RuntimeConfig {
+    /// Create from the initial static config.
+    pub fn from_config(config: &RunnerConfig) -> Self {
+        Self {
+            poll_interval: config.poll_interval,
+            drain: false,
+        }
+    }
+}
+
 impl RunnerConfig {
     /// Validate configuration constraints. Call after parsing.
     pub fn validate(&self) -> Result<()> {
@@ -378,5 +398,21 @@ mod tests {
         let mut cfg = test_config();
         cfg.agent_backend = "unknown".into();
         assert!(cfg.build_backend().is_err());
+    }
+
+    #[test]
+    fn test_runtime_config_from_config() {
+        let cfg = test_config();
+        let rt = RuntimeConfig::from_config(&cfg);
+        assert_eq!(rt.poll_interval, 5);
+        assert!(!rt.drain);
+    }
+
+    #[test]
+    fn test_runtime_config_custom_poll() {
+        let mut cfg = test_config();
+        cfg.poll_interval = 10;
+        let rt = RuntimeConfig::from_config(&cfg);
+        assert_eq!(rt.poll_interval, 10);
     }
 }

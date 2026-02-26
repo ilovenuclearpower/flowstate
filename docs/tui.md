@@ -2,22 +2,26 @@
 
 The Flowstate TUI is a terminal-based interface for managing tasks through the Flowstate workflow. It connects to a Flowstate server and provides vim-style keyboard navigation.
 
-## Starting the TUI
+## Configuration
+
+| Flag | Env Var | Default | Description |
+|------|---------|---------|-------------|
+| `--server` | *(none)* | `http://127.0.0.1:3710` | URL of the Flowstate server |
+| `--api-key` | `FLOWSTATE_API_KEY` | *(none)* | API key for authenticating with the server |
+
+### Auto-Spawn Behavior
+
+When no `--server` flag is provided, the TUI:
+1. Looks for a `flowstate-server` binary next to its own executable, then falls back to `PATH`.
+2. Spawns the server on `127.0.0.1:3710`.
+3. Waits up to 10 seconds for the server to become ready.
+4. Terminates the server on exit.
+
+### Remote Connection
 
 ```bash
-# Auto-spawn a local server and connect
-flowstate
-
-# Connect to an existing server
-flowstate --server http://your-server:3710
-
-# Authenticate with an API key
 flowstate --server http://your-server:3710 --api-key YOUR_KEY
 ```
-
-If `--server` is not provided, the TUI automatically spawns a local `flowstate-server` process on port 3710 and connects to it. The server is terminated when the TUI exits.
-
-The `FLOWSTATE_API_KEY` environment variable can be used instead of the `--api-key` flag.
 
 ## Workflow Columns
 

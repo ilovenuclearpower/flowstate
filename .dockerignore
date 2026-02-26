@@ -1,0 +1,14 @@
+target/
+result
+.direnv/
+.git/
+*.env*
+.env
+.env.*
+.gitignore
+*.md
+!docker/**
+LICENSE
+.claude/
+.github/
+nix/

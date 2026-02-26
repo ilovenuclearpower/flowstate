@@ -11,12 +11,12 @@ use flowstate_core::claude_run::ClaudeRun;
 use flowstate_core::project::Project;
 use flowstate_core::task::Task;
 use flowstate_runner::backend::AgentBackend;
-use flowstate_runner::config::RunnerConfig;
+use flowstate_runner::config::{RunnerConfig, RuntimeConfig};
 use flowstate_runner::run_tracker::{
     ActiveRun, ActiveRunSnapshot, RunOutcome, RunResult, RunTracker,
 };
 use flowstate_runner::{executor, preflight, salvage};
-use flowstate_service::{HttpService, TaskService};
+use flowstate_service::{HttpService, RunnerUtilization, TaskService};
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
@@ -82,6 +82,9 @@ async fn main() -> Result<()> {
     }
 
     let backend: Arc<dyn AgentBackend> = Arc::from(backend);
+
+    // Create RuntimeConfig (dynamically adjustable by server)
+    let runtime_config = Arc::new(RwLock::new(RuntimeConfig::from_config(&config)));
     let config = Arc::new(config);
 
     // Concurrency primitives
@@ -125,6 +128,89 @@ async fn main() -> Result<()> {
         // A. Check shutdown
         if shutdown.load(Ordering::SeqCst) {
             break;
+        }
+
+        // A2. Heartbeat via register_runner (report utilization, receive pending config)
+        let heartbeat_util = {
+            let (active_count, active_builds) = {
+                let trk = tracker.read().unwrap();
+                (trk.active_count(), trk.active_build_count())
+            };
+            let rt = runtime_config.read().unwrap();
+            let drain_status = if rt.drain {
+                Some("draining".to_string())
+            } else {
+                None
+            };
+            RunnerUtilization {
+                poll_interval: rt.poll_interval,
+                max_concurrent: config.max_concurrent,
+                max_builds: config.max_builds,
+                active_count,
+                active_builds,
+                status: drain_status,
+            }
+        };
+
+        match service
+            .register_runner_with_utilization(
+                &runner_id,
+                backend.name(),
+                capability.as_str(),
+                Some(&heartbeat_util),
+            )
+            .await
+        {
+            Ok(resp) => {
+                if let Some(pending) = resp.pending_config {
+                    apply_pending_config(&runtime_config, &pending);
+                }
+            }
+            Err(e) => {
+                warn!("heartbeat registration failed: {e}");
+            }
+        }
+
+        // A3. Check drain flag
+        let (is_draining, current_poll_interval) = {
+            let rt = runtime_config.read().unwrap();
+            (rt.drain, rt.poll_interval)
+        };
+
+        if is_draining {
+            if join_set.is_empty() {
+                info!("drain complete: no active runs, reporting drained and exiting");
+                let drained_util = RunnerUtilization {
+                    poll_interval: current_poll_interval,
+                    max_concurrent: config.max_concurrent,
+                    max_builds: config.max_builds,
+                    active_count: 0,
+                    active_builds: 0,
+                    status: Some("drained".to_string()),
+                };
+                let _ = service
+                    .register_runner_with_utilization(
+                        &runner_id,
+                        backend.name(),
+                        capability.as_str(),
+                        Some(&drained_util),
+                    )
+                    .await;
+                break;
+            }
+            // Draining but still have active runs — drain completed tasks, skip claim
+            while let Some(result) = join_set.try_join_next() {
+                match result {
+                    Ok(run_result) => log_run_outcome(&run_result),
+                    Err(join_err) => error!("run task error: {join_err}"),
+                }
+            }
+            info!(
+                "draining: {} active run(s) remaining, skipping claims",
+                join_set.len()
+            );
+            tokio::time::sleep(Duration::from_secs(current_poll_interval)).await;
+            continue;
         }
 
         // B. Drain completed tasks from JoinSet (non-blocking)
@@ -207,8 +293,9 @@ async fn main() -> Result<()> {
             }
         }
 
-        // D. Sleep
-        tokio::time::sleep(Duration::from_secs(config.poll_interval)).await;
+        // D. Sleep (use dynamic poll_interval from RuntimeConfig)
+        let poll_interval = runtime_config.read().unwrap().poll_interval;
+        tokio::time::sleep(Duration::from_secs(poll_interval)).await;
     }
 
     // Graceful shutdown: wait for active runs to complete
@@ -243,6 +330,26 @@ async fn main() -> Result<()> {
 
     info!("runner stopped");
     Ok(())
+}
+
+/// Apply pending config from the server to our RuntimeConfig.
+fn apply_pending_config(
+    runtime_config: &Arc<RwLock<RuntimeConfig>>,
+    pending: &flowstate_service::PendingConfigResponse,
+) {
+    let mut rt = runtime_config.write().unwrap();
+    if let Some(interval) = pending.poll_interval {
+        if interval != rt.poll_interval {
+            info!("applying pending config: poll_interval {} -> {interval}", rt.poll_interval);
+            rt.poll_interval = interval;
+        }
+    }
+    if let Some(drain) = pending.drain {
+        if drain && !rt.drain {
+            info!("applying pending config: drain=true, will stop claiming new runs");
+            rt.drain = true;
+        }
+    }
 }
 
 /// Execute a single run within a spawned task.

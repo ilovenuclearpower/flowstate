@@ -294,6 +294,18 @@ impl SqliteDatabase {
         })
     }
 
+    /// Count runs in queued status.
+    pub fn count_queued_runs_sync(&self) -> Result<i64, DbError> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT COUNT(*) FROM claude_runs WHERE status = 'queued'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| DbError::Internal(e.to_string()))
+        })
+    }
+
     /// Set runner_id on a claude run (at claim time).
     pub fn set_claude_run_runner_sync(&self, id: &str, runner_id: &str) -> Result<(), DbError> {
         self.with_conn(|conn| {
@@ -541,6 +553,40 @@ mod tests {
             .timeout_claude_run_sync(&run.id, "second timeout")
             .unwrap();
         assert!(result2.is_none());
+    }
+
+    #[test]
+    fn test_count_queued_runs_empty() {
+        let (db, _task_id) = setup();
+        let count = db.count_queued_runs_sync().unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_count_queued_runs_with_runs() {
+        let (db, task_id) = setup();
+
+        // Create 3 queued runs
+        for _ in 0..3 {
+            db.create_claude_run_sync(&CreateClaudeRun {
+                task_id: task_id.clone(),
+                action: ClaudeAction::Research,
+                required_capability: None,
+            })
+            .unwrap();
+        }
+        assert_eq!(db.count_queued_runs_sync().unwrap(), 3);
+
+        // Claim one (transitions to running)
+        db.claim_next_claude_run_sync(&[]).unwrap();
+        assert_eq!(db.count_queued_runs_sync().unwrap(), 2);
+
+        // Complete the claimed run — still 2 queued
+        let runs = db.list_claude_runs_for_task_sync(&task_id).unwrap();
+        let running = runs.iter().find(|r| r.status == ClaudeRunStatus::Running).unwrap();
+        db.update_claude_run_status_sync(&running.id, ClaudeRunStatus::Completed, None, Some(0))
+            .unwrap();
+        assert_eq!(db.count_queued_runs_sync().unwrap(), 2);
     }
 
     #[test]

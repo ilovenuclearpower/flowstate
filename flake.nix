@@ -28,7 +28,7 @@
           inherit src;
           strictDeps = true;
           nativeBuildInputs = [ pkgs.pkg-config ];
-          buildInputs = [ ];
+          buildInputs = [ pkgs.openssl ];
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -36,30 +36,35 @@
         flowstate-tui = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           cargoExtraArgs = "-p flowstate-tui";
+          doCheck = false; # tests run via `checks.test` / CI
           meta.mainProgram = "flowstate";
         });
 
         flowstate-server = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           cargoExtraArgs = "-p flowstate-server";
+          doCheck = false;
           meta.mainProgram = "flowstate-server";
         });
 
         flowstate-mcp = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           cargoExtraArgs = "-p flowstate-mcp";
+          doCheck = false;
           meta.mainProgram = "flowstate-mcp";
         });
 
         flowstate-runner = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           cargoExtraArgs = "-p flowstate-runner";
+          doCheck = false;
           meta.mainProgram = "flowstate-runner";
         });
 
         flowstate-server-postgres = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           cargoExtraArgs = "-p flowstate-server --no-default-features --features postgres";
+          doCheck = false;
           meta.mainProgram = "flowstate-server";
         });
 
@@ -106,6 +111,7 @@
             pkgs.cargo-llvm-cov
             pkgs.gemini-cli
             pkgs.jq
+            pkgs.podman
           ] ++ garageScripts.all
             ++ postgresScripts.all
             ++ giteaScripts.all
@@ -114,6 +120,7 @@
             ++ runnerClaudeScripts.all
             ++ runnerOpencodeScripts.all;
           RUST_MIN_STACK = "67108864";
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.openssl ];
           shellHook = ''
             echo "flowstate dev shell"
             echo "  cargo: $(cargo --version)"

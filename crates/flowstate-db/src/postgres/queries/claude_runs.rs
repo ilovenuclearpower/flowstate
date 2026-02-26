@@ -284,6 +284,15 @@ impl PostgresDatabase {
         Ok(Some(run))
     }
 
+    pub(crate) async fn pg_count_queued_runs(&self) -> Result<i64, DbError> {
+        let (count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM claude_runs WHERE status = 'queued'")
+                .fetch_one(&self.pool)
+                .await
+                .map_err(pg_err)?;
+        Ok(count)
+    }
+
     pub(crate) async fn pg_set_claude_run_runner(
         &self,
         id: &str,
