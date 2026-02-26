@@ -23,6 +23,35 @@ pub struct RunnerStatus {
     pub connected: bool,
 }
 
+/// Runner utilization metrics sent during registration heartbeat.
+#[derive(Debug, Clone)]
+pub struct RunnerUtilization {
+    pub poll_interval: u64,
+    pub max_concurrent: usize,
+    pub max_builds: usize,
+    pub active_count: usize,
+    pub active_builds: usize,
+    pub status: Option<String>,
+}
+
+/// Pending configuration changes from the server.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct PendingConfigResponse {
+    #[serde(default)]
+    pub poll_interval: Option<u64>,
+    #[serde(default)]
+    pub drain: Option<bool>,
+}
+
+/// Response from the register endpoint.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct RegisterResponse {
+    pub status: String,
+    pub runner_id: String,
+    #[serde(default)]
+    pub pending_config: Option<PendingConfigResponse>,
+}
+
 /// Async HTTP client implementation of TaskService.
 /// Connects to a running flowstate-server.
 pub struct HttpService {
@@ -249,17 +278,43 @@ impl HttpService {
     }
 
     /// Register this runner with the server, advertising its capabilities.
+    /// When called without utilization, performs a simple registration.
     pub async fn register_runner(
         &self,
         runner_id: &str,
         backend_name: &str,
         capability: &str,
     ) -> Result<(), ServiceError> {
-        let body = serde_json::json!({
+        self.register_runner_with_utilization(runner_id, backend_name, capability, None)
+            .await
+            .map(|_| ())
+    }
+
+    /// Register/heartbeat with utilization metrics. Returns any pending config from the server.
+    pub async fn register_runner_with_utilization(
+        &self,
+        runner_id: &str,
+        backend_name: &str,
+        capability: &str,
+        utilization: Option<&RunnerUtilization>,
+    ) -> Result<RegisterResponse, ServiceError> {
+        let mut body = serde_json::json!({
             "runner_id": runner_id,
             "backend_name": backend_name,
             "capability": capability,
         });
+
+        if let Some(util) = utilization {
+            body["poll_interval"] = serde_json::json!(util.poll_interval);
+            body["max_concurrent"] = serde_json::json!(util.max_concurrent);
+            body["max_builds"] = serde_json::json!(util.max_builds);
+            body["active_count"] = serde_json::json!(util.active_count);
+            body["active_builds"] = serde_json::json!(util.active_builds);
+            if let Some(ref status) = util.status {
+                body["status"] = serde_json::json!(status);
+            }
+        }
+
         let builder = self
             .client
             .post(format!("{}/api/runners/register", self.base_url));
@@ -271,7 +326,9 @@ impl HttpService {
             .map_err(|e| ServiceError::Internal(e.to_string()))?;
 
         if resp.status().is_success() {
-            Ok(())
+            resp.json::<RegisterResponse>()
+                .await
+                .map_err(|e| ServiceError::Internal(format!("json decode: {e}")))
         } else {
             Err(parse_error(resp).await)
         }

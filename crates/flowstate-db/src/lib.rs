@@ -88,6 +88,7 @@ pub trait Database: Send + Sync {
         error_message: &str,
     ) -> Result<Option<ClaudeRun>, DbError>;
     async fn set_claude_run_runner(&self, id: &str, runner_id: &str) -> Result<(), DbError>;
+    async fn count_queued_runs(&self) -> Result<i64, DbError>;
 
     // -- Sprints (5 methods) --
     async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, DbError>;

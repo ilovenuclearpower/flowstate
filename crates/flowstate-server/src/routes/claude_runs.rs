@@ -228,6 +228,13 @@ async fn claim_claude_run(
                 backend_name: None,
                 capability: None,
                 capabilities: vec![],
+                poll_interval: None,
+                max_concurrent: None,
+                max_builds: None,
+                active_count: None,
+                active_builds: None,
+                status: super::RunnerStatus::Active,
+                pending_config: None,
             });
     }
 
@@ -255,9 +262,23 @@ struct RegisterRunnerInput {
     backend_name: Option<String>,
     #[serde(default)]
     capability: Option<String>,
+    #[serde(default)]
+    poll_interval: Option<u64>,
+    #[serde(default)]
+    max_concurrent: Option<usize>,
+    #[serde(default)]
+    max_builds: Option<usize>,
+    #[serde(default)]
+    active_count: Option<usize>,
+    #[serde(default)]
+    active_builds: Option<usize>,
+    #[serde(default)]
+    status: Option<String>,
 }
 
 /// Register a runner with the server, recording its capabilities.
+/// Also serves as a heartbeat: runner calls this at the top of each poll iteration.
+/// Returns any pending config changes for the runner.
 async fn register_runner(
     State(state): State<AppState>,
     Json(input): Json<RegisterRunnerInput>,
@@ -275,23 +296,47 @@ async fn register_runner(
         })
         .unwrap_or_default();
 
-    let info = RunnerInfo {
-        runner_id: input.runner_id.clone(),
-        last_seen: Utc::now(),
-        backend_name: input.backend_name.clone(),
-        capability: input.capability.clone(),
-        capabilities,
-    };
+    // Parse runner status from input
+    let runner_status = input
+        .status
+        .as_deref()
+        .map(|s| match s {
+            "draining" => super::RunnerStatus::Draining,
+            "drained" => super::RunnerStatus::Drained,
+            _ => super::RunnerStatus::Active,
+        })
+        .unwrap_or(super::RunnerStatus::Active);
 
-    state
-        .runners
-        .lock()
-        .unwrap()
-        .insert(input.runner_id.clone(), info);
+    // Extract pending config to return, then clear it
+    let pending_config = {
+        let mut runners = state.runners.lock().unwrap();
+        let existing_pending = runners
+            .get(&input.runner_id)
+            .and_then(|r| r.pending_config.clone());
+
+        let info = RunnerInfo {
+            runner_id: input.runner_id.clone(),
+            last_seen: Utc::now(),
+            backend_name: input.backend_name.clone(),
+            capability: input.capability.clone(),
+            capabilities,
+            poll_interval: input.poll_interval,
+            max_concurrent: input.max_concurrent,
+            max_builds: input.max_builds,
+            active_count: input.active_count,
+            active_builds: input.active_builds,
+            status: runner_status,
+            pending_config: None, // cleared after delivery
+        };
+
+        runners.insert(input.runner_id.clone(), info);
+        existing_pending
+    };
 
     Ok(Json(json!({
         "status": "registered",
         "runner_id": input.runner_id,
+        "pending_config": pending_config,
     })))
 }
 

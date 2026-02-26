@@ -153,6 +153,9 @@ impl Database for PostgresDatabase {
     async fn set_claude_run_runner(&self, id: &str, runner_id: &str) -> Result<(), DbError> {
         self.pg_set_claude_run_runner(id, runner_id).await
     }
+    async fn count_queued_runs(&self) -> Result<i64, DbError> {
+        self.pg_count_queued_runs().await
+    }
 
     // -- Sprints --
     async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, DbError> {

@@ -161,10 +161,16 @@ pub async fn execute(
         "agent finished with exit_code={}, success={}",
         output.exit_code, output.success
     );
-    info!("---
- AGENT STDOUT ---\n{}", output.stdout);
-    info!("---
- AGENT STDERR ---\n{}", output.stderr);
+    info!(
+        "---
+ AGENT STDOUT ---\n{}",
+        output.stdout
+    );
+    info!(
+        "---
+ AGENT STDERR ---\n{}",
+        output.stderr
+    );
 
     if !output.success {
         let msg = if output.stderr.is_empty() {

@@ -924,6 +924,12 @@ impl Database for SqliteDatabase {
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?
     }
+    async fn count_queued_runs(&self) -> Result<i64, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.count_queued_runs_sync())
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
 
     // -- Sprints --
     async fn create_sprint(&self, input: &CreateSprint) -> Result<Sprint, DbError> {

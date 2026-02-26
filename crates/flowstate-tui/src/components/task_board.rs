@@ -76,10 +76,7 @@ impl TaskBoard {
 
         let num_cols = self.columns.len();
         let start_col = self.active_column;
-        let start_row = self.columns[start_col]
-            .list_state
-            .selected()
-            .unwrap_or(0);
+        let start_row = self.columns[start_col].list_state.selected().unwrap_or(0);
 
         // Total tasks across all columns
         let total_tasks: usize = self.columns.iter().map(|c| c.tasks.len()).sum();
@@ -542,20 +539,13 @@ mod tests {
 
     // --- Attention navigation tests ---
 
-    fn make_task_with_approval(
-        id: &str,
-        status: Status,
-        plan_status: ApprovalStatus,
-    ) -> Task {
+    fn make_task_with_approval(id: &str, status: Status, plan_status: ApprovalStatus) -> Task {
         let mut t = make_task(id, status);
         t.plan_status = plan_status;
         t
     }
 
-    fn make_task_with_verify_rejected(
-        id: &str,
-        status: Status,
-    ) -> Task {
+    fn make_task_with_verify_rejected(id: &str, status: Status) -> Task {
         let mut t = make_task(id, status);
         t.verify_status = ApprovalStatus::Rejected;
         t
@@ -576,7 +566,11 @@ mod tests {
             ),
             (
                 Status::Research,
-                vec![make_task_with_approval("r1", Status::Research, ApprovalStatus::Pending)],
+                vec![make_task_with_approval(
+                    "r1",
+                    Status::Research,
+                    ApprovalStatus::Pending,
+                )],
             ),
             (Status::Design, vec![]),
             (
@@ -663,10 +657,7 @@ mod tests {
     #[test]
     fn select_next_attention_handles_rejected() {
         let mut board = TaskBoard::new(vec![
-            (
-                Status::Todo,
-                vec![make_task("t1", Status::Todo)],
-            ),
+            (Status::Todo, vec![make_task("t1", Status::Todo)]),
             (
                 Status::Verify,
                 vec![make_task_with_verify_rejected("v1", Status::Verify)],
