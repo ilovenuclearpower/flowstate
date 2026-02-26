@@ -36,16 +36,12 @@ struct GpuStatusResponse {
 async fn gpu_status(
     State(state): State<AppState>,
 ) -> Result<Json<GpuStatusResponse>, (StatusCode, Json<Value>)> {
-    let queue_depth = state
-        .db
-        .count_queued_runs()
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": e.to_string()})),
-            )
-        })?;
+    let queue_depth = state.db.count_queued_runs().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     match &state.pod_manager {
         Some(pm) => {
@@ -95,9 +91,7 @@ async fn gpu_start(
     Ok(Json(json!({"status": "start_requested"})))
 }
 
-async fn gpu_stop(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
+async fn gpu_stop(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     let pm = state.pod_manager.as_ref().ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -143,17 +137,13 @@ struct RunnerInfoResponse {
     has_pending_config: bool,
 }
 
-async fn list_runners(
-    State(state): State<AppState>,
-) -> Json<Vec<RunnerInfoResponse>> {
+async fn list_runners(State(state): State<AppState>) -> Json<Vec<RunnerInfoResponse>> {
     let runners = state.runners.lock().unwrap();
     let list: Vec<RunnerInfoResponse> = runners
         .values()
         .map(|r| {
             let saturation_pct = match (r.active_count, r.max_concurrent) {
-                (Some(active), Some(max)) if max > 0 => {
-                    Some(active as f64 / max as f64 * 100.0)
-                }
+                (Some(active), Some(max)) if max > 0 => Some(active as f64 / max as f64 * 100.0),
                 _ => None,
             };
             RunnerInfoResponse {

@@ -50,9 +50,9 @@ pub async fn serve(
     // Check for pod manager configuration
     let pod_manager_state = pod_manager::PodManagerConfig::from_env().map(|pm_config| {
         let pod_id = pm_config.pod_id.clone();
-        let state = Arc::new(tokio::sync::Mutex::new(
-            pod_manager::PodManagerState::new(pod_id),
-        ));
+        let state = Arc::new(tokio::sync::Mutex::new(pod_manager::PodManagerState::new(
+            pod_id,
+        )));
         (pm_config, state)
     });
 
@@ -63,9 +63,7 @@ pub async fn serve(
         runners: std::sync::Mutex::new(HashMap::new()),
         encryption_key,
         store,
-        pod_manager: pod_manager_state
-            .as_ref()
-            .map(|(_, s)| s.clone()),
+        pod_manager: pod_manager_state.as_ref().map(|(_, s)| s.clone()),
     });
 
     let app = routes::build_router(state.clone());

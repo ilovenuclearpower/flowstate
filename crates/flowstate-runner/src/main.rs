@@ -340,7 +340,10 @@ fn apply_pending_config(
     let mut rt = runtime_config.write().unwrap();
     if let Some(interval) = pending.poll_interval {
         if interval != rt.poll_interval {
-            info!("applying pending config: poll_interval {} -> {interval}", rt.poll_interval);
+            info!(
+                "applying pending config: poll_interval {} -> {interval}",
+                rt.poll_interval
+            );
             rt.poll_interval = interval;
         }
     }

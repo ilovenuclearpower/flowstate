@@ -88,8 +88,9 @@ impl PodManagerConfig {
         Some(Self {
             api_key,
             pod_id: std::env::var("FLOWSTATE_RUNPOD_POD_ID").ok(),
-            template_image: std::env::var("FLOWSTATE_RUNPOD_TEMPLATE_IMAGE")
-                .unwrap_or_else(|_| "ghcr.io/ilovenuclearpower/flowstate-runner-gpu-tailscale:latest".into()),
+            template_image: std::env::var("FLOWSTATE_RUNPOD_TEMPLATE_IMAGE").unwrap_or_else(|_| {
+                "ghcr.io/ilovenuclearpower/flowstate-runner-gpu-tailscale:latest".into()
+            }),
             gpu_type: std::env::var("FLOWSTATE_RUNPOD_GPU_TYPE")
                 .unwrap_or_else(|_| "NVIDIA RTX A5000".into()),
             gpu_count: std::env::var("FLOWSTATE_RUNPOD_GPU_COUNT")
@@ -310,9 +311,7 @@ pub async fn pod_manager_tick(
                     _ => PodStatus::Unknown,
                 };
                 // Don't override Draining/Drained status from our side
-                if ps.pod_status != PodStatus::Draining
-                    && ps.pod_status != PodStatus::Drained
-                {
+                if ps.pod_status != PodStatus::Draining && ps.pod_status != PodStatus::Drained {
                     ps.pod_status = new_status;
                 }
 
@@ -401,9 +400,7 @@ pub async fn pod_manager_tick(
                 .map(|t| t.elapsed().as_secs())
                 .unwrap_or(config.idle_timeout_secs + 1);
 
-            if queue_depth <= config.spindown_threshold
-                && idle_secs > config.idle_timeout_secs
-            {
+            if queue_depth <= config.spindown_threshold && idle_secs > config.idle_timeout_secs {
                 info!("pod manager: idle for {idle_secs}s, draining");
                 if let Some(ref rid) = runner_id {
                     set_runner_drain(&state.runners, rid);
@@ -1179,7 +1176,10 @@ mod tests {
             std::env::set_var("FLOWSTATE_RUNPOD_POD_SERVER_IP", "100.64.0.1");
             std::env::set_var("FLOWSTATE_RUNPOD_POD_SERVER_URL", "http://100.64.0.1:3710");
             std::env::set_var("FLOWSTATE_RUNPOD_POD_API_KEY", "test-api-key");
-            std::env::set_var("FLOWSTATE_RUNPOD_POD_VLLM_MODEL", "MiniMaxAI/MiniMax-M1-80k");
+            std::env::set_var(
+                "FLOWSTATE_RUNPOD_POD_VLLM_MODEL",
+                "MiniMaxAI/MiniMax-M1-80k",
+            );
             std::env::set_var("FLOWSTATE_RUNPOD_POD_VLLM_MAX_MODEL_LEN", "32000");
             std::env::set_var("FLOWSTATE_RUNPOD_POD_HF_TOKEN", "hf_test123");
         }
@@ -1187,7 +1187,11 @@ mod tests {
         let ts_authkey = Some("tskey-auth-abc123".to_string());
         let env = PodManagerConfig::build_pod_env(&ts_authkey);
 
-        let find = |k: &str| env.iter().find(|(key, _)| key == k).map(|(_, v)| v.as_str());
+        let find = |k: &str| {
+            env.iter()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.as_str())
+        };
         assert_eq!(find("TS_AUTHKEY"), Some("tskey-auth-abc123"));
         assert_eq!(find("TS_SERVER_IP"), Some("100.64.0.1"));
         assert_eq!(find("FLOWSTATE_SERVER_URL"), Some("http://100.64.0.1:3710"));

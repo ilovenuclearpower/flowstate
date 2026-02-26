@@ -583,7 +583,10 @@ mod tests {
 
         // Complete the claimed run — still 2 queued
         let runs = db.list_claude_runs_for_task_sync(&task_id).unwrap();
-        let running = runs.iter().find(|r| r.status == ClaudeRunStatus::Running).unwrap();
+        let running = runs
+            .iter()
+            .find(|r| r.status == ClaudeRunStatus::Running)
+            .unwrap();
         db.update_claude_run_status_sync(&running.id, ClaudeRunStatus::Completed, None, Some(0))
             .unwrap();
         assert_eq!(db.count_queued_runs_sync().unwrap(), 2);
