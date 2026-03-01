@@ -1,0 +1,31 @@
+services:
+  server:
+    image: ghcr.io/ilovenuclearpower/flowstate-server:latest
+    ports:
+      - "${FLOWSTATE_PORT:-3710}:3710"
+    environment:
+      FLOWSTATE_DB_BACKEND: ${FLOWSTATE_DB_BACKEND:-sqlite}
+      FLOWSTATE_PORT: "3710"
+      FLOWSTATE_BIND: "0.0.0.0"
+    volumes:
+      - server-data:/root/.local/share/flowstate
+      - server-config:/root/.config/flowstate
+    restart: unless-stopped
+
+  runner:
+    image: ghcr.io/ilovenuclearpower/flowstate-runner:latest
+    environment:
+      FLOWSTATE_SERVER_URL: http://server:3710
+      FLOWSTATE_API_KEY: ${FLOWSTATE_API_KEY:-}
+      FLOWSTATE_RUNNER_CAPABILITY: ${FLOWSTATE_RUNNER_CAPABILITY:-standard}
+      FLOWSTATE_AGENT_BACKEND: ${FLOWSTATE_AGENT_BACKEND:-claude-cli}
+      FLOWSTATE_MAX_CONCURRENT: ${FLOWSTATE_MAX_CONCURRENT:-2}
+      FLOWSTATE_MAX_BUILDS: ${FLOWSTATE_MAX_BUILDS:-1}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      - server
+    restart: unless-stopped
+
+volumes:
+  server-data:
+  server-config:

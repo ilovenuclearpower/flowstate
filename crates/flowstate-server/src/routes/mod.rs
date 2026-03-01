@@ -1,3 +1,4 @@
+pub mod admin;
 pub mod claude_runs;
 pub mod health;
 pub mod infra;
@@ -65,7 +66,7 @@ pub struct RunnerInfo {
 pub struct InnerAppState {
     pub service: LocalService,
     pub db: Arc<dyn Database>,
-    pub auth: Option<Arc<AuthConfig>>,
+    pub auth: Arc<tokio::sync::RwLock<Option<Arc<AuthConfig>>>>,
     pub runners: std::sync::Mutex<HashMap<String, RunnerInfo>>,
     pub encryption_key: Key<Aes256Gcm>,
     pub store: Arc<dyn ObjectStore>,
@@ -75,7 +76,9 @@ pub struct InnerAppState {
 pub type AppState = Arc<InnerAppState>;
 
 pub fn build_router(state: AppState) -> Router {
-    let public = Router::new().merge(health::routes());
+    let public = Router::new()
+        .merge(health::routes())
+        .merge(admin::setup_routes());
 
     let protected = Router::new()
         .merge(projects::routes())
@@ -86,6 +89,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(claude_runs::routes())
         .merge(infra::routes())
         .merge(health::protected_routes())
+        .merge(admin::protected_routes())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,

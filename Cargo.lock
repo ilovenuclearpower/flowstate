@@ -940,6 +940,7 @@ dependencies = [
  "flowstate-server",
  "flowstate-service",
  "ratatui",
+ "tempfile",
  "tokio",
 ]
 

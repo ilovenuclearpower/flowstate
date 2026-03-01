@@ -84,8 +84,9 @@ Or set `FLOWSTATE_API_KEY` as an environment variable.
 
 ## What's Next
 
-- [Server configuration, Docker, and deployment](server.md)
+- [Self-hosting with Docker Compose](self-hosting.md) — first-time setup with containers
+- [TUI installation and keymaps](tui.md) — install on macOS, Linux, or Nix
+- [Server configuration and deployment](server.md)
 - [Runner configuration and agent backends](runner.md)
 - [GPU runner with RunPod and Tailscale](runner-gpu.md)
-- [TUI keymaps and modes](tui.md)
 - [Testing and coverage](testing.md)

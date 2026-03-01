@@ -222,6 +222,48 @@ impl BlockingHttpService {
     pub fn system_status(&self) -> Result<crate::SystemStatus, ServiceError> {
         self.rt.block_on(self.inner.system_status())
     }
+
+    // -- Setup & Admin convenience methods --
+
+    pub fn set_api_key(&mut self, key: String) {
+        self.inner.set_api_key(key);
+    }
+
+    pub fn setup_status(&self) -> Result<crate::SetupStatusResponse, ServiceError> {
+        self.rt.block_on(self.inner.setup_status())
+    }
+
+    pub fn setup_init(&self, name: &str) -> Result<crate::SetupInitResponse, ServiceError> {
+        self.rt.block_on(self.inner.setup_init(name))
+    }
+
+    pub fn list_api_keys(&self) -> Result<Vec<crate::ApiKeyInfo>, ServiceError> {
+        self.rt.block_on(self.inner.list_api_keys())
+    }
+
+    pub fn generate_api_key(&self, name: &str) -> Result<crate::GenerateKeyResponse, ServiceError> {
+        self.rt.block_on(self.inner.generate_api_key(name))
+    }
+
+    pub fn revoke_api_key(&self, id: &str) -> Result<(), ServiceError> {
+        self.rt.block_on(self.inner.revoke_api_key(id))
+    }
+
+    pub fn gpu_status(&self) -> Result<crate::GpuStatusResponse, ServiceError> {
+        self.rt.block_on(self.inner.gpu_status())
+    }
+
+    pub fn gpu_start(&self) -> Result<serde_json::Value, ServiceError> {
+        self.rt.block_on(self.inner.gpu_start())
+    }
+
+    pub fn gpu_stop(&self) -> Result<serde_json::Value, ServiceError> {
+        self.rt.block_on(self.inner.gpu_stop())
+    }
+
+    pub fn list_runners(&self) -> Result<Vec<crate::RunnerInfoResponse>, ServiceError> {
+        self.rt.block_on(self.inner.list_runners())
+    }
 }
 
 #[cfg(test)]
@@ -592,5 +634,59 @@ mod tests {
 
         let attachments = svc.list_attachments(&task.id).unwrap();
         assert!(attachments.is_empty());
+    }
+
+    // ---- setup & admin ----
+
+    #[test]
+    fn blocking_setup_status_and_init() {
+        let url = spawn_blocking_server();
+        let svc = BlockingHttpService::new(&url);
+
+        let status = svc.setup_status().unwrap();
+        assert!(status.setup_needed);
+
+        let init = svc.setup_init("admin").unwrap();
+        assert!(init.api_key.starts_with("fs_"));
+        assert_eq!(init.name, "admin");
+
+        let status = svc.setup_status().unwrap();
+        assert!(!status.setup_needed);
+
+        // Second init should fail
+        assert!(svc.setup_init("second").is_err());
+    }
+
+    #[test]
+    fn blocking_api_key_crud() {
+        let url = spawn_blocking_server();
+        let svc = BlockingHttpService::new(&url);
+
+        // Setup first
+        let init = svc.setup_init("admin").unwrap();
+        let mut authed = BlockingHttpService::with_api_key(&url, init.api_key);
+        let _ = &mut authed; // suppress unused_mut if needed
+
+        let gen = authed.generate_api_key("runner").unwrap();
+        assert!(gen.api_key.starts_with("fs_"));
+
+        let keys = authed.list_api_keys().unwrap();
+        assert_eq!(keys.len(), 2);
+
+        authed.revoke_api_key(&gen.id).unwrap();
+        let keys = authed.list_api_keys().unwrap();
+        assert_eq!(keys.len(), 1);
+    }
+
+    #[test]
+    fn blocking_gpu_status_and_runners() {
+        let url = spawn_blocking_server();
+        let svc = BlockingHttpService::new(&url);
+
+        let gpu = svc.gpu_status().unwrap();
+        assert!(!gpu.enabled);
+
+        let runners = svc.list_runners().unwrap();
+        assert!(runners.is_empty());
     }
 }

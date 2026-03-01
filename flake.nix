@@ -75,6 +75,7 @@
         runnerGeminiScripts = import ./nix/runner-gemini.nix { inherit pkgs; };
         runnerClaudeScripts = import ./nix/runner-claude.nix { inherit pkgs; };
         runnerOpencodeScripts = import ./nix/runner-opencode.nix { inherit pkgs; };
+        smokeTestScripts = import ./nix/smoke-test.nix { inherit pkgs rustToolchain; };
 
       in {
         packages = {
@@ -100,6 +101,11 @@
         apps.coverage = {
           type = "app";
           program = "${coverageScripts.flowstateCoverage}/bin/flowstate-coverage";
+        };
+
+        apps.smoke-test = {
+          type = "app";
+          program = "${smokeTestScripts.flowstateSmokeTest}/bin/flowstate-smoke-test";
         };
 
         devShells.default = craneLib.devShell {
@@ -193,6 +199,30 @@
             echo "  pg-test-stop       - Stop ephemeral Postgres and wipe data"
             echo "  pg-test-status     - Check ephemeral Postgres status"
             echo "  pg-test-info       - Show test Postgres credentials"
+          '';
+        };
+
+        # Minimal shell for smoke-testing the server against Postgres.
+        # Does NOT auto-load runner credentials so FLOWSTATE_API_KEY stays unset.
+        devShells.smoke-test = craneLib.devShell {
+          packages = [
+            pkgs.sqlite
+            pkgs.pkg-config
+            pkgs.openssl
+            pkgs.curl
+            pkgs.jq
+          ] ++ postgresScripts.all
+            ++ smokeTestScripts.all;
+          RUST_MIN_STACK = "67108864";
+          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [ pkgs.openssl ];
+          shellHook = ''
+            echo "flowstate smoke-test shell (no auto-loaded credentials)"
+            echo "  cargo: $(cargo --version)"
+            echo "  rustc: $(rustc --version)"
+            echo ""
+            echo "Commands:"
+            echo "  flowstate-smoke-test - Run full Postgres smoke test"
+            echo "  pg-test-start/stop   - Manage ephemeral Postgres"
           '';
         };
       }

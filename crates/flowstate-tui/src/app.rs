@@ -9,11 +9,92 @@ use flowstate_core::task::{
     TaskFilter, UpdateTask,
 };
 use flowstate_core::Project;
-use flowstate_service::BlockingHttpService;
+use flowstate_service::{ApiKeyInfo, BlockingHttpService, GpuStatusResponse, RunnerInfoResponse};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use crate::components::task_board::TaskBoard;
+
+/// Which top-level tab is active.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Board,
+    Ops,
+}
+
+/// Which section of the Ops dashboard is selected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpsSection {
+    Overview,
+    ApiKeys,
+    Runners,
+    Gpu,
+}
+
+impl OpsSection {
+    pub const ALL: [OpsSection; 4] = [
+        OpsSection::Overview,
+        OpsSection::ApiKeys,
+        OpsSection::Runners,
+        OpsSection::Gpu,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            OpsSection::Overview => "Overview",
+            OpsSection::ApiKeys => "API Keys",
+            OpsSection::Runners => "Runners",
+            OpsSection::Gpu => "GPU",
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn next(self) -> OpsSection {
+        match self {
+            OpsSection::Overview => OpsSection::ApiKeys,
+            OpsSection::ApiKeys => OpsSection::Runners,
+            OpsSection::Runners => OpsSection::Gpu,
+            OpsSection::Gpu => OpsSection::Overview,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn prev(self) -> OpsSection {
+        match self {
+            OpsSection::Overview => OpsSection::Gpu,
+            OpsSection::ApiKeys => OpsSection::Overview,
+            OpsSection::Runners => OpsSection::ApiKeys,
+            OpsSection::Gpu => OpsSection::Runners,
+        }
+    }
+}
+
+/// State for the Ops dashboard tab.
+pub struct OpsState {
+    pub section: OpsSection,
+    pub api_keys: Vec<ApiKeyInfo>,
+    pub runners: Vec<RunnerInfoResponse>,
+    pub gpu: Option<GpuStatusResponse>,
+    pub key_name_input: Option<String>,
+    pub generated_key: Option<String>,
+    pub selected_key: usize,
+    pub selected_runner: usize,
+}
+
+impl Default for OpsState {
+    fn default() -> Self {
+        Self {
+            section: OpsSection::Overview,
+            api_keys: Vec::new(),
+            runners: Vec::new(),
+            gpu: None,
+            key_name_input: None,
+            generated_key: None,
+            selected_key: 0,
+            selected_runner: 0,
+        }
+    }
+}
 
 /// What the app is currently doing
 #[derive(Debug, Clone)]
@@ -127,6 +208,10 @@ pub struct App {
     pub editor_request: Option<EditorRequest>,
     /// Active sprint filter (if set, board shows only tasks in this sprint)
     active_sprint: Option<Sprint>,
+    /// Which top-level tab is active.
+    active_tab: Tab,
+    /// State for the Ops dashboard.
+    ops: OpsState,
 }
 
 /// Request to open a file in $EDITOR, with context for what to do after.
@@ -160,6 +245,8 @@ impl App {
             status_message: None,
             editor_request: None,
             active_sprint: None,
+            active_tab: Tab::Board,
+            ops: OpsState::default(),
         })
     }
 
@@ -198,6 +285,30 @@ impl App {
         self.mode = Mode::Normal;
     }
 
+    /// Get the active tab.
+    #[allow(dead_code)]
+    pub fn active_tab(&self) -> Tab {
+        self.active_tab
+    }
+
+    /// Get a reference to the ops state.
+    #[allow(dead_code)]
+    pub fn ops(&self) -> &OpsState {
+        &self.ops
+    }
+
+    /// Get a mutable reference to the ops state (for testing).
+    #[allow(dead_code)]
+    pub fn ops_mut(&mut self) -> &mut OpsState {
+        &mut self.ops
+    }
+
+    fn refresh_ops(&mut self) {
+        self.ops.api_keys = self.service.list_api_keys().unwrap_or_default();
+        self.ops.runners = self.service.list_runners().unwrap_or_default();
+        self.ops.gpu = self.service.gpu_status().ok();
+    }
+
     /// Get a reference to the current mode.
     #[allow(dead_code)]
     pub fn mode(&self) -> &Mode {
@@ -205,6 +316,9 @@ impl App {
     }
 
     pub fn is_input_mode(&self) -> bool {
+        if self.active_tab == Tab::Ops && self.ops.key_name_input.is_some() {
+            return true;
+        }
         matches!(
             self.mode,
             Mode::NewTask { .. }
@@ -217,6 +331,12 @@ impl App {
                 | Mode::NewSprint { .. }
                 | Mode::NewSubtask { .. }
         )
+    }
+
+    /// Returns true if pressing 'q' should quit the app.
+    /// False when on the Ops tab (q returns to Board instead).
+    pub fn should_quit_on_q(&self) -> bool {
+        !self.is_input_mode() && self.active_tab != Tab::Ops
     }
 
     /// Returns true if the event loop should use a poll timeout instead of blocking.
@@ -307,8 +427,30 @@ impl App {
     pub fn handle_key(&mut self, key: KeyEvent) {
         self.status_message = None;
 
+        // Tab switching in Normal mode (before mode dispatch)
+        if matches!(self.mode, Mode::Normal) {
+            match (self.active_tab, key.code) {
+                (Tab::Board, KeyCode::Char('2')) | (Tab::Board, KeyCode::Tab) => {
+                    self.active_tab = Tab::Ops;
+                    self.refresh_ops();
+                    return;
+                }
+                (Tab::Ops, KeyCode::Char('1')) | (Tab::Ops, KeyCode::Tab) => {
+                    self.active_tab = Tab::Board;
+                    return;
+                }
+                _ => {}
+            }
+        }
+
         match &self.mode.clone() {
-            Mode::Normal => self.handle_normal(key),
+            Mode::Normal => {
+                if self.active_tab == Tab::Ops {
+                    self.handle_ops_key(key);
+                } else {
+                    self.handle_normal(key);
+                }
+            }
             Mode::NewTask { input } => self.handle_new_task(key, input.clone()),
             Mode::TaskDetail { task } => self.handle_task_detail(key, task.clone()),
             Mode::EditTitle { task_id, input } => {
@@ -508,6 +650,147 @@ impl App {
                 }
             }
             _ => self.board.handle_key(key),
+        }
+    }
+
+    fn handle_ops_key(&mut self, key: KeyEvent) {
+        // If we're entering a key name, handle that first
+        if let Some(ref mut name_input) = self.ops.key_name_input.clone() {
+            match key.code {
+                KeyCode::Enter => {
+                    let name = name_input.trim().to_string();
+                    if !name.is_empty() {
+                        match self.service.generate_api_key(&name) {
+                            Ok(resp) => {
+                                self.ops.generated_key = Some(resp.api_key);
+                                self.status_message =
+                                    Some(format!("Key generated: {} (press 'y' to copy)", name));
+                                self.refresh_ops();
+                            }
+                            Err(e) => {
+                                self.status_message = Some(format!("Error: {e}"));
+                            }
+                        }
+                    }
+                    self.ops.key_name_input = None;
+                }
+                KeyCode::Esc => {
+                    self.ops.key_name_input = None;
+                }
+                KeyCode::Backspace => {
+                    let mut input = name_input.clone();
+                    input.pop();
+                    self.ops.key_name_input = Some(input);
+                }
+                KeyCode::Char(c) => {
+                    let mut input = name_input.clone();
+                    input.push(c);
+                    self.ops.key_name_input = Some(input);
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        // If showing a generated key, dismiss on any key
+        if self.ops.generated_key.is_some() {
+            self.ops.generated_key = None;
+            return;
+        }
+
+        match key.code {
+            KeyCode::Char('q') => {
+                // Quit from Ops = go back to Board
+                self.active_tab = Tab::Board;
+            }
+            KeyCode::Char('r') => {
+                self.refresh_ops();
+                self.status_message = Some("Ops refreshed".into());
+            }
+            // Section navigation
+            KeyCode::Char('o') => self.ops.section = OpsSection::Overview,
+            KeyCode::Char('a') => self.ops.section = OpsSection::ApiKeys,
+            KeyCode::Char('u') => self.ops.section = OpsSection::Runners,
+            KeyCode::Char('g') => {
+                if self.ops.section == OpsSection::ApiKeys {
+                    // Start key name input
+                    self.ops.key_name_input = Some(String::new());
+                } else {
+                    self.ops.section = OpsSection::Gpu;
+                }
+            }
+            // j/k for item navigation within sections
+            KeyCode::Char('j') | KeyCode::Down => match self.ops.section {
+                OpsSection::ApiKeys => {
+                    if !self.ops.api_keys.is_empty() {
+                        self.ops.selected_key =
+                            (self.ops.selected_key + 1).min(self.ops.api_keys.len() - 1);
+                    }
+                }
+                OpsSection::Runners => {
+                    if !self.ops.runners.is_empty() {
+                        self.ops.selected_runner =
+                            (self.ops.selected_runner + 1).min(self.ops.runners.len() - 1);
+                    }
+                }
+                _ => {}
+            },
+            KeyCode::Char('k') | KeyCode::Up => match self.ops.section {
+                OpsSection::ApiKeys => {
+                    self.ops.selected_key = self.ops.selected_key.saturating_sub(1);
+                }
+                OpsSection::Runners => {
+                    self.ops.selected_runner = self.ops.selected_runner.saturating_sub(1);
+                }
+                _ => {}
+            },
+            // API Keys: delete selected
+            KeyCode::Char('d') => {
+                if self.ops.section == OpsSection::ApiKeys {
+                    if let Some(key_info) = self.ops.api_keys.get(self.ops.selected_key) {
+                        let id = key_info.id.clone();
+                        let name = key_info.name.clone();
+                        match self.service.revoke_api_key(&id) {
+                            Ok(()) => {
+                                self.status_message = Some(format!("Revoked key: {name}"));
+                                self.refresh_ops();
+                                if self.ops.selected_key >= self.ops.api_keys.len()
+                                    && self.ops.selected_key > 0
+                                {
+                                    self.ops.selected_key -= 1;
+                                }
+                            }
+                            Err(e) => {
+                                self.status_message = Some(format!("Error: {e}"));
+                            }
+                        }
+                    }
+                }
+            }
+            // GPU controls
+            KeyCode::Char('s') => {
+                if self.ops.section == OpsSection::Gpu {
+                    match self.service.gpu_start() {
+                        Ok(_) => {
+                            self.status_message = Some("GPU start requested".into());
+                            self.refresh_ops();
+                        }
+                        Err(e) => self.status_message = Some(format!("Error: {e}")),
+                    }
+                }
+            }
+            KeyCode::Char('S') => {
+                if self.ops.section == OpsSection::Gpu {
+                    match self.service.gpu_stop() {
+                        Ok(_) => {
+                            self.status_message = Some("GPU stop requested".into());
+                            self.refresh_ops();
+                        }
+                        Err(e) => self.status_message = Some(format!("Error: {e}")),
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1843,10 +2126,27 @@ impl App {
             .split(area);
 
         self.render_title_bar(frame, layout[0]);
-        self.board.render(frame, layout[1]);
+        match self.active_tab {
+            Tab::Board => self.board.render(frame, layout[1]),
+            Tab::Ops => {
+                crate::components::ops_dashboard::render_ops(frame, layout[1], &self.ops);
+            }
+        }
         self.render_status_bar(frame, layout[2]);
 
         // Overlays
+        // Ops-specific overlays
+        if self.active_tab == Tab::Ops {
+            if let Some(ref input) = self.ops.key_name_input {
+                self.render_input_bar(frame, "Key name: ", input, area);
+            }
+            if let Some(ref key) = self.ops.generated_key {
+                let msg =
+                    format!("Generated API key (shown once):\n\n{key}\n\nPress any key to dismiss");
+                self.render_scrollable_text(frame, " New API Key ", &msg, 0, area);
+            }
+        }
+
         match &self.mode {
             Mode::Normal => {}
             Mode::NewTask { input } => self.render_input_bar(frame, "New task: ", input, area),
@@ -1956,10 +2256,25 @@ impl App {
     }
 
     fn render_title_bar(&self, frame: &mut Frame, area: Rect) {
+        let board_style = if self.active_tab == Tab::Board {
+            Style::default().fg(Color::Cyan).bold()
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        let ops_style = if self.active_tab == Tab::Ops {
+            Style::default().fg(Color::Cyan).bold()
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+
         let slug_display = format!(" ({})", self.project.slug);
         let mut spans = vec![
             Span::styled(" flowstate ", Style::default().bold().fg(Color::Cyan)),
             Span::raw("| "),
+            Span::styled("1:Board", board_style),
+            Span::raw("  "),
+            Span::styled("2:Ops", ops_style),
+            Span::raw(" | "),
             Span::styled(&self.project.name, Style::default().fg(Color::Yellow)),
             Span::styled(slug_display, Style::default().fg(Color::DarkGray)),
         ];
@@ -1985,6 +2300,39 @@ impl App {
         }
 
         let hints = match &self.mode {
+            Mode::Normal if self.active_tab == Tab::Ops => {
+                if self.ops.key_name_input.is_some() {
+                    vec![("Enter", "create"), ("Esc", "cancel")]
+                } else {
+                    match self.ops.section {
+                        OpsSection::Overview => vec![
+                            ("o", "overview"),
+                            ("a", "keys"),
+                            ("u", "runners"),
+                            ("g", "gpu"),
+                            ("r", "refresh"),
+                            ("q", "board"),
+                            ("Tab", "board"),
+                        ],
+                        OpsSection::ApiKeys => vec![
+                            ("j/k", "nav"),
+                            ("g", "generate"),
+                            ("d", "revoke"),
+                            ("r", "refresh"),
+                            ("q", "board"),
+                        ],
+                        OpsSection::Runners => {
+                            vec![("j/k", "nav"), ("r", "refresh"), ("q", "board")]
+                        }
+                        OpsSection::Gpu => vec![
+                            ("s", "start"),
+                            ("S", "stop"),
+                            ("r", "refresh"),
+                            ("q", "board"),
+                        ],
+                    }
+                }
+            }
             Mode::Normal => vec![
                 ("q", "quit"),
                 ("h/l", "cols"),

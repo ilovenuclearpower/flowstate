@@ -52,6 +52,65 @@ pub struct RegisterResponse {
     pub pending_config: Option<PendingConfigResponse>,
 }
 
+/// Response from `GET /api/setup/status`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct SetupStatusResponse {
+    pub setup_needed: bool,
+}
+
+/// Response from `POST /api/setup/init`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct SetupInitResponse {
+    pub api_key: String,
+    pub id: String,
+    pub name: String,
+}
+
+/// API key metadata (no hash).
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ApiKeyInfo {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub last_used_at: Option<String>,
+}
+
+/// Response from `POST /api/admin/api-keys`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct GenerateKeyResponse {
+    pub api_key: String,
+    pub id: String,
+    pub name: String,
+}
+
+/// Response from `GET /api/infra/gpu-status`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct GpuStatusResponse {
+    pub enabled: bool,
+    pub pod_id: Option<String>,
+    pub pod_status: Option<String>,
+    pub daily_cost_cents: Option<u64>,
+    pub cost_capped: Option<bool>,
+    pub queue_depth: i64,
+}
+
+/// Runner info from `GET /api/infra/runners`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct RunnerInfoResponse {
+    pub runner_id: String,
+    pub last_seen: String,
+    pub backend_name: Option<String>,
+    pub capability: Option<String>,
+    pub poll_interval: Option<u64>,
+    pub max_concurrent: Option<usize>,
+    pub max_builds: Option<usize>,
+    pub active_count: Option<usize>,
+    pub active_builds: Option<usize>,
+    pub status: String,
+    pub saturation_pct: Option<f64>,
+    pub has_pending_config: bool,
+}
+
 /// Async HTTP client implementation of TaskService.
 /// Connects to a running flowstate-server.
 pub struct HttpService {
@@ -473,6 +532,74 @@ impl HttpService {
             }),
         )
         .await
+    }
+
+    // -- Setup & Admin convenience methods (not on trait) --
+
+    /// Set the API key at runtime (e.g. after setup wizard).
+    pub fn set_api_key(&mut self, key: String) {
+        self.api_key = Some(key);
+    }
+
+    /// Check if initial setup is needed. NO auth header sent.
+    pub async fn setup_status(&self) -> Result<SetupStatusResponse, ServiceError> {
+        let resp = self
+            .client
+            .get(format!("{}/api/setup/status", self.base_url))
+            .send()
+            .await
+            .map_err(|e| ServiceError::Internal(format!("connection failed: {e}")))?;
+        handle_response(resp).await
+    }
+
+    /// Initialize setup by creating the first admin key. NO auth header sent.
+    pub async fn setup_init(&self, name: &str) -> Result<SetupInitResponse, ServiceError> {
+        let resp = self
+            .client
+            .post(format!("{}/api/setup/init", self.base_url))
+            .json(&serde_json::json!({"name": name}))
+            .send()
+            .await
+            .map_err(|e| ServiceError::Internal(format!("connection failed: {e}")))?;
+        handle_response(resp).await
+    }
+
+    /// List all API keys (metadata only, no hashes).
+    pub async fn list_api_keys(&self) -> Result<Vec<ApiKeyInfo>, ServiceError> {
+        self.get_json("/api/admin/api-keys").await
+    }
+
+    /// Generate a new API key.
+    pub async fn generate_api_key(&self, name: &str) -> Result<GenerateKeyResponse, ServiceError> {
+        self.post_json("/api/admin/api-keys", &serde_json::json!({"name": name}))
+            .await
+    }
+
+    /// Revoke (delete) an API key by ID.
+    pub async fn revoke_api_key(&self, id: &str) -> Result<(), ServiceError> {
+        self.delete_req(&format!("/api/admin/api-keys/{id}")).await
+    }
+
+    /// Get GPU/pod manager status.
+    pub async fn gpu_status(&self) -> Result<GpuStatusResponse, ServiceError> {
+        self.get_json("/api/infra/gpu-status").await
+    }
+
+    /// Request GPU pod start.
+    pub async fn gpu_start(&self) -> Result<serde_json::Value, ServiceError> {
+        self.post_json("/api/infra/gpu/start", &serde_json::json!({}))
+            .await
+    }
+
+    /// Request GPU pod stop (drain).
+    pub async fn gpu_stop(&self) -> Result<serde_json::Value, ServiceError> {
+        self.post_json("/api/infra/gpu/stop", &serde_json::json!({}))
+            .await
+    }
+
+    /// List registered runners.
+    pub async fn list_runners(&self) -> Result<Vec<RunnerInfoResponse>, ServiceError> {
+        self.get_json("/api/infra/runners").await
     }
 }
 
@@ -1413,5 +1540,83 @@ mod tests {
         let url_with_slash = format!("{}/", server.base_url);
         let svc = HttpService::new(&url_with_slash);
         svc.health_check().await.unwrap();
+    }
+
+    // -- Setup & Admin tests --
+
+    #[tokio::test]
+    async fn setup_status_returns_true_on_fresh_server() {
+        let (svc, _server) = setup().await;
+        let resp = svc.setup_status().await.unwrap();
+        assert!(resp.setup_needed);
+    }
+
+    #[tokio::test]
+    async fn setup_init_returns_key() {
+        let (svc, _server) = setup().await;
+        let resp = svc.setup_init("admin").await.unwrap();
+        assert!(resp.api_key.starts_with("fs_"));
+        assert_eq!(resp.name, "admin");
+        assert!(!resp.id.is_empty());
+
+        // After init, setup_needed should be false
+        let status = svc.setup_status().await.unwrap();
+        assert!(!status.setup_needed);
+    }
+
+    #[tokio::test]
+    async fn setup_init_fails_after_first_key() {
+        let (svc, _server) = setup().await;
+        svc.setup_init("admin").await.unwrap();
+        let err = svc.setup_init("second").await;
+        assert!(err.is_err());
+    }
+
+    #[tokio::test]
+    async fn list_api_keys_after_generate() {
+        let (svc, _server) = setup().await;
+        // First create a key via setup to enable auth
+        let init = svc.setup_init("admin").await.unwrap();
+        // Use the key for subsequent authenticated requests
+        let authed = HttpService::with_api_key(&svc.base_url, init.api_key);
+
+        // Generate another key
+        let gen = authed.generate_api_key("runner").await.unwrap();
+        assert!(gen.api_key.starts_with("fs_"));
+        assert_eq!(gen.name, "runner");
+
+        // List should contain 2 keys (admin + runner)
+        let keys = authed.list_api_keys().await.unwrap();
+        assert_eq!(keys.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn revoke_api_key_via_http() {
+        let (svc, _server) = setup().await;
+        let init = svc.setup_init("admin").await.unwrap();
+        let authed = HttpService::with_api_key(&svc.base_url, init.api_key);
+
+        let gen = authed.generate_api_key("to-revoke").await.unwrap();
+        authed.revoke_api_key(&gen.id).await.unwrap();
+
+        let keys = authed.list_api_keys().await.unwrap();
+        // Only the admin key should remain
+        assert_eq!(keys.len(), 1);
+        assert_eq!(keys[0].name, "admin");
+    }
+
+    #[tokio::test]
+    async fn gpu_status_ok() {
+        let (svc, _server) = setup().await;
+        let resp = svc.gpu_status().await.unwrap();
+        // Default test server has no pod manager
+        assert!(!resp.enabled);
+    }
+
+    #[tokio::test]
+    async fn list_runners_returns_list() {
+        let (svc, _server) = setup().await;
+        let runners = svc.list_runners().await.unwrap();
+        assert!(runners.is_empty());
     }
 }
