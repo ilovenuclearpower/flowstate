@@ -11,6 +11,7 @@ use rusqlite::Connection;
 use flowstate_core::api_key::ApiKey;
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
+use flowstate_core::handshake::RunnerHandshake;
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
 use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
@@ -529,7 +530,10 @@ mod tests {
         let db = SqliteDatabase::open_in_memory().unwrap();
         assert!(!db.has_api_keys().await.unwrap());
 
-        let key = db.insert_api_key("test-key", "hash123").await.unwrap();
+        let key = db
+            .insert_api_key("test-key", "hash123", "admin")
+            .await
+            .unwrap();
         assert_eq!(key.name, "test-key");
 
         assert!(db.has_api_keys().await.unwrap());
@@ -1049,11 +1053,17 @@ impl Database for SqliteDatabase {
     }
 
     // -- API Keys --
-    async fn insert_api_key(&self, name: &str, key_hash: &str) -> Result<ApiKey, DbError> {
+    async fn insert_api_key(
+        &self,
+        name: &str,
+        key_hash: &str,
+        role: &str,
+    ) -> Result<ApiKey, DbError> {
         let db = self.clone();
         let name = name.to_string();
         let key_hash = key_hash.to_string();
-        tokio::task::spawn_blocking(move || db.insert_api_key_sync(&name, &key_hash))
+        let role = role.to_string();
+        tokio::task::spawn_blocking(move || db.insert_api_key_sync(&name, &key_hash, &role))
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?
     }
@@ -1087,6 +1097,66 @@ impl Database for SqliteDatabase {
         let db = self.clone();
         let id = id.to_string();
         tokio::task::spawn_blocking(move || db.delete_api_key_sync(&id))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+
+    // -- Runner Handshakes --
+    async fn upsert_runner_handshake(
+        &self,
+        runner_id: &str,
+        hostname: &str,
+    ) -> Result<RunnerHandshake, DbError> {
+        let db = self.clone();
+        let runner_id = runner_id.to_string();
+        let hostname = hostname.to_string();
+        tokio::task::spawn_blocking(move || db.upsert_runner_handshake_sync(&runner_id, &hostname))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn find_runner_handshake_by_runner_id(
+        &self,
+        runner_id: &str,
+    ) -> Result<Option<RunnerHandshake>, DbError> {
+        let db = self.clone();
+        let runner_id = runner_id.to_string();
+        tokio::task::spawn_blocking(move || db.find_runner_handshake_by_runner_id_sync(&runner_id))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn list_runner_handshakes(&self) -> Result<Vec<RunnerHandshake>, DbError> {
+        let db = self.clone();
+        tokio::task::spawn_blocking(move || db.list_runner_handshakes_sync())
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn approve_runner_handshake(
+        &self,
+        id: &str,
+        api_key_id: &str,
+        raw_key: &str,
+    ) -> Result<(), DbError> {
+        let db = self.clone();
+        let id = id.to_string();
+        let api_key_id = api_key_id.to_string();
+        let raw_key = raw_key.to_string();
+        tokio::task::spawn_blocking(move || {
+            db.approve_runner_handshake_sync(&id, &api_key_id, &raw_key)
+        })
+        .await
+        .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn reject_runner_handshake(&self, id: &str) -> Result<(), DbError> {
+        let db = self.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || db.reject_runner_handshake_sync(&id))
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?
+    }
+    async fn claim_runner_handshake(&self, id: &str) -> Result<Option<String>, DbError> {
+        let db = self.clone();
+        let id = id.to_string();
+        tokio::task::spawn_blocking(move || db.claim_runner_handshake_sync(&id))
             .await
             .map_err(|e| DbError::Internal(e.to_string()))?
     }

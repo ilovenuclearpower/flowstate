@@ -12,6 +12,7 @@ struct ApiKeyRow {
     id: String,
     name: String,
     key_hash: String,
+    role: String,
     created_at: String,
     last_used_at: Option<String>,
 }
@@ -22,6 +23,7 @@ impl From<ApiKeyRow> for ApiKey {
             id: r.id,
             name: r.name,
             key_hash: r.key_hash,
+            role: r.role,
             created_at: r.created_at,
             last_used_at: r.last_used_at,
         }
@@ -33,16 +35,18 @@ impl PostgresDatabase {
         &self,
         name: &str,
         key_hash: &str,
+        role: &str,
     ) -> Result<ApiKey, DbError> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
         sqlx::query(
-            "INSERT INTO api_keys (id, name, key_hash, created_at) VALUES ($1, $2, $3, $4)",
+            "INSERT INTO api_keys (id, name, key_hash, role, created_at) VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(&id)
         .bind(name)
         .bind(key_hash)
+        .bind(role)
         .bind(&now)
         .execute(&self.pool)
         .await

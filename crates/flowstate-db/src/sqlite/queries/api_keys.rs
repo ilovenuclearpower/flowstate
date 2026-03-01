@@ -11,19 +11,25 @@ fn row_to_api_key(row: &Row) -> rusqlite::Result<ApiKey> {
         id: row.get("id")?,
         name: row.get("name")?,
         key_hash: row.get("key_hash")?,
+        role: row.get("role")?,
         created_at: row.get("created_at")?,
         last_used_at: row.get("last_used_at")?,
     })
 }
 
 impl SqliteDatabase {
-    pub fn insert_api_key_sync(&self, name: &str, key_hash: &str) -> Result<ApiKey, DbError> {
+    pub fn insert_api_key_sync(
+        &self,
+        name: &str,
+        key_hash: &str,
+        role: &str,
+    ) -> Result<ApiKey, DbError> {
         self.with_conn(|conn| {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now().to_rfc3339();
             conn.execute(
-                "INSERT INTO api_keys (id, name, key_hash, created_at) VALUES (?1, ?2, ?3, ?4)",
-                params![id, name, key_hash, now],
+                "INSERT INTO api_keys (id, name, key_hash, role, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![id, name, key_hash, role, now],
             )
             .to_db()?;
             conn.query_row(
@@ -107,9 +113,12 @@ mod tests {
         let db = Db::open_in_memory().unwrap();
 
         // Insert
-        let key = db.insert_api_key_sync("test-key", "hash123").unwrap();
+        let key = db
+            .insert_api_key_sync("test-key", "hash123", "admin")
+            .unwrap();
         assert_eq!(key.name, "test-key");
         assert_eq!(key.key_hash, "hash123");
+        assert_eq!(key.role, "admin");
         assert!(key.last_used_at.is_none());
 
         // Find by hash

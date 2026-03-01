@@ -14,6 +14,10 @@ use flowstate_db::Database;
 
 use crate::routes::AppState;
 
+/// Role extracted from the authenticated API key, inserted as a request extension.
+#[derive(Debug, Clone)]
+pub struct ApiKeyRole(pub String);
+
 /// Authentication configuration.
 pub struct AuthConfig {
     /// SHA-256 hash of the `FLOWSTATE_API_KEY` env var (if set).
@@ -49,7 +53,7 @@ pub fn generate_api_key() -> String {
 /// Otherwise, requires a valid `Authorization: Bearer <token>` header.
 pub async fn auth_middleware(
     State(state): State<AppState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let auth_guard = state.auth.read().await;
@@ -82,6 +86,10 @@ pub async fn auth_middleware(
     // Check env key (constant-time comparison via hash equality)
     if let Some(ref env_hash) = auth.env_key_hash {
         if constant_time_eq(&token_hash, env_hash) {
+            // Env key is always admin role
+            request
+                .extensions_mut()
+                .insert(ApiKeyRole("admin".to_string()));
             return next.run(request).await;
         }
     }
@@ -97,6 +105,9 @@ pub async fn auth_middleware(
             tokio::spawn(async move {
                 let _ = db2.touch_api_key(&key_id).await;
             });
+            request
+                .extensions_mut()
+                .insert(ApiKeyRole(api_key.role.clone()));
             return next.run(request).await;
         }
         Ok(None) => {}

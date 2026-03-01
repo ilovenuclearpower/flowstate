@@ -264,6 +264,23 @@ impl BlockingHttpService {
     pub fn list_runners(&self) -> Result<Vec<crate::RunnerInfoResponse>, ServiceError> {
         self.rt.block_on(self.inner.list_runners())
     }
+
+    // -- Runner Handshake methods --
+
+    pub fn list_handshakes(&self) -> Result<Vec<crate::HandshakeInfo>, ServiceError> {
+        self.rt.block_on(self.inner.list_handshakes())
+    }
+
+    pub fn approve_handshake(
+        &self,
+        id: &str,
+    ) -> Result<crate::ApproveHandshakeResponse, ServiceError> {
+        self.rt.block_on(self.inner.approve_handshake(id))
+    }
+
+    pub fn reject_handshake(&self, id: &str) -> Result<(), ServiceError> {
+        self.rt.block_on(self.inner.reject_handshake(id))
+    }
 }
 
 #[cfg(test)]

@@ -94,6 +94,33 @@ pub struct GpuStatusResponse {
     pub queue_depth: i64,
 }
 
+/// Response from `POST /api/runners/handshake`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct HandshakeResponse {
+    pub status: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub handshake_id: Option<String>,
+}
+
+/// Handshake info from `GET /api/admin/handshakes`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct HandshakeInfo {
+    pub id: String,
+    pub runner_id: String,
+    pub hostname: String,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Response from `POST /api/admin/handshakes/{id}/approve`.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ApproveHandshakeResponse {
+    pub api_key_name: String,
+}
+
 /// Runner info from `GET /api/infra/runners`.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct RunnerInfoResponse {
@@ -600,6 +627,66 @@ impl HttpService {
     /// List registered runners.
     pub async fn list_runners(&self) -> Result<Vec<RunnerInfoResponse>, ServiceError> {
         self.get_json("/api/infra/runners").await
+    }
+
+    // -- Runner Handshake methods --
+
+    /// Submit a handshake request (unauthenticated). Used by runners without an API key.
+    pub async fn submit_handshake(
+        &self,
+        runner_id: &str,
+        hostname: &str,
+    ) -> Result<HandshakeResponse, ServiceError> {
+        // This is unauthenticated — don't use with_auth
+        let resp = self
+            .client
+            .post(format!("{}/api/runners/handshake", self.base_url))
+            .json(&serde_json::json!({
+                "runner_id": runner_id,
+                "hostname": hostname,
+            }))
+            .send()
+            .await
+            .map_err(|e| ServiceError::Internal(format!("connection failed: {e}")))?;
+        handle_response(resp).await
+    }
+
+    /// List all runner handshakes (admin).
+    pub async fn list_handshakes(&self) -> Result<Vec<HandshakeInfo>, ServiceError> {
+        self.get_json("/api/admin/handshakes").await
+    }
+
+    /// Approve a runner handshake (admin).
+    pub async fn approve_handshake(
+        &self,
+        id: &str,
+    ) -> Result<ApproveHandshakeResponse, ServiceError> {
+        self.post_json(
+            &format!("/api/admin/handshakes/{id}/approve"),
+            &serde_json::json!({}),
+        )
+        .await
+    }
+
+    /// Reject a runner handshake (admin).
+    pub async fn reject_handshake(&self, id: &str) -> Result<(), ServiceError> {
+        let builder = self
+            .client
+            .post(format!(
+                "{}/api/admin/handshakes/{id}/reject",
+                self.base_url
+            ))
+            .json(&serde_json::json!({}));
+        let resp = self
+            .with_auth(builder)
+            .send()
+            .await
+            .map_err(|e| ServiceError::Internal(e.to_string()))?;
+        if resp.status().is_success() {
+            Ok(())
+        } else {
+            Err(parse_error(resp).await)
+        }
     }
 }
 

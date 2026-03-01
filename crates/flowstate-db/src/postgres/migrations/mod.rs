@@ -73,5 +73,12 @@ async fn run_inner(pool: &PgPool) -> Result<(), DbError> {
             .map_err(|e| DbError::Internal(e.to_string()))?;
     }
 
+    if current < 5 {
+        sqlx::raw_sql(include_str!("sql/V5__add_handshakes.sql"))
+            .execute(pool)
+            .await
+            .map_err(|e| DbError::Internal(e.to_string()))?;
+    }
+
     Ok(())
 }

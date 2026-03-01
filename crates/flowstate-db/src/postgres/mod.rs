@@ -9,6 +9,7 @@ use sqlx::PgPool;
 use flowstate_core::api_key::ApiKey;
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
+use flowstate_core::handshake::RunnerHandshake;
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
 use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
@@ -215,8 +216,13 @@ impl Database for PostgresDatabase {
     }
 
     // -- API Keys --
-    async fn insert_api_key(&self, name: &str, key_hash: &str) -> Result<ApiKey, DbError> {
-        self.pg_insert_api_key(name, key_hash).await
+    async fn insert_api_key(
+        &self,
+        name: &str,
+        key_hash: &str,
+        role: &str,
+    ) -> Result<ApiKey, DbError> {
+        self.pg_insert_api_key(name, key_hash, role).await
     }
     async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, DbError> {
         self.pg_find_api_key_by_hash(key_hash).await
@@ -232,5 +238,38 @@ impl Database for PostgresDatabase {
     }
     async fn delete_api_key(&self, id: &str) -> Result<(), DbError> {
         self.pg_delete_api_key(id).await
+    }
+
+    // -- Runner Handshakes --
+    async fn upsert_runner_handshake(
+        &self,
+        runner_id: &str,
+        hostname: &str,
+    ) -> Result<RunnerHandshake, DbError> {
+        self.pg_upsert_runner_handshake(runner_id, hostname).await
+    }
+    async fn find_runner_handshake_by_runner_id(
+        &self,
+        runner_id: &str,
+    ) -> Result<Option<RunnerHandshake>, DbError> {
+        self.pg_find_runner_handshake_by_runner_id(runner_id).await
+    }
+    async fn list_runner_handshakes(&self) -> Result<Vec<RunnerHandshake>, DbError> {
+        self.pg_list_runner_handshakes().await
+    }
+    async fn approve_runner_handshake(
+        &self,
+        id: &str,
+        api_key_id: &str,
+        raw_key: &str,
+    ) -> Result<(), DbError> {
+        self.pg_approve_runner_handshake(id, api_key_id, raw_key)
+            .await
+    }
+    async fn reject_runner_handshake(&self, id: &str) -> Result<(), DbError> {
+        self.pg_reject_runner_handshake(id).await
+    }
+    async fn claim_runner_handshake(&self, id: &str) -> Result<Option<String>, DbError> {
+        self.pg_claim_runner_handshake(id).await
     }
 }

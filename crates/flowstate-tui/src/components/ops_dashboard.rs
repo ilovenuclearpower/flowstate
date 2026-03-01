@@ -175,68 +175,134 @@ fn render_runners(frame: &mut Frame, area: Rect, state: &OpsState) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    // Split inner area: runners table on top, pending handshakes below
+    let pending: Vec<_> = state
+        .handshakes
+        .iter()
+        .filter(|h| h.status == "pending")
+        .collect();
+
+    let constraints = if pending.is_empty() {
+        vec![Constraint::Min(0)]
+    } else {
+        vec![
+            Constraint::Min(0),
+            Constraint::Length((pending.len() as u16) + 4),
+        ]
+    };
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner);
+
+    // -- Registered runners --
     if state.runners.is_empty() {
         let msg =
             Paragraph::new("  No runners registered.").style(Style::default().fg(Color::DarkGray));
-        frame.render_widget(msg, inner);
-        return;
+        frame.render_widget(msg, sections[0]);
+    } else {
+        let header = Row::new(vec![
+            "  ID",
+            "Backend",
+            "Cap",
+            "Active",
+            "Status",
+            "Last Seen",
+        ])
+        .style(Style::default().bold().fg(Color::Yellow));
+
+        let rows: Vec<Row> = state
+            .runners
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let marker = if i == state.selected_runner {
+                    "> "
+                } else {
+                    "  "
+                };
+                let style = if i == state.selected_runner {
+                    Style::default().fg(Color::Cyan)
+                } else {
+                    Style::default()
+                };
+                let active = r
+                    .active_count
+                    .map(|a| {
+                        let max = r.max_concurrent.unwrap_or(0);
+                        format!("{a}/{max}")
+                    })
+                    .unwrap_or_else(|| "-".to_string());
+                Row::new(vec![
+                    format!("{}{}", marker, truncate_id(&r.runner_id)),
+                    r.backend_name.as_deref().unwrap_or("-").to_string(),
+                    r.capability.as_deref().unwrap_or("-").to_string(),
+                    active,
+                    r.status.clone(),
+                    r.last_seen.chars().take(19).collect::<String>(),
+                ])
+                .style(style)
+            })
+            .collect();
+
+        let widths = [
+            Constraint::Min(14),
+            Constraint::Length(10),
+            Constraint::Length(8),
+            Constraint::Length(8),
+            Constraint::Length(10),
+            Constraint::Length(20),
+        ];
+
+        let table = Table::new(rows, widths).header(header);
+        frame.render_widget(table, sections[0]);
     }
 
-    let header = Row::new(vec![
-        "  ID",
-        "Backend",
-        "Cap",
-        "Active",
-        "Status",
-        "Last Seen",
-    ])
-    .style(Style::default().bold().fg(Color::Yellow));
+    // -- Pending handshakes --
+    if !pending.is_empty() {
+        let handshake_block = Block::default()
+            .title(" Pending Runners ")
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(Color::Yellow));
 
-    let rows: Vec<Row> = state
-        .runners
-        .iter()
-        .enumerate()
-        .map(|(i, r)| {
-            let marker = if i == state.selected_runner {
-                "> "
-            } else {
-                "  "
-            };
-            let style = if i == state.selected_runner {
-                Style::default().fg(Color::Cyan)
-            } else {
-                Style::default()
-            };
-            let active = r
-                .active_count
-                .map(|a| {
-                    let max = r.max_concurrent.unwrap_or(0);
-                    format!("{a}/{max}")
-                })
-                .unwrap_or_else(|| "-".to_string());
-            Row::new(vec![
-                format!("{}{}", marker, truncate_id(&r.runner_id)),
-                r.backend_name.as_deref().unwrap_or("-").to_string(),
-                r.capability.as_deref().unwrap_or("-").to_string(),
-                active,
-                r.status.clone(),
-                r.last_seen.chars().take(19).collect::<String>(),
-            ])
-            .style(style)
-        })
-        .collect();
+        let handshake_inner = handshake_block.inner(sections[1]);
+        frame.render_widget(handshake_block, sections[1]);
 
-    let widths = [
-        Constraint::Min(14),
-        Constraint::Length(10),
-        Constraint::Length(8),
-        Constraint::Length(8),
-        Constraint::Length(10),
-        Constraint::Length(20),
-    ];
+        let pending_idx = state.selected_handshake;
+        let rows: Vec<Row> = pending
+            .iter()
+            .enumerate()
+            .map(|(i, h)| {
+                let marker = if i == pending_idx { "> " } else { "  " };
+                let style = if i == pending_idx {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default()
+                };
+                Row::new(vec![
+                    format!("{}{}", marker, truncate_id(&h.runner_id)),
+                    h.hostname.clone(),
+                    h.created_at.chars().take(19).collect::<String>(),
+                    "[y] approve  [x] reject".to_string(),
+                ])
+                .style(style)
+            })
+            .collect();
 
-    let table = Table::new(rows, widths).header(header);
-    frame.render_widget(table, inner);
+        let widths = [
+            Constraint::Min(14),
+            Constraint::Length(16),
+            Constraint::Length(20),
+            Constraint::Length(26),
+        ];
+
+        let header = Row::new(vec!["  Runner ID", "Hostname", "Requested", "Actions"])
+            .style(Style::default().bold().fg(Color::Yellow));
+
+        let table = Table::new(rows, widths).header(header);
+        frame.render_widget(table, handshake_inner);
+    }
 }
 
 fn render_gpu(frame: &mut Frame, area: Rect, state: &OpsState) {

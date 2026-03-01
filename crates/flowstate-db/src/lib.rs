@@ -14,6 +14,7 @@ use thiserror::Error;
 use flowstate_core::api_key::ApiKey;
 use flowstate_core::attachment::Attachment;
 use flowstate_core::claude_run::{ClaudeRun, ClaudeRunStatus, CreateClaudeRun};
+use flowstate_core::handshake::RunnerHandshake;
 use flowstate_core::project::{CreateProject, Project, UpdateProject};
 use flowstate_core::sprint::{CreateSprint, Sprint, UpdateSprint};
 use flowstate_core::task::{CreateTask, Task, TaskFilter, UpdateTask};
@@ -119,12 +120,37 @@ pub trait Database: Send + Sync {
     async fn delete_attachment(&self, id: &str) -> Result<Attachment, DbError>;
 
     // -- API Keys (6 methods) --
-    async fn insert_api_key(&self, name: &str, key_hash: &str) -> Result<ApiKey, DbError>;
+    async fn insert_api_key(
+        &self,
+        name: &str,
+        key_hash: &str,
+        role: &str,
+    ) -> Result<ApiKey, DbError>;
     async fn find_api_key_by_hash(&self, key_hash: &str) -> Result<Option<ApiKey>, DbError>;
     async fn touch_api_key(&self, id: &str) -> Result<(), DbError>;
     async fn has_api_keys(&self) -> Result<bool, DbError>;
     async fn list_api_keys(&self) -> Result<Vec<ApiKey>, DbError>;
     async fn delete_api_key(&self, id: &str) -> Result<(), DbError>;
+
+    // -- Runner Handshakes (6 methods) --
+    async fn upsert_runner_handshake(
+        &self,
+        runner_id: &str,
+        hostname: &str,
+    ) -> Result<RunnerHandshake, DbError>;
+    async fn find_runner_handshake_by_runner_id(
+        &self,
+        runner_id: &str,
+    ) -> Result<Option<RunnerHandshake>, DbError>;
+    async fn list_runner_handshakes(&self) -> Result<Vec<RunnerHandshake>, DbError>;
+    async fn approve_runner_handshake(
+        &self,
+        id: &str,
+        api_key_id: &str,
+        raw_key: &str,
+    ) -> Result<(), DbError>;
+    async fn reject_runner_handshake(&self, id: &str) -> Result<(), DbError>;
+    async fn claim_runner_handshake(&self, id: &str) -> Result<Option<String>, DbError>;
 }
 
 // -- Configuration --
