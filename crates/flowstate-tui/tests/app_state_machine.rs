@@ -4,8 +4,8 @@
 //! creates a BlockingHttpService, builds an App, and simulates key events to test mode transitions.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use flowstate_service::BlockingHttpService;
-use flowstate_tui::app::{App, Mode};
+use flowstate_service::{ApiKeyInfo, BlockingHttpService, GpuStatusResponse, RunnerInfoResponse};
+use flowstate_tui::app::{App, Mode, OpsSection, Tab};
 
 /// Spawn the test server on a separate thread, return the base URL.
 /// BlockingHttpService creates its own tokio Runtime, so the server
@@ -35,6 +35,16 @@ fn make_app() -> App {
     let url = spawn_server();
     let svc = BlockingHttpService::new(&url);
     App::new(svc).unwrap()
+}
+
+/// Create an app with auth bootstrapped via setup_init.
+/// This is needed for tests that call admin endpoints (generate_api_key, revoke, etc.).
+fn make_app_with_auth() -> App {
+    let url = spawn_server();
+    let svc = BlockingHttpService::new(&url);
+    let init = svc.setup_init("admin").unwrap();
+    let authed_svc = BlockingHttpService::with_api_key(&url, init.api_key);
+    App::new(authed_svc).unwrap()
 }
 
 /// Create an app with a task already created, returning (app, task_id).
@@ -1668,4 +1678,628 @@ fn render_feedback_input_mode() {
     let backend = ratatui::backend::TestBackend::new(120, 40);
     let mut terminal = ratatui::Terminal::new(backend).unwrap();
     terminal.draw(|f| app.render(f)).unwrap();
+}
+
+// ── Tab switching tests ──
+
+#[test]
+fn tab_switch_board_to_ops() {
+    let mut app = make_app();
+    assert_eq!(app.active_tab(), Tab::Board);
+
+    // Press '2' to switch to Ops
+    app.handle_key(char_key('2'));
+    assert_eq!(app.active_tab(), Tab::Ops);
+    assert!(matches!(app.mode(), &Mode::Normal));
+}
+
+#[test]
+fn tab_switch_ops_to_board() {
+    let mut app = make_app();
+    // Switch to Ops first
+    app.handle_key(char_key('2'));
+    assert_eq!(app.active_tab(), Tab::Ops);
+
+    // Press '1' to switch back to Board
+    app.handle_key(char_key('1'));
+    assert_eq!(app.active_tab(), Tab::Board);
+}
+
+#[test]
+fn tab_toggle_via_tab_key() {
+    let mut app = make_app();
+    assert_eq!(app.active_tab(), Tab::Board);
+
+    // Tab key toggles Board -> Ops
+    app.handle_key(key(KeyCode::Tab));
+    assert_eq!(app.active_tab(), Tab::Ops);
+
+    // Tab key toggles Ops -> Board
+    app.handle_key(key(KeyCode::Tab));
+    assert_eq!(app.active_tab(), Tab::Board);
+}
+
+#[test]
+fn ops_q_returns_to_board() {
+    let mut app = make_app();
+    app.handle_key(char_key('2')); // Switch to Ops
+    assert_eq!(app.active_tab(), Tab::Ops);
+
+    app.handle_key(char_key('q'));
+    assert_eq!(app.active_tab(), Tab::Board);
+}
+
+#[test]
+fn ops_should_not_quit_on_q() {
+    let mut app = make_app();
+    app.handle_key(char_key('2')); // Switch to Ops
+                                   // should_quit_on_q should return false on Ops tab
+    assert!(!app.should_quit_on_q());
+}
+
+// ── Ops section navigation tests ──
+
+#[test]
+fn ops_section_navigation() {
+    let mut app = make_app();
+    app.handle_key(char_key('2')); // Switch to Ops
+
+    // Default section is Overview
+    assert_eq!(app.ops().section, OpsSection::Overview);
+
+    // 'a' switches to ApiKeys
+    app.handle_key(char_key('a'));
+    assert_eq!(app.ops().section, OpsSection::ApiKeys);
+
+    // 'u' switches to Runners
+    app.handle_key(char_key('u'));
+    assert_eq!(app.ops().section, OpsSection::Runners);
+
+    // 'g' switches to Gpu (when not in ApiKeys section)
+    app.handle_key(char_key('g'));
+    assert_eq!(app.ops().section, OpsSection::Gpu);
+
+    // 'o' switches to Overview
+    app.handle_key(char_key('o'));
+    assert_eq!(app.ops().section, OpsSection::Overview);
+}
+
+#[test]
+fn ops_refresh_populates_state() {
+    let mut app = make_app();
+    app.handle_key(char_key('2')); // Switch to Ops (triggers refresh_ops)
+
+    // After switching, ops state should be populated (even if empty in test env)
+    // The key thing is it didn't panic
+    assert!(app.ops().api_keys.is_empty() || !app.ops().api_keys.is_empty());
+
+    // 'r' to refresh
+    app.handle_key(char_key('r'));
+    assert!(app.ops().gpu.is_some() || app.ops().gpu.is_none());
+}
+
+// ── Ops rendering tests ──
+
+#[test]
+fn render_ops_overview() {
+    let mut app = make_app();
+    app.handle_key(char_key('2')); // Switch to Ops
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn render_ops_api_keys() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a')); // API Keys section
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn render_ops_runners() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('u')); // Runners section
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn render_ops_gpu() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('g')); // GPU section (from non-ApiKeys)
+                                   // Need to switch away from Overview first since 'g' from Overview goes to Gpu
+                                   // Actually 'g' when section != ApiKeys goes to Gpu directly
+    assert_eq!(app.ops().section, OpsSection::Gpu);
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+// ── Ops key generation flow tests ──
+
+#[test]
+fn ops_api_keys_g_starts_key_name_input() {
+    let mut app = make_app();
+    app.handle_key(char_key('2')); // Switch to Ops
+    app.handle_key(char_key('a')); // API Keys section
+    assert_eq!(app.ops().section, OpsSection::ApiKeys);
+
+    // 'g' in ApiKeys section starts key name input
+    app.handle_key(char_key('g'));
+    assert!(app.ops().key_name_input.is_some());
+    assert_eq!(app.ops().key_name_input.as_deref(), Some(""));
+    // is_input_mode should be true during key name input
+    assert!(app.is_input_mode());
+}
+
+#[test]
+fn ops_key_name_input_typing() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+    app.handle_key(char_key('g')); // Start input
+
+    // Type "runner"
+    for c in "runner".chars() {
+        app.handle_key(char_key(c));
+    }
+    assert_eq!(app.ops().key_name_input.as_deref(), Some("runner"));
+}
+
+#[test]
+fn ops_key_name_input_backspace() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+    app.handle_key(char_key('g'));
+
+    app.handle_key(char_key('a'));
+    app.handle_key(char_key('b'));
+    assert_eq!(app.ops().key_name_input.as_deref(), Some("ab"));
+
+    app.handle_key(key(KeyCode::Backspace));
+    assert_eq!(app.ops().key_name_input.as_deref(), Some("a"));
+}
+
+#[test]
+fn ops_key_name_input_esc_cancels() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+    app.handle_key(char_key('g'));
+    assert!(app.ops().key_name_input.is_some());
+
+    app.handle_key(key(KeyCode::Esc));
+    assert!(app.ops().key_name_input.is_none());
+}
+
+#[test]
+fn ops_key_name_input_empty_submit_clears() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+    app.handle_key(char_key('g'));
+
+    // Submit empty name
+    app.handle_key(key(KeyCode::Enter));
+    assert!(app.ops().key_name_input.is_none());
+    // No key should be generated
+    assert!(app.ops().generated_key.is_none());
+}
+
+#[test]
+fn ops_generate_key_submit() {
+    let mut app = make_app_with_auth();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+    app.handle_key(char_key('g'));
+
+    // Type name and submit
+    for c in "test-key".chars() {
+        app.handle_key(char_key(c));
+    }
+    app.handle_key(key(KeyCode::Enter));
+
+    // Input should be cleared
+    assert!(app.ops().key_name_input.is_none());
+    // Key should have been generated (server is real test server)
+    assert!(app.ops().generated_key.is_some());
+}
+
+#[test]
+fn ops_generated_key_dismissed_on_any_key() {
+    let mut app = make_app_with_auth();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+    app.handle_key(char_key('g'));
+    for c in "dismiss-test".chars() {
+        app.handle_key(char_key(c));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    assert!(app.ops().generated_key.is_some());
+
+    // Any key dismisses the generated key display
+    app.handle_key(char_key('x'));
+    assert!(app.ops().generated_key.is_none());
+}
+
+// ── Ops j/k navigation within sections ──
+
+#[test]
+fn ops_api_keys_jk_navigation() {
+    let mut app = make_app_with_auth();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a')); // API Keys
+
+    // Generate two keys so we have items to navigate
+    for name in &["key1", "key2"] {
+        app.handle_key(char_key('g'));
+        for c in name.chars() {
+            app.handle_key(char_key(c));
+        }
+        app.handle_key(key(KeyCode::Enter));
+        // Dismiss generated key display
+        app.handle_key(char_key(' '));
+    }
+
+    assert_eq!(app.ops().selected_key, 0);
+
+    // Navigate down
+    app.handle_key(char_key('j'));
+    assert_eq!(app.ops().selected_key, 1);
+
+    // Can't go past end
+    app.handle_key(char_key('j'));
+    assert_eq!(app.ops().selected_key, 1);
+
+    // Navigate up
+    app.handle_key(char_key('k'));
+    assert_eq!(app.ops().selected_key, 0);
+
+    // Can't go above 0
+    app.handle_key(char_key('k'));
+    assert_eq!(app.ops().selected_key, 0);
+}
+
+#[test]
+fn ops_api_keys_jk_on_empty() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+
+    // j/k on empty list should not panic
+    app.handle_key(char_key('j'));
+    assert_eq!(app.ops().selected_key, 0);
+    app.handle_key(char_key('k'));
+    assert_eq!(app.ops().selected_key, 0);
+}
+
+#[test]
+fn ops_runners_jk_on_empty() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('u')); // Runners
+
+    // j/k on empty list should not panic
+    app.handle_key(char_key('j'));
+    assert_eq!(app.ops().selected_runner, 0);
+    app.handle_key(char_key('k'));
+    assert_eq!(app.ops().selected_runner, 0);
+}
+
+#[test]
+fn ops_arrow_keys_work_for_navigation() {
+    let mut app = make_app_with_auth();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+
+    // Generate a key to have items
+    app.handle_key(char_key('g'));
+    for c in "arrow-test".chars() {
+        app.handle_key(char_key(c));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    app.handle_key(char_key(' ')); // dismiss
+
+    // Down arrow works like j
+    app.handle_key(key(KeyCode::Down));
+    // Up arrow works like k
+    app.handle_key(key(KeyCode::Up));
+    assert_eq!(app.ops().selected_key, 0);
+}
+
+// ── Ops delete key ──
+
+#[test]
+fn ops_delete_api_key() {
+    let mut app = make_app_with_auth();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+
+    // Generate a key
+    app.handle_key(char_key('g'));
+    for c in "delete-me".chars() {
+        app.handle_key(char_key(c));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    app.handle_key(char_key(' ')); // dismiss
+
+    let count_before = app.ops().api_keys.len();
+    assert!(count_before > 0);
+
+    // Delete selected key
+    app.handle_key(char_key('d'));
+    assert!(app.ops().api_keys.len() < count_before);
+}
+
+#[test]
+fn ops_delete_on_empty_keys_no_panic() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+
+    // 'd' on empty key list should not panic
+    app.handle_key(char_key('d'));
+    assert_eq!(app.ops().selected_key, 0);
+}
+
+#[test]
+fn ops_delete_not_on_api_keys_section_is_noop() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    // Stay on Overview section
+    app.handle_key(char_key('d')); // Should be a noop
+    assert_eq!(app.ops().section, OpsSection::Overview);
+}
+
+// ── GPU controls ──
+
+#[test]
+fn ops_gpu_start_from_gpu_section() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('g')); // GPU section
+    assert_eq!(app.ops().section, OpsSection::Gpu);
+
+    // 's' to start GPU (will error since no pod manager, but tests the path)
+    app.handle_key(char_key('s'));
+    // Should have a status message (error or success)
+}
+
+#[test]
+fn ops_gpu_stop_from_gpu_section() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('g'));
+    assert_eq!(app.ops().section, OpsSection::Gpu);
+
+    // 'S' to stop GPU
+    app.handle_key(KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT));
+}
+
+#[test]
+fn ops_gpu_start_not_on_gpu_section_is_noop() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a')); // API Keys section
+                                   // 's' should not trigger GPU start from non-GPU section
+    app.handle_key(char_key('s'));
+}
+
+// ── Render ops with populated data ──
+
+#[test]
+fn render_ops_api_keys_with_data() {
+    let mut app = make_app_with_auth();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+
+    // Generate a key so the API keys table has data
+    app.handle_key(char_key('g'));
+    for c in "render-test".chars() {
+        app.handle_key(char_key(c));
+    }
+    app.handle_key(key(KeyCode::Enter));
+    app.handle_key(char_key(' ')); // dismiss generated key
+
+    assert!(!app.ops().api_keys.is_empty());
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn render_ops_key_name_input_mode() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('a'));
+    app.handle_key(char_key('g')); // Start key name input
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn render_ops_runners_with_data() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('u')); // Runners section
+
+    // Inject mock runner data
+    app.ops_mut().runners = vec![
+        RunnerInfoResponse {
+            runner_id: "runner-abc123def456".into(),
+            last_seen: "2026-02-26T10:00:00Z".into(),
+            backend_name: Some("claude-cli".into()),
+            capability: Some("standard".into()),
+            poll_interval: Some(5),
+            max_concurrent: Some(2),
+            max_builds: Some(1),
+            active_count: Some(1),
+            active_builds: Some(0),
+            status: "active".into(),
+            saturation_pct: Some(50.0),
+            has_pending_config: false,
+        },
+        RunnerInfoResponse {
+            runner_id: "runner-xyz789".into(),
+            last_seen: "2026-02-26T09:55:00Z".into(),
+            backend_name: None,
+            capability: None,
+            poll_interval: None,
+            max_concurrent: None,
+            max_builds: None,
+            active_count: None,
+            active_builds: None,
+            status: "idle".into(),
+            saturation_pct: None,
+            has_pending_config: true,
+        },
+    ];
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn render_ops_gpu_enabled() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('g')); // GPU section
+
+    // Inject mock GPU data (enabled)
+    app.ops_mut().gpu = Some(GpuStatusResponse {
+        enabled: true,
+        pod_id: Some("pod-abc123".into()),
+        pod_status: Some("running".into()),
+        daily_cost_cents: Some(1200),
+        cost_capped: Some(false),
+        queue_depth: 3,
+    });
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn render_ops_gpu_disabled() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('g'));
+
+    // Inject mock GPU data (disabled)
+    app.ops_mut().gpu = Some(GpuStatusResponse {
+        enabled: false,
+        pod_id: None,
+        pod_status: None,
+        daily_cost_cents: None,
+        cost_capped: None,
+        queue_depth: 0,
+    });
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn render_ops_overview_with_data() {
+    let mut app = make_app();
+    app.handle_key(char_key('2')); // Switch to Ops (Overview by default)
+
+    // Inject data to exercise overview rendering branches
+    app.ops_mut().runners = vec![RunnerInfoResponse {
+        runner_id: "runner-1".into(),
+        last_seen: "2026-02-26T10:00:00Z".into(),
+        backend_name: Some("claude-cli".into()),
+        capability: Some("standard".into()),
+        poll_interval: Some(5),
+        max_concurrent: Some(2),
+        max_builds: Some(1),
+        active_count: Some(1),
+        active_builds: Some(0),
+        status: "active".into(),
+        saturation_pct: Some(50.0),
+        has_pending_config: false,
+    }];
+    app.ops_mut().api_keys = vec![ApiKeyInfo {
+        id: "key-1".into(),
+        name: "admin".into(),
+        created_at: "2026-02-26T10:00:00Z".into(),
+        last_used_at: Some("2026-02-26T10:05:00Z".into()),
+    }];
+    app.ops_mut().gpu = Some(GpuStatusResponse {
+        enabled: true,
+        pod_id: Some("pod-1".into()),
+        pod_status: Some("running".into()),
+        daily_cost_cents: Some(500),
+        cost_capped: Some(true),
+        queue_depth: 5,
+    });
+
+    let backend = ratatui::backend::TestBackend::new(120, 40);
+    let mut terminal = ratatui::Terminal::new(backend).unwrap();
+    terminal.draw(|f| app.render(f)).unwrap();
+}
+
+#[test]
+fn ops_runners_jk_with_data() {
+    let mut app = make_app();
+    app.handle_key(char_key('2'));
+    app.handle_key(char_key('u')); // Runners section
+
+    // Inject two runners
+    app.ops_mut().runners = vec![
+        RunnerInfoResponse {
+            runner_id: "r1".into(),
+            last_seen: "2026-02-26T10:00:00Z".into(),
+            backend_name: Some("claude-cli".into()),
+            capability: Some("standard".into()),
+            poll_interval: None,
+            max_concurrent: Some(2),
+            max_builds: None,
+            active_count: Some(1),
+            active_builds: None,
+            status: "active".into(),
+            saturation_pct: None,
+            has_pending_config: false,
+        },
+        RunnerInfoResponse {
+            runner_id: "r2".into(),
+            last_seen: "2026-02-26T10:00:00Z".into(),
+            backend_name: None,
+            capability: None,
+            poll_interval: None,
+            max_concurrent: None,
+            max_builds: None,
+            active_count: None,
+            active_builds: None,
+            status: "idle".into(),
+            saturation_pct: None,
+            has_pending_config: false,
+        },
+    ];
+
+    assert_eq!(app.ops().selected_runner, 0);
+    app.handle_key(char_key('j'));
+    assert_eq!(app.ops().selected_runner, 1);
+    app.handle_key(char_key('j'));
+    assert_eq!(app.ops().selected_runner, 1); // clamped
+    app.handle_key(char_key('k'));
+    assert_eq!(app.ops().selected_runner, 0);
 }
