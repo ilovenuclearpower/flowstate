@@ -24,7 +24,7 @@ Start just the server first:
 docker compose up -d server
 ```
 
-The server starts with no authentication and an empty SQLite database. Data is stored in Docker volumes (`server-data` and `server-config`) and persists across restarts.
+The server starts with no authentication and an empty Postgres database. Data is stored in Docker volumes (`postgres-data` and `server-config`) and persists across restarts.
 
 ## 2. Run the Setup Wizard
 
@@ -231,9 +231,12 @@ cargo build --release -p flowstate-tui
 |----------|---------|-------------|
 | `FLOWSTATE_PORT` | `3710` | Port to listen on |
 | `FLOWSTATE_BIND` | `0.0.0.0` | Bind address |
-| `FLOWSTATE_DB_BACKEND` | `sqlite` | Database backend (`sqlite` or `postgres`) |
-| `FLOWSTATE_SQLITE_PATH` | *(data dir)* | Custom SQLite file path |
-| `FLOWSTATE_DATABASE_URL` | *(none)* | Postgres connection URL |
+| `FLOWSTATE_DB_BACKEND` | `postgres` | Database backend (`sqlite` or `postgres`) |
+| `FLOWSTATE_DATABASE_URL` | *(compose default)* | Postgres connection URL |
+| `FLOWSTATE_SQLITE_PATH` | *(data dir)* | Custom SQLite file path (when using `sqlite` backend) |
+| `POSTGRES_USER` | `flowstate` | Postgres user (used by compose) |
+| `POSTGRES_PASSWORD` | `flowstate` | Postgres password (used by compose) |
+| `POSTGRES_DB` | `flowstate` | Postgres database name (used by compose) |
 
 ### Runner Environment Variables
 
@@ -267,45 +270,61 @@ Location: `$XDG_CONFIG_HOME/flowstate/tui-credentials` (default `~/.config/flows
 
 ---
 
-## Advanced: Postgres Backend
+## Advanced: Customizing Postgres
 
-For production deployments, use Postgres instead of SQLite:
+The default compose uses Postgres with the user/password/database all set to `flowstate`. Override these via your `.env`:
 
 ```bash
 # .env
-FLOWSTATE_DB_BACKEND=postgres
-FLOWSTATE_DATABASE_URL=postgres://flowstate:secret@db:5432/flowstate
+POSTGRES_USER=myuser
+POSTGRES_PASSWORD=a-strong-password
+POSTGRES_DB=flowstate
 ```
 
-Add a Postgres service to your `docker-compose.yml`:
+The server's `FLOWSTATE_DATABASE_URL` is assembled from these variables automatically in the compose file.
+
+To use an external Postgres instance (not the bundled one), remove the `db` service from compose and set the URL directly:
+
+```bash
+# .env
+FLOWSTATE_DATABASE_URL=postgres://user:pass@your-postgres-host:5432/flowstate
+```
+
+Then override the server environment in compose:
 
 ```yaml
 services:
-  db:
-    image: postgres:16
-    environment:
-      POSTGRES_USER: flowstate
-      POSTGRES_PASSWORD: secret
-      POSTGRES_DB: flowstate
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    restart: unless-stopped
-
   server:
-    image: ghcr.io/ilovenuclearpower/flowstate-server:latest
-    # ... (use the server-postgres image variant if available)
     environment:
       FLOWSTATE_DB_BACKEND: postgres
-      FLOWSTATE_DATABASE_URL: postgres://flowstate:secret@db:5432/flowstate
+      FLOWSTATE_DATABASE_URL: ${FLOWSTATE_DATABASE_URL}
+```
+
+## Advanced: SQLite Backend
+
+For single-user or development deployments, you can use SQLite instead of Postgres:
+
+```yaml
+services:
+  server:
+    image: ghcr.io/ilovenuclearpower/flowstate-server:latest
+    ports:
+      - "${FLOWSTATE_PORT:-3710}:3710"
+    environment:
+      FLOWSTATE_DB_BACKEND: sqlite
       FLOWSTATE_PORT: "3710"
       FLOWSTATE_BIND: "0.0.0.0"
-    depends_on:
-      - db
-    # ...
+    volumes:
+      - server-data:/root/.local/share/flowstate
+      - server-config:/root/.config/flowstate
+    restart: unless-stopped
 
 volumes:
-  postgres-data:
+  server-data:
+  server-config:
 ```
+
+No separate database service is needed — the SQLite file is stored in the `server-data` volume.
 
 ## Advanced: S3-Compatible Object Store
 
