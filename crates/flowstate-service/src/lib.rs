@@ -5,8 +5,9 @@ mod traits;
 
 pub use blocking::BlockingHttpService;
 pub use http::{
-    HttpService, PendingConfigResponse, RegisterResponse, RunnerStatus, RunnerUtilization,
-    SystemStatus,
+    ApiKeyInfo, GenerateKeyResponse, GpuStatusResponse, HttpService, PendingConfigResponse,
+    RegisterResponse, RunnerInfoResponse, RunnerStatus, RunnerUtilization, SetupInitResponse,
+    SetupStatusResponse, SystemStatus,
 };
 pub use local::LocalService;
 pub use traits::{ServiceError, TaskService};
