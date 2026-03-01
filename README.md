@@ -1,226 +1,343 @@
 # flowstate
 
-A task management system with Claude AI integration for designing, planning, and building software features. Flowstate gives you a terminal Kanban board backed by an HTTP API, with an approval-gated workflow that orchestrates Claude Code to produce specifications, implementation plans, and working code.
+A task management system with AI integration for designing, planning, and building software features. Flowstate gives you a terminal Kanban board backed by an HTTP API, with an approval-gated workflow that orchestrates AI agents to produce research, specifications, implementation plans, and working code.
 
 ## Architecture
 
 ```
-flowstate-tui (terminal UI)
-    |
-    | HTTP (reqwest)
-    v
-flowstate-server (axum REST API + Claude runner)
-    |
-    | LocalService
-    v
-flowstate-db (SQLite, WAL mode)
-    |
-    v
-flowstate-core (domain models, zero deps)
+flowstate (TUI client)           flowstate-runner (worker)
+    |                                 |
+    | HTTP                            | HTTP (polling)
+    v                                 v
+flowstate-server (axum REST API)
+    |                |
+    v                v
+flowstate-db     flowstate-store
+(SQLite/Postgres)  (local / S3)
 ```
 
-Seven crates, layered by responsibility:
+Ten crates, layered by responsibility:
 
 | Crate | Purpose |
 |-------|---------|
 | `flowstate-core` | Domain types: Task, Project, Sprint, ClaudeRun, ApprovalStatus |
-| `flowstate-db` | SQLite persistence with versioned migrations, file path helpers |
-| `flowstate-service` | `TaskService` trait with `LocalService` (direct DB) and `HttpService` (HTTP client) implementations |
-| `flowstate-server` | Axum REST API, Bearer token auth, Claude Code runner |
-| `flowstate-tui` | Ratatui/Crossterm terminal UI with Kanban board |
+| `flowstate-db` | SQLite and Postgres persistence with versioned migrations |
+| `flowstate-store` | Object store abstraction (local filesystem or S3-compatible) |
+| `flowstate-service` | `TaskService` trait with `LocalService` (direct DB) and `HttpService` (HTTP client) |
+| `flowstate-server` | Axum REST API, Bearer token auth, admin API, pod manager |
+| `flowstate-runner` | Standalone worker that polls for jobs and runs AI agents |
+| `flowstate-prompts` | Prompt assembly for AI actions (pure library, no IO) |
+| `flowstate-tui` | Ratatui/Crossterm terminal UI with Kanban board and Ops dashboard |
 | `flowstate-verify` | Async verification step runner with timeout and fail-fast |
-| `flowstate-mcp` | Model Context Protocol server (placeholder) |
+| `flowstate-mcp` | Model Context Protocol server |
+
+## Installation
+
+### Pre-built Binaries
+
+Download from [GitHub Releases](https://github.com/ilovenuclearpower/flowstate/releases):
+
+```bash
+# macOS (Apple Silicon)
+curl -L -o flowstate https://github.com/ilovenuclearpower/flowstate/releases/latest/download/flowstate-macos-aarch64
+
+# macOS (Intel)
+curl -L -o flowstate https://github.com/ilovenuclearpower/flowstate/releases/latest/download/flowstate-macos-x86_64
+
+# Linux (x86_64)
+curl -L -o flowstate https://github.com/ilovenuclearpower/flowstate/releases/latest/download/flowstate-linux-x86_64
+
+chmod +x flowstate
+sudo mv flowstate /usr/local/bin/
+```
+
+### Nix
+
+```bash
+# Run without installing
+nix run github:ilovenuclearpower/flowstate
+
+# Install into your profile
+nix profile install github:ilovenuclearpower/flowstate
+```
+
+**NixOS (`configuration.nix`):**
+
+```nix
+{
+  inputs.flowstate.url = "github:ilovenuclearpower/flowstate";
+
+  outputs = { nixpkgs, flowstate, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ({ pkgs, ... }: {
+          environment.systemPackages = [
+            flowstate.packages.${pkgs.system}.default
+          ];
+        })
+      ];
+    };
+  };
+}
+```
+
+**home-manager:**
+
+```nix
+inputs.flowstate.url = "github:ilovenuclearpower/flowstate";
+
+# In your home config:
+home.packages = [ inputs.flowstate.packages.${pkgs.system}.default ];
+```
+
+### Docker (server + runner)
+
+```bash
+curl -O https://raw.githubusercontent.com/ilovenuclearpower/flowstate/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/ilovenuclearpower/flowstate/main/.env.example
+cp .env.example .env
+docker compose up -d server
+```
+
+See [Self-Hosting Guide](docs/self-hosting.md) for the full walkthrough.
 
 ## Features
 
 ### Kanban Board
-Terminal-based board with columns for Backlog, Todo, In Progress, In Review, and Done. Navigate with hjkl/arrow keys, move tasks between columns, set priorities, manage multiple projects.
+Terminal-based board with columns for Todo, Research, Design, Plan, Build, Verify, and Done. Navigate with hjkl/arrow keys, move tasks between columns, set priorities, manage multiple projects and sprints.
 
-### Design / Plan / Build Workflow
-Each task supports a three-phase AI workflow:
+### Research / Design / Plan / Build / Verify Workflow
+Each task supports a multi-phase AI workflow:
 
-1. **Design** — Claude produces a technical specification (`SPECIFICATION.md`)
-2. **Plan** — Claude produces a structured implementation plan (`PLAN.md`), gated on spec approval
-3. **Build** — Claude implements the plan against a git checkout of the project repo
+1. **Research** -- AI gathers context about the problem domain
+2. **Design** -- AI produces a technical specification
+3. **Plan** -- AI produces a structured implementation plan (gated on spec approval)
+4. **Build** -- AI implements the plan against a git checkout, opens a PR
+5. **Verify** -- Automated validation commands confirm the build works
 
 Specs and plans go through an approval cycle (Pending -> Approved/Rejected). Editing an approved spec automatically revokes approval and requires re-review.
 
-Plan generation produces structured output with four sections:
-- Directories and files to create/modify
-- Ordered work phases with dependencies and deliverables
-- Agent/model assignments with parallelism notes
-- Validation steps (automated checks + human review checkpoints)
+### Ops Dashboard
+Press `2` to switch to the Ops tab for server administration:
+- **API Keys** -- Generate, list, and revoke API keys
+- **Runners** -- Monitor connected runners, their capability tiers, and saturation
+- **GPU** -- Start/stop RunPod GPU pods when configured
+
+### Setup Wizard
+On first connection to a fresh server, the TUI runs a setup wizard that generates your admin API key and saves it locally. No CLI access to the server container needed.
+
+### Credential Persistence
+The TUI saves your API key and server URL to `~/.config/flowstate/tui-credentials`. After initial setup, subsequent launches need no flags.
 
 ### Authentication
-API key system with SHA256 hashing and constant-time comparison. Keys are generated via `flowstate-server keygen`, stored hashed in the DB, and validated as Bearer tokens on every request.
+API key system with SHA256 hashing and constant-time comparison. Keys can be managed via:
+- The **setup wizard** (first key, automatic)
+- The **Ops tab** in the TUI (generate/revoke keys)
+- The **admin API** (`/api/admin/api-keys`)
+- The **CLI** (`flowstate-server keygen`)
+
+Auth activates at runtime when the first key is created -- no server restart needed.
+
+### Multiple Agent Backends
+The runner supports multiple AI backends:
+- `claude-cli` -- Claude Code CLI (default)
+- `gemini-cli` -- Gemini Pro / Flash
+- `opencode` -- OpenCode CLI
 
 ### Editor Integration
-Press `S` or `I` in task detail to open specs/plans in `$EDITOR`. Changes are synced back to the server on save. The server handles status transitions automatically — no client-side bookkeeping needed.
+Press `S` or `I` in task detail to open specs/plans in `$EDITOR`. Changes are synced back to the server on save.
 
-### Remote Access
-The TUI can connect to a remote server:
-```
-flowstate --server http://example.com:3710 --api-key fs_xxxxx
-```
-Or set `FLOWSTATE_API_KEY` in your environment.
+### Subtasks
+Create subtasks from task detail with `n`. Subtasks use a simplified flow: Todo -> Build -> Verify -> Done.
 
-## Quickstart
+### Sprints
+Group tasks into sprints. Press `x` to open the sprint list, `X` to clear the sprint filter.
 
-### Prerequisites
-- [Nix](https://nixos.org/) with flakes enabled
+## Self-Hosting with Docker
 
-### Run
+The recommended way to deploy Flowstate:
+
+1. `docker compose up -d server` -- start the server
+2. `flowstate --server http://your-server:3710` -- setup wizard generates your admin key
+3. Press `2` in the TUI, generate a runner key from the Ops tab
+4. Set `FLOWSTATE_API_KEY` and `ANTHROPIC_API_KEY` in `.env`
+5. `docker compose up -d runner` -- start the runner
+
+See [docs/self-hosting.md](docs/self-hosting.md) for the full guide including Postgres and S3 configuration.
+
+## Quickstart (Local Development)
+
+Requires [Nix](https://nixos.org/) with flakes enabled.
+
 ```bash
-# Enter dev shell (provides Rust toolchain, sqlite, git)
 nix develop
-
-# Build everything
 cargo build --workspace
 
 # Run the TUI (auto-spawns a local server on port 3710)
 cargo run -p flowstate-tui
+```
 
-# Or run the server standalone
+Or run components separately:
+
+```bash
+# Terminal 1: Server
 cargo run -p flowstate-server
 
-# Generate an API key
-cargo run -p flowstate-server -- keygen
+# Terminal 2: Runner (requires Claude CLI auth)
+runner-claude
+
+# Terminal 3: TUI
+cargo run -p flowstate-tui
 ```
 
-### Nix build
-```bash
-nix build .#tui      # TUI binary
-nix build .#server   # Server binary
-nix build .#mcp      # MCP server binary
-```
+Other runner backends are available in the dev shell: `runner-gemini-pro`, `runner-gemini-flash`, `runner-opencode`.
 
-### Configuration
+## Keyboard Shortcuts
+
+### Board (Normal Mode)
+
+| Key | Action |
+|-----|--------|
+| `h`/`l` | Switch columns |
+| `j`/`k` | Navigate tasks |
+| `n` | New task |
+| `Enter` | Task detail |
+| `m`/`M` | Move task forward/back |
+| `d` | Delete task |
+| `p` | Set priority |
+| `P` | Project switcher |
+| `x` | Sprint list |
+| `X` | Clear sprint filter |
+| `H` | Health checks |
+| `1`/`2` | Switch to Board/Ops tab |
+| `Tab` | Toggle tabs |
+| `q` | Quit |
+
+### Task Detail
+
+| Key | Action |
+|-----|--------|
+| `t` | Edit title |
+| `e` | Edit description |
+| `n` | Create subtask |
+| `p` | Set priority |
+| `m` | Move to next status |
+| `d` | Delete |
+| `c` | AI actions (research/design/plan/build/verify) |
+| `s`/`S` | View/edit spec |
+| `i`/`I` | View/edit plan |
+| `w`/`W` | View/edit research |
+| `v`/`V` | View/edit verification |
+| `a` | Approve/reject artifact |
+| `Esc` | Back |
+
+### Ops Tab
+
+| Key | Action |
+|-----|--------|
+| `j`/`k` | Navigate lists |
+| `g` | Generate API key |
+| `d` | Revoke selected key |
+| `s`/`S` | Start/stop GPU pod |
+| `r` | Refresh |
+
+## API Endpoints
+
+### Public (no auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/health` | Health check |
+| `GET` | `/api/setup/status` | Check if setup is needed |
+| `POST` | `/api/setup/init` | Generate first API key |
+
+### Admin
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/admin/api-keys` | List API keys |
+| `POST` | `/api/admin/api-keys` | Generate new API key |
+| `DELETE` | `/api/admin/api-keys/{id}` | Revoke API key |
+
+### Projects
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET/POST` | `/api/projects` | List/create projects |
+| `GET/PUT/DELETE` | `/api/projects/{id}` | Get/update/delete project |
+| `GET` | `/api/projects/by-slug/{slug}` | Get project by slug |
+
+### Tasks
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET/POST` | `/api/tasks` | List/create tasks |
+| `GET/PUT/DELETE` | `/api/tasks/{id}` | Get/update/delete task |
+| `GET` | `/api/tasks/{id}/children` | List subtasks |
+| `GET` | `/api/tasks/count-by-status` | Count tasks per status |
+| `GET/PUT` | `/api/tasks/{id}/spec` | Read/write specification |
+| `GET/PUT` | `/api/tasks/{id}/plan` | Read/write plan |
+| `GET/PUT` | `/api/tasks/{id}/research` | Read/write research |
+| `GET/PUT` | `/api/tasks/{id}/verification` | Read/write verification |
+
+### Claude Runs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET/POST` | `/api/tasks/{id}/claude-runs` | List/trigger runs |
+| `GET` | `/api/claude-runs/{id}` | Get run status |
+| `GET` | `/api/claude-runs/{id}/output` | Get run output |
+| `PUT` | `/api/claude-runs/{id}/status` | Update run status |
+| `POST` | `/api/claude-runs/claim` | Claim next queued run (runner) |
+| `POST` | `/api/runners/register` | Register/heartbeat runner |
+
+### Infrastructure
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/status` | System status with runner info |
+| `GET` | `/api/infra/gpu-status` | GPU pod status |
+| `POST` | `/api/infra/gpu/start` | Start GPU pod |
+| `POST` | `/api/infra/gpu/stop` | Stop GPU pod (drain) |
+| `GET` | `/api/infra/runners` | List registered runners |
+
+### Sprints, Links, PRs
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET/POST` | `/api/sprints` | List/create sprints |
+| `GET/PUT/DELETE` | `/api/sprints/{id}` | Get/update/delete sprint |
+| `GET/POST` | `/api/tasks/{id}/links` | List/create task links |
+| `GET/POST` | `/api/tasks/{id}/prs` | List/create task PRs |
+
+## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `FLOWSTATE_PORT` | `3710` | Server listen port |
 | `FLOWSTATE_BIND` | `0.0.0.0` | Server bind address |
-| `FLOWSTATE_API_KEY` | (none) | API key for auth (enables auth when set) |
+| `FLOWSTATE_DB_BACKEND` | `sqlite` | Database backend (`sqlite` or `postgres`) |
+| `FLOWSTATE_API_KEY` | *(none)* | API key for auth |
+| `FLOWSTATE_S3_ENDPOINT` | *(none)* | S3 endpoint (enables S3 store) |
+| `FLOWSTATE_S3_BUCKET` | *(none)* | S3 bucket name |
+| `ANTHROPIC_API_KEY` | *(none)* | Anthropic API key (runner) |
 
-Data is stored at `~/.local/share/flowstate/` (or `$XDG_DATA_HOME/flowstate/`):
-- `flowstate.db` — SQLite database
-- `tasks/{id}/spec.md` — Task specifications
-- `tasks/{id}/plan.md` — Implementation plans
-- `runs/{id}/` — Claude run output and prompts
+Data is stored at `~/.local/share/flowstate/` (or `$XDG_DATA_HOME/flowstate/`).
 
-## Garage Object Store (Development)
+See [docs/server.md](docs/server.md) and [docs/runner.md](docs/runner.md) for full configuration reference.
 
-The dev shell includes a local [Garage](https://garagehq.deuxfleurs.fr/) S3-compatible object store for development and testing. Two instances are available:
+## Documentation
 
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `garage-dev-start` | Start persistent Garage instance (S3 on `:3900`) |
-| `garage-dev-stop` | Stop persistent Garage instance |
-| `garage-dev-status` | Check if persistent instance is running |
-| `garage-dev-info` | Show S3 credentials and endpoint |
-| `garage-test-start` | Start ephemeral Garage instance (S3 on `:3910`) |
-| `garage-test-stop` | Stop ephemeral instance and wipe all data |
-| `garage-test-status` | Check if test instance is running |
-| `garage-test-info` | Show test S3 credentials and endpoint |
-
-### Usage
-
-```bash
-# Start the dev instance
-garage-dev-start
-
-# Load credentials into your shell
-eval $(garage-dev-info --env)
-
-# Use with AWS CLI
-aws s3 ls s3://flowstate/ --endpoint-url $AWS_ENDPOINT_URL
-echo "hello" | aws s3 cp - s3://flowstate/test.txt --endpoint-url $AWS_ENDPOINT_URL
-```
-
-### Port Allocation
-
-| Service | Dev Instance | Test Instance |
-|---------|-------------|---------------|
-| S3 API | 3900 | 3910 |
-| RPC | 3901 | 3911 |
-| Web | 3902 | 3912 |
-| Admin API | 3903 | 3913 |
-
-### Data Directories
-
-- **Dev (persistent):** `~/.local/share/flowstate/garage/dev/` — survives restarts
-- **Test (ephemeral):** `/tmp/flowstate-garage-test-XXXXXXXX/` — wiped on `garage-test-stop`
-
-## Keyboard Shortcuts
-
-### Board (Normal mode)
-| Key | Action |
-|-----|--------|
-| `h/l` | Switch columns |
-| `j/k` | Navigate tasks |
-| `n` | New task |
-| `Enter` | Task detail |
-| `m/M` | Move task forward/back |
-| `d` | Delete task |
-| `p` | Set priority |
-| `P` | Project switcher |
-| `q` | Quit |
-
-### Task Detail
-| Key | Action |
-|-----|--------|
-| `t` | Edit title |
-| `e` | Edit description |
-| `p` | Set priority |
-| `m` | Move to next status |
-| `d` | Delete |
-| `c` | Claude actions (design/plan/build) |
-| `s/S` | View/edit spec |
-| `i/I` | View/edit plan |
-| `a` | Approve/reject pending spec or plan |
-| `Esc` | Back |
-
-## API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/health` | Health check (no auth) |
-| `GET/POST` | `/api/tasks` | List/create tasks |
-| `GET/PUT/DELETE` | `/api/tasks/{id}` | Get/update/delete task |
-| `GET` | `/api/tasks/{id}/children` | List subtasks |
-| `GET/PUT` | `/api/tasks/{id}/spec` | Read/write specification |
-| `GET/PUT` | `/api/tasks/{id}/plan` | Read/write plan |
-| `GET/POST` | `/api/tasks/{task_id}/claude-runs` | List/trigger Claude runs |
-| `GET` | `/api/claude-runs/{id}` | Get run status |
-| `GET` | `/api/claude-runs/{id}/output` | Get run output |
-| `GET/POST` | `/api/projects` | List/create projects |
-| `GET/PUT/DELETE` | `/api/projects/{id}` | Get/update/delete project |
-
-## Roadmap
-
-### Local Model Support
-Run design/plan/build phases against local models via [Ollama](https://ollama.ai/) or [LM Studio](https://lmstudio.ai/) instead of Claude Code. This would allow fully offline operation and experimentation with open-weight models for different phases of the workflow.
-
-### Self-Hosting
-- Pluggable object store backend (S3-compatible) for spec/plan/attachment storage instead of local filesystem
-- External database support (Postgres) for multi-instance deployments
-- Cleaner separation between server and TUI client — the TUI currently shells out to the server binary; these should be fully independent deployment units
-
-### Auth Improvements
-- User accounts created on first login (currently API keys only, no user identity)
-- Role-based permissions (admin, editor, viewer)
-- OAuth/SSO integration for team environments
-- Per-project access control
-
-### Task Runner Separation
-Decouple the Claude/AI task runner from the board server into a standalone worker process. The board server should only manage state and serve the API. Task runners should:
-- Pull jobs from a queue
-- Run in isolated environments with their own git credentials and tool access
-- Report results back to the board server via API
-- Scale horizontally — run multiple workers for parallel builds
-- Validate their own prerequisites (gh CLI, git auth, language toolchains) on startup
+| Guide | Description |
+|-------|-------------|
+| [Self-Hosting](docs/self-hosting.md) | Docker Compose setup, first-time wizard, TUI installation |
+| [TUI](docs/tui.md) | Installation, credential persistence, full keymap reference |
+| [Server](docs/server.md) | Server configuration, Docker, Postgres, S3, RunPod |
+| [Runner](docs/runner.md) | Runner configuration, agent backends, concurrency |
+| [GPU Runner](docs/runner-gpu.md) | RunPod GPU runner with Tailscale networking |
+| [Quickstart](docs/quickstart.md) | Local development setup with nix |
+| [Testing](docs/testing.md) | Test tiers, coverage, CI |
 
 ## License
 

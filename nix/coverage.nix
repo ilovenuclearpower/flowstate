@@ -22,6 +22,13 @@ let
     # can handle LLVM instrumentation flags (-fprofile-instr-generate, -fcoverage-mapping)
     export CC="clang"
 
+    # Increase rustc stack size to prevent SIGSEGV during LLVM coverage instrumentation
+    export RUST_MIN_STACK=134217728
+
+    # Disable incremental compilation — LLVM coverage instrumentation + incremental
+    # causes SIGILL/SIGSEGV in DWARF debug info for deeply nested sqlx generics
+    export CARGO_INCREMENTAL=0
+
     echo "=== Flowstate Coverage ==="
     echo "Threshold: $THRESHOLD% line coverage"
     echo ""
