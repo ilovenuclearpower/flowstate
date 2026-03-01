@@ -1,15 +1,33 @@
 services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-flowstate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flowstate}
+      POSTGRES_DB: ${POSTGRES_DB:-flowstate}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-flowstate}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   server:
     image: ghcr.io/ilovenuclearpower/flowstate-server:latest
     ports:
       - "${FLOWSTATE_PORT:-3710}:3710"
     environment:
-      FLOWSTATE_DB_BACKEND: ${FLOWSTATE_DB_BACKEND:-sqlite}
+      FLOWSTATE_DB_BACKEND: postgres
+      FLOWSTATE_DATABASE_URL: "postgres://${POSTGRES_USER:-flowstate}:${POSTGRES_PASSWORD:-flowstate}@db:5432/${POSTGRES_DB:-flowstate}"
       FLOWSTATE_PORT: "3710"
       FLOWSTATE_BIND: "0.0.0.0"
     volumes:
-      - server-data:/root/.local/share/flowstate
       - server-config:/root/.config/flowstate
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   runner:
@@ -27,5 +45,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  server-data:
+  postgres-data:
   server-config:
