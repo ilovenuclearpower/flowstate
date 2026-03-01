@@ -626,5 +626,36 @@ pub fn run(conn: &Connection) -> Result<(), DbError> {
         .to_db()?;
     }
 
+    if current_version < 13 {
+        let has_column = |table: &str, col: &str| -> bool {
+            conn.prepare(&format!("SELECT {col} FROM {table} LIMIT 0"))
+                .is_ok()
+        };
+        if !has_column("api_keys", "role") {
+            conn.execute_batch(
+                "ALTER TABLE api_keys ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';",
+            )
+            .to_db()?;
+        }
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS runner_handshakes (
+                id          TEXT PRIMARY KEY,
+                runner_id   TEXT NOT NULL UNIQUE,
+                hostname    TEXT NOT NULL DEFAULT '',
+                status      TEXT NOT NULL DEFAULT 'pending',
+                api_key_id  TEXT,
+                raw_key     TEXT,
+                created_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );",
+        )
+        .to_db()?;
+        conn.execute(
+            "INSERT INTO schema_version (version, applied_at) VALUES (13, datetime('now'))",
+            [],
+        )
+        .to_db()?;
+    }
+
     Ok(())
 }

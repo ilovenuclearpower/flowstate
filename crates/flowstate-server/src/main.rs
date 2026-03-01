@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
         Some(Commands::Keygen { name }) => {
             let raw_key = auth::generate_api_key();
             let hash = auth::sha256_hex(&raw_key);
-            let api_key = db.insert_api_key(&name, &hash).await?;
+            let api_key = db.insert_api_key(&name, &hash, "admin").await?;
             eprintln!("Created API key (id: {})", api_key.id);
             if !name.is_empty() {
                 eprintln!("  name: {name}");

@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod config;
+pub mod credentials;
 pub mod executor;
 pub mod pipeline;
 pub mod plan_parser;

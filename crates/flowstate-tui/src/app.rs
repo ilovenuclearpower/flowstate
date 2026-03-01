@@ -9,7 +9,9 @@ use flowstate_core::task::{
     TaskFilter, UpdateTask,
 };
 use flowstate_core::Project;
-use flowstate_service::{ApiKeyInfo, BlockingHttpService, GpuStatusResponse, RunnerInfoResponse};
+use flowstate_service::{
+    ApiKeyInfo, BlockingHttpService, GpuStatusResponse, HandshakeInfo, RunnerInfoResponse,
+};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
@@ -74,11 +76,13 @@ pub struct OpsState {
     pub section: OpsSection,
     pub api_keys: Vec<ApiKeyInfo>,
     pub runners: Vec<RunnerInfoResponse>,
+    pub handshakes: Vec<HandshakeInfo>,
     pub gpu: Option<GpuStatusResponse>,
     pub key_name_input: Option<String>,
     pub generated_key: Option<String>,
     pub selected_key: usize,
     pub selected_runner: usize,
+    pub selected_handshake: usize,
 }
 
 impl Default for OpsState {
@@ -87,11 +91,13 @@ impl Default for OpsState {
             section: OpsSection::Overview,
             api_keys: Vec::new(),
             runners: Vec::new(),
+            handshakes: Vec::new(),
             gpu: None,
             key_name_input: None,
             generated_key: None,
             selected_key: 0,
             selected_runner: 0,
+            selected_handshake: 0,
         }
     }
 }
@@ -306,6 +312,7 @@ impl App {
     fn refresh_ops(&mut self) {
         self.ops.api_keys = self.service.list_api_keys().unwrap_or_default();
         self.ops.runners = self.service.list_runners().unwrap_or_default();
+        self.ops.handshakes = self.service.list_handshakes().unwrap_or_default();
         self.ops.gpu = self.service.gpu_status().ok();
     }
 
@@ -758,6 +765,62 @@ impl App {
                                     && self.ops.selected_key > 0
                                 {
                                     self.ops.selected_key -= 1;
+                                }
+                            }
+                            Err(e) => {
+                                self.status_message = Some(format!("Error: {e}"));
+                            }
+                        }
+                    }
+                }
+            }
+            // Runners section: handshake navigation (Shift+J/K) and approve/reject
+            KeyCode::Char('J') => {
+                if self.ops.section == OpsSection::Runners && !self.ops.handshakes.is_empty() {
+                    self.ops.selected_handshake =
+                        (self.ops.selected_handshake + 1).min(self.ops.handshakes.len() - 1);
+                }
+            }
+            KeyCode::Char('K') => {
+                if self.ops.section == OpsSection::Runners {
+                    self.ops.selected_handshake = self.ops.selected_handshake.saturating_sub(1);
+                }
+            }
+            KeyCode::Char('y') => {
+                if self.ops.section == OpsSection::Runners {
+                    if let Some(h) = self.ops.handshakes.get(self.ops.selected_handshake) {
+                        let id = h.id.clone();
+                        let runner_id = h.runner_id.clone();
+                        match self.service.approve_handshake(&id) {
+                            Ok(_) => {
+                                self.status_message = Some(format!("Approved runner: {runner_id}"));
+                                self.refresh_ops();
+                                if self.ops.selected_handshake >= self.ops.handshakes.len()
+                                    && self.ops.selected_handshake > 0
+                                {
+                                    self.ops.selected_handshake -= 1;
+                                }
+                            }
+                            Err(e) => {
+                                self.status_message = Some(format!("Error: {e}"));
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Char('x') => {
+                if self.ops.section == OpsSection::Runners {
+                    if let Some(h) = self.ops.handshakes.get(self.ops.selected_handshake) {
+                        let id = h.id.clone();
+                        let runner_id = h.runner_id.clone();
+                        match self.service.reject_handshake(&id) {
+                            Ok(()) => {
+                                self.status_message = Some(format!("Rejected runner: {runner_id}"));
+                                self.refresh_ops();
+                                if self.ops.selected_handshake >= self.ops.handshakes.len()
+                                    && self.ops.selected_handshake > 0
+                                {
+                                    self.ops.selected_handshake -= 1;
                                 }
                             }
                             Err(e) => {

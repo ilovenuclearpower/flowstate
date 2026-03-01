@@ -807,7 +807,10 @@ pub async fn test_api_keys(db: &dyn Database) {
     assert!(keys.is_empty());
 
     // Insert
-    let key = db.insert_api_key("test-key", "hash_abc").await.unwrap();
+    let key = db
+        .insert_api_key("test-key", "hash_abc", "admin")
+        .await
+        .unwrap();
     assert_eq!(key.name, "test-key");
     assert_eq!(key.key_hash, "hash_abc");
     assert!(key.last_used_at.is_none());
@@ -834,7 +837,9 @@ pub async fn test_api_keys(db: &dyn Database) {
     assert_eq!(keys.len(), 1);
 
     // Insert a second key
-    db.insert_api_key("key-two", "hash_def").await.unwrap();
+    db.insert_api_key("key-two", "hash_def", "admin")
+        .await
+        .unwrap();
     let keys = db.list_api_keys().await.unwrap();
     assert_eq!(keys.len(), 2);
 

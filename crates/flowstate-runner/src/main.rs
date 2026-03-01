@@ -12,6 +12,7 @@ use flowstate_core::project::Project;
 use flowstate_core::task::Task;
 use flowstate_runner::backend::AgentBackend;
 use flowstate_runner::config::{RunnerConfig, RuntimeConfig};
+use flowstate_runner::credentials;
 use flowstate_runner::run_tracker::{
     ActiveRun, ActiveRunSnapshot, RunOutcome, RunResult, RunTracker,
 };
@@ -61,10 +62,69 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
     info!("runner id: {runner_id}");
 
-    let mut svc = match &config.api_key {
-        Some(key) => HttpService::with_api_key(&config.server_url, key.clone()),
-        None => HttpService::new(&config.server_url),
+    // Resolve API key: CLI/env → saved credentials → handshake
+    let api_key = match &config.api_key {
+        Some(key) => {
+            info!("using API key from config/env");
+            Some(key.clone())
+        }
+        None => {
+            if let Some(saved) = credentials::load_saved_key() {
+                info!("using saved API key from credentials file");
+                Some(saved)
+            } else {
+                None
+            }
+        }
     };
+
+    let api_key = match api_key {
+        Some(key) => key,
+        None => {
+            // Enter handshake loop
+            let hostname = std::env::var("HOSTNAME")
+                .or_else(|_| std::env::var("HOST"))
+                .unwrap_or_else(|_| "unknown".to_string());
+            info!("no API key found, entering handshake loop (runner_id={runner_id}, hostname={hostname})");
+            let unauthenticated = HttpService::new(&config.server_url);
+            loop {
+                match unauthenticated
+                    .submit_handshake(&runner_id, &hostname)
+                    .await
+                {
+                    Ok(resp) => match resp.status.as_str() {
+                        "approved" => {
+                            if let Some(key) = resp.api_key {
+                                info!("handshake approved, received API key");
+                                if let Err(e) = credentials::save_key(&key) {
+                                    warn!("failed to save credentials: {e}");
+                                }
+                                break key;
+                            }
+                            info!("handshake approved but no key yet, retrying...");
+                        }
+                        "pending" => {
+                            info!("handshake pending, waiting for approval...");
+                        }
+                        "rejected" => {
+                            anyhow::bail!(
+                                "handshake rejected by server admin. Remove the runner and try again."
+                            );
+                        }
+                        other => {
+                            info!("handshake status: {other}, waiting...");
+                        }
+                    },
+                    Err(e) => {
+                        warn!("handshake request failed: {e}, retrying...");
+                    }
+                }
+                tokio::time::sleep(Duration::from_secs(30)).await;
+            }
+        }
+    };
+
+    let mut svc = HttpService::with_api_key(&config.server_url, api_key);
     svc.set_runner_id(runner_id.clone());
     let service = Arc::new(svc);
 

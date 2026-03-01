@@ -3,6 +3,7 @@ pub mod attachment;
 pub mod claude_run;
 pub mod commit;
 pub mod error;
+pub mod handshake;
 pub mod label;
 pub mod project;
 pub mod runner;

@@ -5,6 +5,7 @@ pub struct ApiKey {
     pub id: String,
     pub name: String,
     pub key_hash: String,
+    pub role: String,
     pub created_at: String,
     pub last_used_at: Option<String>,
 }
