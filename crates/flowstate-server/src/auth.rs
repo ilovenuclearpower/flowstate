@@ -52,10 +52,12 @@ pub async fn auth_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    let auth = match &state.auth {
-        Some(auth) => auth,
+    let auth_guard = state.auth.read().await;
+    let auth = match auth_guard.as_ref() {
+        Some(auth) => auth.clone(),
         None => return next.run(request).await,
     };
+    drop(auth_guard);
 
     // Extract bearer token
     let token = request
@@ -143,6 +145,19 @@ pub async fn build_auth_config_with_key(
     }
 
     Some(Arc::new(AuthConfig { env_key_hash, db }))
+}
+
+/// Build an `AuthConfig` from DB state only (no env key).
+/// Used by the setup flow to enable auth after the first key is created.
+pub async fn build_auth_config_from_db(db: Arc<dyn Database>) -> Option<Arc<AuthConfig>> {
+    let has_db_keys = db.has_api_keys().await.unwrap_or(false);
+    if !has_db_keys {
+        return None;
+    }
+    Some(Arc::new(AuthConfig {
+        env_key_hash: None,
+        db,
+    }))
 }
 
 #[cfg(test)]

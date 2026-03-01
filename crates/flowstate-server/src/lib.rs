@@ -26,6 +26,7 @@ pub async fn serve(
     db: Arc<dyn Database>,
     auth: Option<Arc<AuthConfig>>,
 ) -> Result<()> {
+    let auth = Arc::new(tokio::sync::RwLock::new(auth));
     let encryption_key = crypto::load_or_generate_key();
     let store_config = flowstate_store::StoreConfig::from_env();
     if store_config.is_s3() {

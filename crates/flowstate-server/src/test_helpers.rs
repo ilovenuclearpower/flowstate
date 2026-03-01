@@ -11,10 +11,7 @@ use tokio::net::TcpListener;
 use crate::auth::AuthConfig;
 use crate::routes::InnerAppState;
 
-/// Build a test router with in-memory SQLite, temp local store, random AES key, no auth.
-pub async fn test_router() -> Router {
-    let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
-    let service = LocalService::new(db.clone());
+fn make_store() -> Arc<dyn flowstate_store::ObjectStore> {
     let store_config = StoreConfig {
         endpoint_url: None,
         region: None,
@@ -29,12 +26,19 @@ pub async fn test_router() -> Router {
                 .to_string(),
         ),
     };
-    let store = flowstate_store::create_store(&store_config).unwrap();
+    flowstate_store::create_store(&store_config).unwrap()
+}
+
+/// Build a test router with in-memory SQLite, temp local store, random AES key, no auth.
+pub async fn test_router() -> Router {
+    let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
+    let service = LocalService::new(db.clone());
+    let store = make_store();
     let key = Aes256Gcm::generate_key(OsRng);
     let state = Arc::new(InnerAppState {
         service,
         db,
-        auth: None,
+        auth: Arc::new(tokio::sync::RwLock::new(None)),
         runners: std::sync::Mutex::new(HashMap::new()),
         encryption_key: key,
         store,
@@ -47,21 +51,7 @@ pub async fn test_router() -> Router {
 pub async fn test_router_with_auth() -> (Router, String) {
     let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
     let service = LocalService::new(db.clone());
-    let store_config = StoreConfig {
-        endpoint_url: None,
-        region: None,
-        bucket: None,
-        access_key_id: None,
-        secret_access_key: None,
-        local_data_dir: Some(
-            tempfile::tempdir()
-                .unwrap()
-                .keep()
-                .to_string_lossy()
-                .to_string(),
-        ),
-    };
-    let store = flowstate_store::create_store(&store_config).unwrap();
+    let store = make_store();
     let key = Aes256Gcm::generate_key(OsRng);
     let api_key = crate::auth::generate_api_key();
     let auth = Arc::new(AuthConfig {
@@ -71,7 +61,7 @@ pub async fn test_router_with_auth() -> (Router, String) {
     let state = Arc::new(InnerAppState {
         service,
         db,
-        auth: Some(auth),
+        auth: Arc::new(tokio::sync::RwLock::new(Some(auth))),
         runners: std::sync::Mutex::new(HashMap::new()),
         encryption_key: key,
         store,
@@ -85,27 +75,13 @@ pub async fn test_router_with_auth() -> (Router, String) {
 pub async fn test_router_with_pod_manager() -> Router {
     let db = Arc::new(flowstate_db::SqliteDatabase::open_in_memory().unwrap());
     let service = LocalService::new(db.clone());
-    let store_config = StoreConfig {
-        endpoint_url: None,
-        region: None,
-        bucket: None,
-        access_key_id: None,
-        secret_access_key: None,
-        local_data_dir: Some(
-            tempfile::tempdir()
-                .unwrap()
-                .keep()
-                .to_string_lossy()
-                .to_string(),
-        ),
-    };
-    let store = flowstate_store::create_store(&store_config).unwrap();
+    let store = make_store();
     let key = Aes256Gcm::generate_key(OsRng);
     let pod_state = crate::pod_manager::PodManagerState::new(Some("test-pod-1".into()));
     let state = Arc::new(InnerAppState {
         service,
         db,
-        auth: None,
+        auth: Arc::new(tokio::sync::RwLock::new(None)),
         runners: std::sync::Mutex::new(HashMap::new()),
         encryption_key: key,
         store,

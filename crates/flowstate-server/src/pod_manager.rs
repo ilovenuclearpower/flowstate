@@ -688,7 +688,7 @@ mod tests {
         Arc::new(InnerAppState {
             service,
             db,
-            auth: None,
+            auth: Arc::new(tokio::sync::RwLock::new(None)),
             runners: std::sync::Mutex::new(HashMap::new()),
             encryption_key: key,
             store,
