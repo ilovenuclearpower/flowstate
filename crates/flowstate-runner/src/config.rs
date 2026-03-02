@@ -27,7 +27,7 @@ pub struct RunnerConfig {
     pub api_key: Option<String>,
 
     /// Poll interval in seconds
-    #[arg(long, default_value = "5")]
+    #[arg(long, env = "FLOWSTATE_POLL_INTERVAL", default_value = "5")]
     pub poll_interval: u64,
 
     /// Root directory for workspaces
@@ -35,7 +35,7 @@ pub struct RunnerConfig {
     pub workspace_root: Option<PathBuf>,
 
     /// Port for the health check endpoint
-    #[arg(long, default_value = "3711")]
+    #[arg(long, env = "FLOWSTATE_HEALTH_PORT", default_value = "3711")]
     pub health_port: u16,
 
     /// Timeout for research/design/plan/verify actions (seconds).
