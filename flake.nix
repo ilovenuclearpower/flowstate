@@ -24,7 +24,7 @@
 
         sqlFilter = path: _type: builtins.match ".*\\.sql$" path != null;
         src = pkgs.lib.cleanSourceWith {
-          src = craneLib.cleanCargoSource ./.;
+          src = ./.;
           filter = path: type:
             (sqlFilter path type) || (craneLib.filterCargoSources path type);
         };
