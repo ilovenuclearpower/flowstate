@@ -68,6 +68,52 @@
           meta.mainProgram = "flowstate-server";
         });
 
+        # Server with both sqlite and postgres features (used by Docker image)
+        flowstate-server-full = craneLib.buildPackage (commonArgs // {
+          inherit cargoArtifacts;
+          cargoExtraArgs = "-p flowstate-server --features postgres";
+          doCheck = false;
+          meta.mainProgram = "flowstate-server";
+        });
+
+        # --- Docker images via dockerTools ---
+
+        docker-server = pkgs.dockerTools.buildLayeredImage {
+          name = "ghcr.io/ilovenuclearpower/flowstate-server";
+          tag = "latest";
+          contents = [ flowstate-server-full pkgs.cacert ];
+          config = {
+            Entrypoint = [ "${flowstate-server-full}/bin/flowstate-server" ];
+            Env = [
+              "FLOWSTATE_DB_BACKEND=sqlite"
+              "FLOWSTATE_BIND=0.0.0.0"
+              "FLOWSTATE_PORT=3710"
+              "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "HOME=/root"
+            ];
+            ExposedPorts = { "3710/tcp" = {}; };
+          };
+        };
+
+        docker-runner = pkgs.dockerTools.buildLayeredImage {
+          name = "ghcr.io/ilovenuclearpower/flowstate-runner";
+          tag = "latest";
+          contents = [ flowstate-runner pkgs.cacert pkgs.gitMinimal pkgs.fakeNss ];
+          fakeRootCommands = ''mkdir -p ./tmp'';
+          config = {
+            Entrypoint = [ "${flowstate-runner}/bin/flowstate-runner" ];
+            Env = [
+              "FLOWSTATE_RUNNER_CAPABILITY=standard"
+              "FLOWSTATE_AGENT_BACKEND=claude-cli"
+              "FLOWSTATE_MAX_CONCURRENT=2"
+              "FLOWSTATE_MAX_BUILDS=1"
+              "FLOWSTATE_POLL_INTERVAL=5"
+              "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "HOME=/root"
+            ];
+          };
+        };
+
         garageScripts = import ./nix/garage.nix { inherit pkgs; };
         postgresScripts = import ./nix/postgres.nix { inherit pkgs; };
         giteaScripts = import ./nix/gitea.nix { inherit pkgs; };
@@ -83,8 +129,10 @@
           tui = flowstate-tui;
           server = flowstate-server;
           server-postgres = flowstate-server-postgres;
+          server-full = flowstate-server-full;
           mcp = flowstate-mcp;
           runner = flowstate-runner;
+          inherit docker-server docker-runner;
         };
 
         checks = {
