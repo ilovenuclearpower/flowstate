@@ -16,6 +16,14 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
+        # Separate pkgs instance that allows the unfree claude-code package.
+        # Scoped to docker-runner only; the rest of the flake uses the default pkgs.
+        pkgsUnfree = import nixpkgs {
+          inherit system;
+          config.allowUnfreePredicate = pkg:
+            builtins.elem (pkgs.lib.getName pkg) [ "claude-code" ];
+        };
+
         rustToolchain = fenix.packages.${system}.stable.withComponents [
           "cargo" "clippy" "rustc" "rustfmt" "rust-src" "rust-analyzer" "llvm-tools"
         ];
@@ -98,7 +106,7 @@
         docker-runner = pkgs.dockerTools.buildLayeredImage {
           name = "ghcr.io/ilovenuclearpower/flowstate-runner";
           tag = "latest";
-          contents = [ flowstate-runner pkgs.cacert pkgs.gitMinimal pkgs.fakeNss ];
+          contents = [ flowstate-runner pkgs.cacert pkgs.gitMinimal pkgs.fakeNss pkgsUnfree.claude-code ];
           fakeRootCommands = ''mkdir -p ./tmp'';
           config = {
             Entrypoint = [ "${flowstate-runner}/bin/flowstate-runner" ];
