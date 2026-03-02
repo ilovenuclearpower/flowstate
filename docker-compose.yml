@@ -34,12 +34,13 @@ services:
     image: ghcr.io/ilovenuclearpower/flowstate-runner:latest
     environment:
       FLOWSTATE_SERVER_URL: http://server:3710
-      FLOWSTATE_API_KEY: ${FLOWSTATE_API_KEY:-}
       FLOWSTATE_RUNNER_CAPABILITY: ${FLOWSTATE_RUNNER_CAPABILITY:-standard}
       FLOWSTATE_AGENT_BACKEND: ${FLOWSTATE_AGENT_BACKEND:-claude-cli}
       FLOWSTATE_MAX_CONCURRENT: ${FLOWSTATE_MAX_CONCURRENT:-2}
       FLOWSTATE_MAX_BUILDS: ${FLOWSTATE_MAX_BUILDS:-1}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - runner-config:/home/flowstate/.config/flowstate
     depends_on:
       - server
     restart: unless-stopped
@@ -47,3 +48,4 @@ services:
 volumes:
   postgres-data:
   server-config:
+  runner-config:
