@@ -86,7 +86,7 @@
         docker-server = pkgs.dockerTools.buildLayeredImage {
           name = "ghcr.io/ilovenuclearpower/flowstate-server";
           tag = "latest";
-          contents = [ flowstate-server-full pkgs.cacert ];
+          contents = [ flowstate-server-full pkgs.cacert pkgs.openssl.out ];
           config = {
             Entrypoint = [ "${flowstate-server-full}/bin/flowstate-server" ];
             Env = [
@@ -94,6 +94,7 @@
               "FLOWSTATE_BIND=0.0.0.0"
               "FLOWSTATE_PORT=3710"
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "LD_LIBRARY_PATH=${pkgs.openssl.out}/lib"
               "HOME=/root"
             ];
             ExposedPorts = { "3710/tcp" = {}; };
@@ -103,7 +104,7 @@
         docker-runner = pkgs.dockerTools.buildLayeredImage {
           name = "ghcr.io/ilovenuclearpower/flowstate-runner";
           tag = "latest";
-          contents = [ flowstate-runner pkgs.cacert pkgs.gitMinimal pkgs.fakeNss ];
+          contents = [ flowstate-runner pkgs.cacert pkgs.gitMinimal pkgs.fakeNss pkgs.openssl.out ];
           fakeRootCommands = ''mkdir -p ./tmp'';
           config = {
             Entrypoint = [ "${flowstate-runner}/bin/flowstate-runner" ];
@@ -114,6 +115,7 @@
               "FLOWSTATE_MAX_BUILDS=1"
               "FLOWSTATE_POLL_INTERVAL=5"
               "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+              "LD_LIBRARY_PATH=${pkgs.openssl.out}/lib"
               "HOME=/root"
             ];
           };
